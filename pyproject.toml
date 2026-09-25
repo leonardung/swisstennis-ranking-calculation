@@ -1,0 +1,31 @@
+[project]
+name = "swisstennis-ranking"
+version = "0.1.0"
+description = "Scrape Swiss Tennis rankings and matches, recompute the ranking and compare"
+readme = "README.md"
+authors = [
+    { name = "Leonard Ung", email = "leonard.ung@hotmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "pyarrow>=25.0.1",
+    "python-dotenv>=1.2.3",
+    "requests>=2.34.2",
+    "scipy>=1.18.1",
+    "selenium>=4.49.0",
+    "tqdm>=4.70.1",
+]
+
+[project.scripts]
+swisstennis-ranking = "swisstennis_ranking:main"
+
+[build-system]
+requires = ["uv_build>=0.10.12,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

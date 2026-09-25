@@ -1,0 +1,42 @@
+Madame, Monsieur,
+
+Je me permets de vous contacter au sujet du calcul de la « Valeur de compétition » (W) publiée dans les classements SwissTennis.
+
+En étudiant la méthodologie officielle, j’ai compris que (selon la formule ci-dessous ainsi que https://www.swisstennis.ch/media/10613/2025_klassierungsrichtlinien_f.pdf) :
+{\displaystyle W={\frac {1}{2}}\left(\ln \left(\sum _{i=1}^{s}e^{w_{i}}+e^{w_{0}}\right)-\ln \left(\sum _{j=1}^{N}e^{-w_{j}}+e^{-w_{0}}\right)\right)}
+La valeur de départ d’une nouvelle période est w_0 = W_5 (valeur de compétition à la fin de la période précédente) ;
+Si un joueur ne dispute aucun match pendant la période considérée (S = 0 et N = 0), la formule indique que W = w_0, c’est-à-dire qu’il ne devrait pas y avoir de variation.
+La valeur de compétition ne dépend pas de la valeur de classement (ni de de la supprime de risque R). 
+
+Pourtant, j’observe régulièrement une baisse de W pour des joueurs restés inactifs.
+
+Pourriez-vous, s’il vous plaît, clarifier :
+
+1. Les mécanismes qui expliquent la diminution de W malgré l’absence de résultats ;
+2. L’éventuelle différence entre la « Valeur de compétition » W et toute autre composante (bonus R, pénalités, etc.) qui pourrait être confondue dans les tableaux publics ;
+3. Les règles spécifiques applicables aux joueurs inactifs (par exemple, réduction de R ou pénalité forfaitaire).
+
+Ces précisions me permettront de mieux comprendre et reproduire vos calculs.
+
+Je vous remercie par avance pour votre aide et reste à votre disposition pour tout complément d’information.
+
+Meilleures salutations,
+
+Leonard Ung
++41 79 947 14 25
+
+---
+
+Cher Monsieur Ung,
+
+Nous vous remercions pour votre e-mail.
+
+Vous trouverez en annexe une explication sur le calcul du classement.
+
+En annexe, nous vous envoyons encore un document concernant l'interpolation et le W5. Il s'agit de toutes les informations que Swiss Tennis met à la disposition du public.
+
+Meilleures salutations
+
+Swiss Tennis
+Pascal Orlando
+Sport populaire
