@@ -1,4 +1,12 @@
-"""Recompute a published ranking list from scraped matches and compare with the published values."""
+"""Recompute a ranking list from scraped matches and compare it with the published list.
+
+Two modes:
+- reproduce (default): inputs Swiss Tennis sets by hand or does not publish are read from the
+  published list itself (w0 interpolation points fitted on it, the values of new players and of
+  players classified by evaluation). Tells how well the calculation is understood.
+- predict: only what is known before the list is published. Works for future lists and,
+  on past lists, tells how well a list can be forecast.
+"""
 
 from dataclasses import dataclass
 
@@ -12,6 +20,13 @@ from . import ranking
 PERIOD_START_MONTHS = (4, 10)
 
 CATEGORIES = ["N1", "N2", "N3", "N4", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"]
+
+# DCL Art. 3: last rank of each category N1 … R8 among players inside the quota; the rest is R9.
+# Players with equal C and W share a rank (Art. 5.10). Foreigners get no quota slot (Art. 9.2).
+QUOTAS = {
+    "M": [10, 30, 70, 150, 310, 630, 1270, 2550, 5110, 10230, 20470, 30770],
+    "F": [10, 24, 45, 75, 144, 284, 554, 1074, 2074, 4024, 7824, 11824],
+}
 
 # playerWinnerCode: S/N won/lost, W/Z won/lost by retirement (count, Art. 8.5).
 # 0/1 are walkovers without a point played and D (not fetched in practice) do not count.
@@ -31,7 +46,7 @@ NO_SHOW_LIMIT = 3
 NO_SHOW_DEDUCTION = 0.3
 
 # Minimum start value for players with matches (old KR: "Mindestausgangswert 1"); new players
-# start here too. Players without matches are not raised to it: they keep w0 (floor 0.75).
+# start here too. Players without matches are not raised to it.
 MIN_START_VALUE = 1.0
 # Start value of a player whose W5 is below the lowest interpolation point (R8 mean).
 FLOOR_START_VALUE = 0.75
@@ -50,6 +65,8 @@ CATEGORY_MEAN_SNAP = 0.2
 # Categories in which players classified by evaluation (Art. 6.1) are recognised.
 EVALUATED_CATEGORIES = CATEGORIES[:-2]
 
+Knots = dict[str, tuple[np.ndarray, np.ndarray]]  # gender -> sorted (W5, w0) interpolation points
+
 
 @dataclass
 class Period:
@@ -58,6 +75,7 @@ class Period:
     end: pd.Timestamp
     players: pd.DataFrame  # one row per player, index = player number used by ranking.compute
     matches: pd.DataFrame  # player, opp, opp_fixed, win
+    published: bool  # the list exists in the history (else only prediction is possible)
 
 
 def publications(history: pd.DataFrame, min_players: int = 1000) -> list[pd.Timestamp]:
@@ -66,18 +84,25 @@ def publications(history: pd.DataFrame, min_players: int = 1000) -> list[pd.Time
     return list(counts[counts >= min_players].index)
 
 
-def window_end(publication: pd.Timestamp) -> pd.Timestamp:
-    """Latest period boundary (1 April or 1 October) on or before the publication date."""
-    year = publication.year
-    bounds = [pd.Timestamp(y, m, 1) for y in (year - 1, year) for m in PERIOD_START_MONTHS]
-    return max(b for b in bounds if b <= publication.normalize())
+def next_list(date: pd.Timestamp) -> pd.Timestamp:
+    """The official list a (monthly) list at `date` anticipates: the first period boundary
+    (1 April or 1 October) on or after it."""
+    date = date.normalize()
+    bounds = [pd.Timestamp(y, m, 1) for y in (date.year, date.year + 1) for m in PERIOD_START_MONTHS]
+    return min(b for b in bounds if b >= date)
 
 
 def build_period(
     history: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame, publication: pd.Timestamp
 ) -> Period:
-    end = window_end(publication)
-    start = end - pd.DateOffset(years=1)
+    """Inputs of the list at `publication`.
+
+    An official list (1 April / 1 October) uses the year of results before it and starts from
+    the previous official list's W5. A monthly list is the next official list computed early:
+    same start value and window start, with the results played until its date.
+    """
+    official = next_list(publication)
+    start, end = official - pd.DateOffset(years=1), publication.normalize()
     day = history["date"].dt.normalize()
 
     target = history[day == publication].drop_duplicates("personId", keep="last")
@@ -104,7 +129,7 @@ def build_period(
     )
     p["gender"] = p["personId"].map(genders(players, matches))
     p["licensed"] = p["personId"].isin(players["personId"])
-    p["foreign"] = foreign(history, p["personId"], end, publication, ~p["licensed"])
+    p["foreign"] = foreign(history, p["personId"], end, ~p["licensed"])
 
     rows = pd.DataFrame(
         {
@@ -119,7 +144,7 @@ def build_period(
 
     p["n_matches"] = np.bincount(rows["player"], minlength=len(p))
     p["no_shows"] = p["personId"].map(no_shows(matches, start, end)).fillna(0).astype(int)
-    return Period(publication, start, end, p, rows)
+    return Period(publication, start, end, p, rows, published=not target.empty)
 
 
 def no_shows(matches: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
@@ -136,19 +161,17 @@ def no_shows(matches: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> p
     return w.groupby("personId")["tournamentName"].nunique()
 
 
-def foreign(
-    history: pd.DataFrame, ids: pd.Series, end: pd.Timestamp, publication: pd.Timestamp, fallback: pd.Series
-) -> pd.Series:
-    """True for players outside the quota (kontingent 0: foreigners, Art. 9.2), from the latest
-    list before the window end, else from the list being computed. Without the kontingent column
-    (older scrapes) not holding a current licence is used as a proxy."""
+def foreign(history: pd.DataFrame, ids: pd.Series, end: pd.Timestamp, fallback: pd.Series) -> pd.Series:
+    """True for players outside the quota (kontingent 0: foreigners, Art. 9.2) on the latest
+    flagged list before the window end, else on the list itself (nationality, not a result of
+    the calculation). Players never flagged (the current list, or history without the kontingent
+    column) fall back to not holding a current licence."""
     if "kontingent" not in history:
         return fallback
     h = history[history["kontingent"].notna()]
-    day = h["date"].dt.normalize()
-    before = h[day < end].sort_values("date").drop_duplicates("personId", keep="last")
-    k = pd.concat([before, h[day == publication]]).drop_duplicates("personId", keep="first")
-    flag = ids.map(k.set_index("personId")["kontingent"].eq(0))
+    before = h[h["date"] < end].sort_values("date")
+    latest = pd.concat([h[h["date"] >= end].sort_values("date"), before]).drop_duplicates("personId", keep="last")
+    flag = ids.map(latest.set_index("personId")["kontingent"].eq(0))
     return flag.fillna(fallback).astype(bool)
 
 
@@ -167,46 +190,27 @@ def genders(players: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
     return known.combine_first(inferred)
 
 
-def _best_cut(c: np.ndarray, upper: np.ndarray) -> float:
-    """C threshold that best separates the `upper` players from the others (fewest misplaced)."""
-    order = np.argsort(c)
-    c, upper = c[order], upper[order]
-    # cut before position i: players [i:] are upper. misplaced = upper below + lower above.
-    misplaced = np.r_[0, np.cumsum(upper)] + np.r_[np.cumsum((~upper)[::-1])[::-1], 0]
-    i = int(np.argmin(misplaced))
-    return c[i] if i < len(c) else np.inf
+# --- w0 from W5 --------------------------------------------------------------------------------
 
 
-def category_thresholds(listed: pd.DataFrame) -> pd.Series:
-    """Per category (except the last), the published C from which a player of this gender
-    reaches it. Each cut is the one that best separates the category and better ones from the
-    rest, so a few manually placed players (Art. 6) cannot move it."""
-    classes = [c for c in CATEGORIES if c in set(listed["class_pub"])]
-    rank = listed["class_pub"].map({c: i for i, c in enumerate(classes)}).to_numpy()
-    c = listed["C_pub"].to_numpy()
-    return pd.Series([_best_cut(c, rank <= k) for k in range(len(classes) - 1)], index=classes[:-1])
-
-
-def assign_categories(p: pd.DataFrame) -> pd.Series:
-    """Category our C would get on the published list: the best category whose published
-    C threshold (per gender) we reach.
-
-    Ranking by the Art. 3 quotas does not reproduce the list: foreign players get a rank but no
-    quota slot (Art. 9.2), and Swiss Tennis adapts the quotas; the published thresholds include both.
-    """
-    out = pd.Series(pd.NA, index=p.index, dtype="object")
-    listed = p[p["C_pub"].notna()]
-    for gender, g in listed.groupby("gender"):
-        thresholds = category_thresholds(g)
-        last = [c for c in CATEGORIES if c in set(g["class_pub"])][-1]
-        reached = g["C"].to_numpy()[:, None] >= thresholds.to_numpy()[None, :]
-        out.loc[g.index] = np.where(reached.any(axis=1), thresholds.index.to_numpy()[reached.argmax(axis=1)], last)
+def category_means(p: pd.DataFrame) -> Knots:
+    """Interpolation points from the previous list: per gender, the mean W5 of the players inside
+    the quota in each category, at the knot constant R8=1 … R1=8, N4=9 … N1=12
+    (reference/Interpolieren.xlsx), averaged over the players on the new list. This matches
+    the exact (fitted) points to about 0.001."""
+    swiss = p[~p["foreign"] & p["W5_prev"].notna() & p["class_prev"].isin(CATEGORIES[:-1]) & p["on_list"]]
+    out = {}
+    for gender, g in swiss.groupby("gender"):
+        means = g.groupby("class_prev")["W5_prev"].mean()
+        ks = np.array([len(CATEGORIES) - 1 - CATEGORIES.index(c) for c in means.index], dtype=float)
+        order = np.argsort(ks)
+        out[gender] = (means.to_numpy()[order], ks[order])
     return out
 
 
 def _fit_line(x: np.ndarray, y: np.ndarray, tol: float = 0.0011, tries: int = 300):
     """Robust line fit (RANSAC with a fixed seed): the line through most points within tol,
-    refitted by least squares on its inliers. Returns (intercept, slope, n_inliers) or None."""
+    refitted by least squares on its inliers. Returns (intercept, slope) or None."""
     if len(x) < 2:
         return None
     rng = np.random.default_rng(0)
@@ -222,84 +226,51 @@ def _fit_line(x: np.ndarray, y: np.ndarray, tol: float = 0.0011, tries: int = 30
     if best is None or best.sum() < 3:
         return None
     b, a = np.polyfit(x[best], y[best], 1)
-    return a, b, int(best.sum())
+    return a, b
 
 
-def knot_table(p: pd.DataFrame, max_knot: int = 9) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Per gender, the interpolation points (W5, w0) of the W5 -> w0 conversion.
+def fitted_knots(p: pd.DataFrame, max_knot: int = 9) -> Knots:
+    """Interpolation points read off the published list (reproduce mode).
 
-    Swiss Tennis interpolates W5 linearly between the mean W5 of the categories, which map to
-    the constants 1=R8, 2=R7, ..., 8=R1, 9=N4, ... (reference/Interpolieren.xlsx). The means are
-    not published: players without matches (W = w0) whose w0 lies in [k, k+1) are on one line
-    segment, and its crossings with w0 = k and k+1 are the category means. A robust fit ignores
-    the players whose published W is not their w0 (foreign players, missing results).
+    Players without matches have W = w0, so those whose w0 lies in [k, k+1) are on one line
+    segment, and its crossings with w0 = k and k+1 are the exact points. A robust fit ignores
+    players whose published W is not their w0 (assigned values, missing results). Points that
+    cannot be fitted (too few Swiss players without matches, above R1) come from category_means.
     """
     inactive = p[
         (p["n_matches"] == 0) & p["W5_prev"].notna() & (p["W_pub"] > FLOOR_START_VALUE + 5e-4) & ~p["foreign"]
     ]
-    table = {}
-    for gender, g in inactive.groupby("gender"):
-        crossings: dict[int, list[float]] = {}
+    out = {}
+    for gender, (mx, mk) in category_means(p).items():
+        g = inactive[inactive["gender"] == gender]
+        crossings: dict[float, list[float]] = {}
         for k in range(1, max_knot):
             seg = g[(g["W_pub"] >= k) & (g["W_pub"] < k + 1)]
             fit = _fit_line(seg["W5_prev"].to_numpy(), seg["W_pub"].to_numpy())
             if fit is None or fit[1] < 0.3:
                 continue
-            a, b, _ = fit
+            a, b = fit
             crossings.setdefault(k, []).append((k - a) / b)
             crossings.setdefault(k + 1, []).append((k + 1 - a) / b)
         points = {k: np.mean(v) for k, v in crossings.items()}
-        # Too few Swiss players without matches above R1: use the category means directly.
-        for k, mean in category_means(p).get(gender, {}).items():
+        for k, x in zip(mk, mx):
             if k > max(points, default=0):
-                points[k] = mean
-        ks = sorted(points)
+                points[k] = x
+        ks = np.array(sorted(points), dtype=float)
         x = np.array([points[k] for k in ks])
-        if len(ks) >= 2 and np.all(np.diff(x) > 0):
-            table[gender] = (x, np.array(ks, dtype=float))
-    return table
-
-
-def category_means(p: pd.DataFrame) -> dict[str, dict[int, float]]:
-    """Per gender, the knot constant k (R8=1 ... R1=8, N4=9 ... N1=12) -> mean W5 of the players
-    inside the quota who were in that category on the previous list."""
-    swiss = p[~p["foreign"] & p["W5_prev"].notna() & p["class_prev"].isin(CATEGORIES[:-1])]
-    means = swiss.groupby(["gender", "class_prev"])["W5_prev"].mean()
-    out: dict[str, dict[int, float]] = {}
-    for (gender, cat), mean in means.items():
-        out.setdefault(gender, {})[len(CATEGORIES) - 1 - CATEGORIES.index(cat)] = float(mean)
+        out[gender] = (x, ks) if len(ks) >= 2 and np.all(np.diff(x) > 0) else (mx, mk)
     return out
 
 
-def w0_table(
-    p: pd.DataFrame, knots: dict[str, tuple[np.ndarray, np.ndarray]] | None = None
-) -> dict[str, tuple[np.ndarray, np.ndarray]]:
-    """Per gender, the W5 -> w0 conversion used for this list, as sorted (W5, w0) points.
+def start_values(p: pd.DataFrame, knots: Knots) -> pd.Series:
+    """w0 per player: W5 interpolated linearly between the knots, rounded to 3 decimals.
 
-    The category-mean interpolation points (knot_table) where they can be fitted; otherwise
-    the (W5, published W) medians of players without matches, who have W = w0.
-    """
-    knots = knot_table(p) if knots is None else knots
-    inactive = p[(p["n_matches"] == 0) & p["W5_prev"].notna() & p["W_pub"].notna() & ~p["foreign"]]
-    table = {}
-    for gender, g in inactive.groupby("gender"):
-        if gender in knots:
-            table[gender] = knots[gender]
-        else:
-            pts = g.groupby("W5_prev")["W_pub"].median()
-            table[gender] = (pts.index.to_numpy(), pts.to_numpy())
-    return table
-
-
-def start_values(p: pd.DataFrame, table: dict[str, tuple[np.ndarray, np.ndarray]]) -> pd.Series:
-    """w0 per player: interpolate W5 in the list's conversion table, rounded to 3 decimals.
-
-    Below the first point w0 is FLOOR_START_VALUE; above the last one the last segment is
+    Below the first knot w0 is FLOOR_START_VALUE; above the last one the last segment is
     extrapolated. Players with matches start at MIN_START_VALUE or higher; new players at
     MIN_START_VALUE.
     """
     w0 = pd.Series(MIN_START_VALUE, index=p.index)
-    for gender, (x, y) in table.items():
+    for gender, (x, y) in knots.items():
         sel = (p["gender"] == gender) & p["W5_prev"].notna()
         w5 = p.loc[sel, "W5_prev"].to_numpy()
         if len(x) >= 2:
@@ -311,9 +282,7 @@ def start_values(p: pd.DataFrame, table: dict[str, tuple[np.ndarray, np.ndarray]
     return w0.where(p["n_matches"] == 0, w0.clip(lower=MIN_START_VALUE))
 
 
-def snap_category_means(
-    p: pd.DataFrame, r: pd.DataFrame, knots: dict[str, tuple[np.ndarray, np.ndarray]]
-) -> np.ndarray:
+def snap_category_means(p: pd.DataFrame, r: pd.DataFrame, knots: Knots) -> np.ndarray:
     """Opponent values of results against opponents outside the calculation, with stored
     category means (3 decimals) replaced by this list's mean of the nearest category."""
     v = r["opp_fixed"].to_numpy(dtype=float).copy()
@@ -322,10 +291,15 @@ def snap_category_means(
     cand = (r["opp"].to_numpy() < 0) & ~np.isnan(v) & three_dec
     for g, (x, _) in knots.items():
         sel = cand & (gender == g)
-        nearest = x[np.abs(v[sel, None] - x[None, :]).argmin(axis=1)] if sel.any() else np.array([])
+        if not sel.any():
+            continue
+        nearest = x[np.abs(v[sel, None] - x[None, :]).argmin(axis=1)]
         close = np.abs(v[sel] - nearest) < CATEGORY_MEAN_SNAP
         v[np.flatnonzero(sel)[close]] = nearest[close].round(3)
     return v
+
+
+# --- values set by Swiss Tennis (reproduce mode only) ---------------------------------------
 
 
 def new_player_values(p: pd.DataFrame) -> pd.DataFrame:
@@ -334,7 +308,6 @@ def new_player_values(p: pd.DataFrame) -> pd.DataFrame:
     They are not computed: Swiss Tennis classifies them and every new player of a gender and
     category is published with the same (W, C) pair, whatever their results. The pair is close
     to (not exactly) the category's mean published W and C of the players with a previous value.
-    This reads the published category, so it is an external input, not a prediction.
     """
     listed = p[p["C_pub"].notna() & p["W5_prev"].notna()]
     return listed.groupby(["gender", "class_pub"])[["W_pub", "C_pub"]].mean()
@@ -347,9 +320,7 @@ def evaluated_players(p: pd.DataFrame) -> pd.Series:
     (Art. 6.2), whatever their W5 and results; far more of them on April lists (players returning
     for the summer season) than in October. A pair is a (W, C) published for at least two players
     of a category, one of them new or a Swiss player without matches but with R != 0
-    (impossible when computed; foreign players' assigned values are, see ASSIGNED_MIN_W5).
-    Not in R8/R9, where many computed values coincide. Like the new players' category this is
-    read from the published list: an external input, not a prediction.
+    (impossible when computed). Not in R8/R9, where many computed values coincide.
     """
     key = ["gender", "class_pub", "W_pub", "C_pub"]
     listed = p[p["C_pub"].notna() & p["class_pub"].isin(EVALUATED_CATEGORIES)]
@@ -361,10 +332,90 @@ def evaluated_players(p: pd.DataFrame) -> pd.Series:
     return pd.Series(hit, index=p.index) & p["W5_prev"].notna()
 
 
-def evaluate(period: Period) -> pd.DataFrame:
+# --- the list ------------------------------------------------------------------------------
+
+
+def _key(g: pd.DataFrame, C: str = "C", W: str = "W") -> np.ndarray:
+    """Ascending key = descending (C, W); values have 3 decimals."""
+    return -(np.round(g[C].to_numpy() * 1000) * 100_000 + np.round(g[W].to_numpy() * 1000))
+
+
+def published_cuts(p: pd.DataFrame) -> dict[str, np.ndarray]:
+    """Category bounds of the published list, as the worst key of each category (reproduce mode).
+
+    The quota pool (Art. 3) depends on who held a licence on the list date, which is only known
+    for the current list; the published categories give the bounds directly. Each bound is the
+    cut that misclassifies the fewest Swiss players of the two categories around it.
+    """
+    cuts = {}
+    for gender in QUOTAS:
+        g = p[p["on_list"] & (p["gender"] == gender) & ~p["foreign"] & ~p["classified"]]
+        g = g[g["class_pub"].isin(CATEGORIES)]
+        if g.empty:
+            continue
+        order = np.argsort(_key(g, "C_pub", "W_pub"), kind="stable")
+        key = _key(g, "C_pub", "W_pub")[order]
+        level = g["class_pub"].map({c: i for i, c in enumerate(CATEGORIES)}).to_numpy()[order]
+        bounds = []
+        for i in range(len(CATEGORIES) - 1):
+            # cutting after position j: errors = better-category players below + worse ones above
+            above_worse = np.cumsum(level > i)
+            below_better = (level <= i).sum() - np.cumsum(level <= i)
+            # cut only between distinct keys, or before everyone (-inf)
+            j = np.append(np.flatnonzero(key[:-1] != key[1:]), len(key) - 1)
+            errors = np.append((level <= i).sum(), (above_worse + below_better)[j])
+            bounds.append(np.append(-np.inf, key[j])[np.argmin(errors)])
+        cuts[gender] = np.maximum.accumulate(bounds)
+    return cuts
+
+
+def categories(p: pd.DataFrame, cuts: dict[str, np.ndarray] | None = None) -> tuple[pd.Series, pd.Series]:
+    """(rank, category) per player on the list, from our C (Art. 3, 5.10, 9.2).
+
+    Players inside the quota are ranked per gender by C, then W; equal (C, W) share a rank,
+    and the quota bounds give the category (or `cuts`, the published bounds). Foreigners and
+    classified players (Art. 6) get the rank their (C, W) would have among the other Swiss
+    players, without taking a slot.
+    """
+    rank = pd.Series(np.nan, index=p.index)
+    cat = pd.Series(pd.NA, index=p.index, dtype="object")
+    for gender, bounds in QUOTAS.items():
+        g = p[p["on_list"] & (p["gender"] == gender)]
+        swiss = np.sort(_key(g[~g["foreign"] & ~g["classified"]]))
+        pos = np.searchsorted(swiss, _key(g), side="left") + 1  # 1 + number of Swiss strictly better
+        rank[g.index] = pos
+        if cuts is None or gender not in cuts:
+            level = np.searchsorted(bounds, pos)
+        else:
+            level = np.searchsorted(cuts[gender], _key(g))
+        cat[g.index] = np.array(CATEGORIES)[level]
+    return rank, cat
+
+
+def C_at_rank(p: pd.DataFrame, assigned: pd.Series) -> pd.Series:
+    """C of players with an assigned value: the computed C of the Swiss player (per gender) at
+    their previous rank. Ranks count only players inside the quota on the list (Art. 9.2)."""
+    out = pd.Series(np.nan, index=p.index)
+    for gender, g in p[p["on_list"] & ~p["foreign"] & ~p["classified"]].groupby("gender"):
+        cs = np.sort(g["C"].to_numpy())[::-1]
+        sel = assigned & (p["gender"] == gender) & p["rank_prev"].notna()
+        pos = p.loc[sel, "rank_prev"].to_numpy(dtype=int) - 1
+        out[sel] = cs[np.clip(pos, 0, len(cs) - 1)]
+    return out.fillna(p["C"])
+
+
+def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
+    """Compute W, R, C, rank and category of every player on the list.
+
+    predict=True uses nothing from the list being computed except who is on it (for a list not
+    yet published: the currently licensed players).
+    """
+    if not predict and not period.published:
+        raise ValueError(f"{period.publication.date()} is not published; use predict mode")
     p = period.players.copy()
-    knots = knot_table(p)
-    p["w0"] = start_values(p, w0_table(p, knots))
+    p["on_list"] = p["C_pub"].notna() if period.published else p["licensed"]
+    knots = category_means(p) if predict else fitted_knots(p)
+    p["w0"] = start_values(p, knots)
     r = period.matches
     assigned = p["foreign"] & (p["W5_prev"] >= ASSIGNED_MIN_W5)
     W, R = ranking.compute(
@@ -379,36 +430,32 @@ def evaluate(period: Period) -> pd.DataFrame:
     p["W"] = W.round(3)
     p["R"] = (R - NO_SHOW_DEDUCTION * (p["no_shows"] > NO_SHOW_LIMIT)).round(3)
     p["C"] = (p["W"] + p["R"]).round(3)
-    values = p[["gender", "class_pub"]].join(new_player_values(p), on=["gender", "class_pub"])
-    new = p["W5_prev"].isna() & values["C_pub"].notna()
-    p.loc[new, "W"] = values.loc[new, "W_pub"].round(3)
-    p.loc[new, "C"] = values.loc[new, "C_pub"].round(3)
-    p.loc[new, "R"] = (p.loc[new, "C"] - p.loc[new, "W"]).round(3)
-    p.loc[assigned, "W"] = p.loc[assigned, "W5_prev"]
-    p.loc[assigned, "C"] = C_at_rank(p, assigned)
-    p.loc[assigned, "R"] = (p.loc[assigned, "C"] - p.loc[assigned, "W"]).round(3)
-    evaluated = evaluated_players(p)
-    p.loc[evaluated, ["W", "C"]] = p.loc[evaluated, ["W_pub", "C_pub"]].to_numpy()
-    p.loc[evaluated, "R"] = (p.loc[evaluated, "C"] - p.loc[evaluated, "W"]).round(3)
-    p["evaluated"] = evaluated
-    p["R_pub"] = p["C_pub"] - p["W_pub"]
-    p["class"] = assign_categories(p)
-    keep = assigned & ~evaluated & p["class_prev"].isin(CATEGORIES)
+
+    def set_values(sel: pd.Series, W: pd.Series, C: pd.Series) -> None:
+        p.loc[sel, "W"] = W[sel].round(3)
+        p.loc[sel, "C"] = C[sel].round(3)
+        p.loc[sel, "R"] = (p.loc[sel, "C"] - p.loc[sel, "W"]).round(3)
+
+    # Values set by Swiss Tennis (Art. 6): classified players get their published pair and
+    # category and, like foreigners, take no quota slot.
+    p["evaluated"] = False
+    p["classified"] = False
+    if not predict:
+        values = p[["gender", "class_pub"]].join(new_player_values(p), on=["gender", "class_pub"])
+        new = p["W5_prev"].isna() & values["C_pub"].notna()
+        set_values(new, values["W_pub"], values["C_pub"])
+        p["evaluated"] = evaluated_players(p)
+        set_values(p["evaluated"], p["W_pub"], p["C_pub"])
+        p["classified"] = new | p["evaluated"]
+    assigned &= ~p["classified"]
+    set_values(assigned, p["W5_prev"], C_at_rank(p, assigned))
+
+    p["rank"], p["class"] = categories(p, None if predict else published_cuts(p))
+    p.loc[p["classified"], "class"] = p["class_pub"]
+    keep = assigned & p["class_prev"].isin(CATEGORIES)
     p.loc[keep, "class"] = p.loc[keep, "class_prev"]
+    p["R_pub"] = p["C_pub"] - p["W_pub"]
     return p
-
-
-def C_at_rank(p: pd.DataFrame, assigned: pd.Series) -> pd.Series:
-    """C of players with an assigned value: the computed C of the Swiss player (per gender) at
-    their previous rank. Ranks count only players inside the quota on the list (Art. 9.2)."""
-    out = pd.Series(np.nan, index=p.index)
-    ranked = p["C_pub"].notna() & ~p["foreign"]
-    for gender, g in p[ranked].groupby("gender"):
-        cs = np.sort(g["C"].to_numpy())[::-1]
-        sel = assigned & (p["gender"] == gender) & p["rank_prev"].notna()
-        pos = p.loc[sel, "rank_prev"].to_numpy(dtype=int) - 1
-        out[sel] = cs[np.clip(pos, 0, len(cs) - 1)]
-    return out[assigned].fillna(p.loc[assigned, "C"])
 
 
 def report(p: pd.DataFrame) -> str:
@@ -438,23 +485,3 @@ def report(p: pd.DataFrame) -> str:
     lines.append(by_class.reindex(order).round(4).to_string())
     return "\n".join(lines)
 
-
-def calibrate(period: Period) -> pd.DataFrame:
-    """Recover each player's w0 from the published values.
-
-    - No matches in the window: W = w0, so the published W *is* w0.
-    - Otherwise: invert the formula with opponents valued at their published W
-      (the published W is W5, which is what opponents converge to).
-    Returns personId, W5_prev, n_matches and the recovered w0 for players with a previous value.
-    """
-    p = period.players
-    r = period.matches
-    known = r["opp"].to_numpy() >= 0
-    W_pub = p["W_pub"].to_numpy()
-    opp_w = np.where(known, W_pub[np.where(known, r["opp"], 0)], r["opp_fixed"])
-    ok = ~np.isnan(opp_w)
-    w0 = ranking.invert_w0(
-        np.nan_to_num(W_pub), r["player"].to_numpy()[ok], opp_w[ok], r["win"].to_numpy()[ok]
-    )
-    out = p[["personId", "gender", "W5_prev", "W_pub", "n_matches"]].assign(w0=w0)
-    return out[out["W5_prev"].notna() & out["W_pub"].notna()]

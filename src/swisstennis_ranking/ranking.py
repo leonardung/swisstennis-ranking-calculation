@@ -74,20 +74,3 @@ def compute(
         W, R = single_pass(w0, player, opp_w, win)
     return W, R
 
-
-def invert_w0(
-    target_W: np.ndarray, player: np.ndarray, opp_w: np.ndarray, win: np.ndarray, iterations: int = 60
-) -> np.ndarray:
-    """Find, per player, the w0 whose single pass against fixed opponent values yields target_W.
-
-    W is strictly increasing in w0, so a vectorised bisection converges for every player.
-    """
-    lo = np.full(len(target_W), -10.0)
-    hi = np.full(len(target_W), 30.0)
-    for _ in range(iterations):
-        mid = (lo + hi) / 2
-        W, _ = single_pass(mid, player, opp_w, win)
-        too_high = W > target_W
-        hi = np.where(too_high, mid, hi)
-        lo = np.where(too_high, lo, mid)
-    return (lo + hi) / 2

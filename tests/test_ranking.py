@@ -58,33 +58,24 @@ def test_passes_use_opponent_previous_values():
     assert R[0] == pytest.approx(a[1])
 
 
-def test_invert_w0_roundtrip():
-    w0 = np.array([2.0, 7.3, 11.0])
-    player = np.array([0, 0, 1, 1, 1, 2])
-    opp_w = np.array([3.0, 1.0, 8.0, 6.0, 9.0, 12.0])
-    win = np.array([True, False, True, True, False, False])
-    W, _ = ranking.single_pass(w0, player, opp_w, win)
-    np.testing.assert_allclose(ranking.invert_w0(W, player, opp_w, win), w0, atol=1e-9)
-
-
 @pytest.mark.parametrize(
-    "pub, end",
-    [("2025-04-15", "2025-04-01"), ("2025-10-20", "2025-10-01"), ("2026-01-05", "2025-10-01"), ("2025-04-01", "2025-04-01")],
+    "date, official",
+    [("2025-04-15", "2025-10-01"), ("2025-10-20", "2026-04-01"), ("2026-01-05", "2026-04-01"), ("2025-04-01", "2025-04-01")],
 )
-def test_window_end(pub, end):
-    assert evaluate.window_end(pd.Timestamp(pub)) == pd.Timestamp(end)
+def test_next_list(date, official):
+    assert evaluate.next_list(pd.Timestamp(date)) == pd.Timestamp(official)
 
 
-def test_evaluate_end_to_end():
+def small_league():
     history = pd.DataFrame(
         {
             "personId": [1, 2, 3, 1, 2, 3],
-            "date": pd.to_datetime(["2024-10-10"] * 3 + ["2025-04-10"] * 3),
+            "date": pd.to_datetime(["2024-10-01"] * 3 + ["2025-04-01"] * 3),
             "firstname": ["a", "b", "c"] * 2,
             "lastname": ["x", "y", "z"] * 2,
             "classification": ["R3", "R4", "R5"] * 2,
             "rank": [1, 2, 3] * 2,
-            "W": [6.0, 5.0, 4.0, 0, 0, 4.0],
+            "W": [6.0, 5.0, 4.0, 6.1, 4.9, 4.0],
             "C": [0.0, 0.0, 0.0, 7.0, 5.5, 4.0],
             "games": [0] * 6,
         }
@@ -101,7 +92,12 @@ def test_evaluate_end_to_end():
         }
     )
     players = pd.DataFrame({"personId": [1, 2, 3], "gender": ["M", "M", "M"]})
-    period = evaluate.build_period(history, matches, players, pd.Timestamp("2025-04-10"))
+    return history, matches, players
+
+
+def test_evaluate_end_to_end():
+    history, matches, players = small_league()
+    period = evaluate.build_period(history, matches, players, pd.Timestamp("2025-04-01"))
     assert (period.start, period.end) == (pd.Timestamp("2024-04-01"), pd.Timestamp("2025-04-01"))
     assert len(period.matches) == 2  # matches after the window are excluded
 
@@ -111,8 +107,27 @@ def test_evaluate_end_to_end():
         W1, W2 = dcl_formula(6.0, [W2], [])[0], dcl_formula(5.0, [], [W1])[0]
     assert p.loc[1, "W"] == pytest.approx(W1, abs=1e-3)
     assert p.loc[3, "W"] == pytest.approx(4.0) and p.loc[3, "n_matches"] == 0
-    assert list(p["class_pub"]) == ["R3", "R4", "R5"]
-    assert p.loc[3, "class"] == "R5"  # C=4.0 reaches only the R5 threshold
+    assert list(p["rank"]) == [1, 2, 3]
+    # Reproduce mode reads the category bounds off the published list.
+    published = p.assign(C=p["C_pub"], W=p["W_pub"])
+    assert list(evaluate.categories(published, evaluate.published_cuts(published))[1]) == ["R3", "R4", "R5"]
+
+    # The interpolation points are the previous categories' means (6, 5, 4 -> R3, R4, R5), so
+    # predicting without the published list gives the same values here.
+    predicted = evaluate.evaluate(period, predict=True).set_index("personId")
+    np.testing.assert_allclose(predicted["W"], p["W"])
+    assert list(predicted["class"]) == ["N1"] * 3  # quota: top 10 are N1
+
+
+def test_predict_unpublished_list():
+    history, matches, players = small_league()
+    period = evaluate.build_period(history, matches, players, pd.Timestamp("2025-10-01"))
+    assert not period.published and period.end == pd.Timestamp("2025-10-01")
+    with pytest.raises(ValueError):
+        evaluate.evaluate(period)
+    p = evaluate.evaluate(period, predict=True).set_index("personId")
+    assert p["on_list"].all()  # the licensed players
+    assert p.loc[1, "n_matches"] == 1  # the May 2025 win against an unknown opponent
 
 
 def test_start_values_minimum_for_active_players():
@@ -136,14 +151,22 @@ def test_fixed_opponent_value_is_used_in_every_pass():
     assert W[0] == pytest.approx(dcl_formula(5.0, [7.0], [])[0])
 
 
-def test_category_threshold_ignores_single_misplaced_player():
-    listed = pd.DataFrame(
+def test_categories_by_quota_with_ties_and_foreigners():
+    n = 12
+    p = pd.DataFrame(
         {
-            "C_pub": [3.0, 2.5, 2.0, 0.75, 1.0, 0.9, 0.8, 0.76],
-            "class_pub": ["R7", "R7", "R7", "R7", "R8", "R8", "R8", "R8"],
+            "gender": ["M"] * n,
+            "C": [20.0 - i for i in range(10)] + [10.0, 10.0],  # two tied at rank 11
+            "W": [15.0] * 10 + [9.0, 9.0],
+            "foreign": [False] * n,
+            "classified": [False] * n,
+            "on_list": [True] * n,
         }
     )
-    assert evaluate.category_thresholds(listed)["R7"] == 2.0
+    p.loc[0, "foreign"] = True  # best player is a foreigner: no quota slot
+    rank, cat = evaluate.categories(p)
+    assert rank[0] == 1 and rank[1] == 1  # the foreigner shares rank 1 with the best Swiss
+    assert list(rank[10:]) == [10, 10] and list(cat[10:]) == ["N1", "N1"]
 
 
 def test_new_player_values_are_category_means():

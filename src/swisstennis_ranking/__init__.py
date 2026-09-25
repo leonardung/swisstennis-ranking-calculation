@@ -17,13 +17,13 @@ def _load(data_dir: Path):
     return evaluate, history, matches, players
 
 
-def _publication(evaluate, history: pd.DataFrame, date: str | None) -> pd.Timestamp:
+def _publication(evaluate, history: pd.DataFrame, date: str | None, predict: bool) -> pd.Timestamp:
     pubs = evaluate.publications(history)
     if date is None:
         return pubs[-1]
     ts = pd.Timestamp(date)
-    if ts not in pubs:
-        raise SystemExit(f"{date} is not a publication date; run `periods` to list them")
+    if ts not in pubs and not predict:
+        raise SystemExit(f"{date} is not a publication date; run `periods` (other dates need --predict)")
     return ts
 
 
@@ -36,15 +36,15 @@ def main() -> None:
     s.add_argument("--since", default="2018-04-01", help="oldest history/match date to fetch")
     s.add_argument("--workers", type=int, default=8)
 
-    sub.add_parser("flags", help="add the quota flag (kontingent) of each list to history.parquet")
-
     sub.add_parser("periods", help="list publication dates found in the ranking history")
 
-    e = sub.add_parser("evaluate", help="recompute a published list and compare")
-    e.add_argument("--date", help="publication date (default: latest)")
-
-    c = sub.add_parser("calibrate", help="recover w0 from published values and fit w0 = a*W5 + b")
-    c.add_argument("--date", help="publication date (default: latest)")
+    e = sub.add_parser("evaluate", help="compute a list and compare it with the published one")
+    e.add_argument("--date", help="list date (default: latest published)")
+    e.add_argument(
+        "--predict",
+        action="store_true",
+        help="use only what is known before the list is published (allows any date, e.g. a monthly list)",
+    )
 
     args = parser.parse_args()
 
@@ -54,40 +54,26 @@ def main() -> None:
         scrape(args.data, args.since, args.workers)
         return
 
-    if args.command == "flags":
-        from .scrape import update_list_flags
-
-        update_list_flags(args.data)
-        return
-
     evaluate, history, matches, players = _load(args.data)
 
     if args.command == "periods":
         for pub in evaluate.publications(history):
-            end = evaluate.window_end(pub)
             n = history.loc[history["date"].dt.normalize() == pub, "personId"].nunique()
-            print(f"{pub.date()}  results {(end - pd.DateOffset(years=1)).date()} .. {end.date()}  {n} players")
+            print(f"{pub.date()}  results {(pub - pd.DateOffset(years=1)).date()} .. {pub.date()}  {n} players")
         return
 
-    period = evaluate.build_period(history, matches, players, _publication(evaluate, history, args.date))
-    print(f"list {period.publication.date()}, results {period.start.date()} .. {period.end.date()}")
-
-    if args.command == "evaluate":
-        result = evaluate.evaluate(period)
-        out = args.data / f"evaluation_{period.publication.date()}.parquet"
-        result.to_parquet(out)
+    period = evaluate.build_period(
+        history, matches, players, _publication(evaluate, history, args.date, args.predict)
+    )
+    mode = "prediction" if args.predict else "reproduction"
+    print(f"list {period.publication.date()} ({mode}), results {period.start.date()} .. {period.end.date()}")
+    result = evaluate.evaluate(period, predict=args.predict)
+    out = args.data / f"{mode}_{period.publication.date()}.parquet"
+    result.to_parquet(out)
+    if period.published:
         print(evaluate.report(result))
-        print(f"per-player results: {out}")
-
-    elif args.command == "calibrate":
-        cal = evaluate.calibrate(period)
-        cal["w0_table"] = evaluate.start_values(cal, evaluate.w0_table(period.players))
-        out = args.data / f"calibration_{period.publication.date()}.parquet"
-        cal.to_parquet(out)
-        active = cal[cal["n_matches"] > 0]
-        err = (active["w0"] - active["w0_table"]).abs()
-        print(f"players with matches: {len(active)}; |inverted w0 - table w0|: "
-              f"median {err.median():.4f}, mean {err.mean():.4f}, <0.01: {(err < 0.01).mean():.1%}")
-        bins = pd.cut(active["W5_prev"], [0, 1, 2, 4, 6, 8, 10, 12, 17])
-        print(err.groupby(bins, observed=True).describe()[["count", "50%", "mean"]].round(4))
-        print(f"per-player values: {out}")
+    else:
+        listed = result[result["on_list"]]
+        print(f"{len(listed)} players; per category:")
+        print(listed.groupby(["gender", "class"]).size().unstack(0).reindex(evaluate.CATEGORIES).to_string())
+    print(f"per-player results: {out}")
