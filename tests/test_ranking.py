@@ -247,3 +247,10 @@ def test_licensed_then_keeps_licensed_or_active_players():
         }
     )
     assert list(evaluate.licensed_then(p)) == [True, True, False, False]
+
+
+def test_gender_inferred_through_unlicensed_opponents():
+    players = pd.DataFrame({"personId": [1], "gender": ["F"]})
+    # 2 only played the licensed 1; 3 only played the unlicensed 2
+    matches = pd.DataFrame({"personId": [1, 2, 2, 3], "adversaryPersonId": pd.array([2, 1, 3, 2], dtype="Int64")})
+    assert evaluate.genders(players, matches).to_dict() == {1: "F", 2: "F", 3: "F"}

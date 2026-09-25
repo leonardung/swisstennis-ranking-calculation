@@ -206,17 +206,21 @@ def foreign(history: pd.DataFrame, ids: pd.Series, end: pd.Timestamp, fallback: 
 
 def genders(players: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
     """Gender per personId: from the licence list, else from their opponents over all matches
-    (singles are played within a gender; unlicensed players are not in the licence list)."""
+    (singles are played within a gender; unlicensed players are not in the licence list).
+    Repeated so it reaches unlicensed players who only played other unlicensed players."""
     known = players.set_index("personId")["gender"]
-    m = matches[["personId", "adversaryPersonId"]].dropna()
-    m = m.assign(gender=m["personId"].map(known)).dropna()
-    inferred = (
-        m.groupby(["adversaryPersonId", "gender"]).size().reset_index().sort_values(0)
-        .drop_duplicates("adversaryPersonId", keep="last")
-        .set_index("adversaryPersonId")["gender"]
-    )
-    inferred.index = inferred.index.astype(int)
-    return known.combine_first(inferred)
+    pairs = matches[["personId", "adversaryPersonId"]].dropna().astype(int)
+    while True:
+        m = pairs.assign(gender=pairs["personId"].map(known)).dropna()
+        m = m[~m["adversaryPersonId"].isin(known.index)]
+        if m.empty:
+            return known
+        inferred = (
+            m.groupby(["adversaryPersonId", "gender"]).size().reset_index().sort_values(0)
+            .drop_duplicates("adversaryPersonId", keep="last")
+            .set_index("adversaryPersonId")["gender"]
+        )
+        known = pd.concat([known, inferred])
 
 
 def licensed_then(p: pd.DataFrame) -> pd.Series:
