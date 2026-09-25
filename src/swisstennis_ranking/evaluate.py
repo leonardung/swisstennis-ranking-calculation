@@ -129,6 +129,9 @@ def build_period(
     )
     p["gender"] = p["personId"].map(genders(players, matches))
     p["licensed"] = p["personId"].isin(players["personId"])
+    # on the previous official list (or a later correction), dated 6 months before the next one
+    recent = prev.loc[prev["date"].dt.normalize() >= official - pd.DateOffset(months=6), "personId"]
+    p["on_prev_list"] = p["personId"].isin(recent)
     p["foreign"] = foreign(history, p["personId"], end, ~p["licensed"])
 
     rows = pd.DataFrame(
@@ -407,13 +410,14 @@ def C_at_rank(p: pd.DataFrame, assigned: pd.Series) -> pd.Series:
 def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
     """Compute W, R, C, rank and category of every player on the list.
 
-    predict=True uses nothing from the list being computed except who is on it (for a list not
-    yet published: the currently licensed players).
+    predict=True uses nothing from the list being computed except who is on it. For a list not
+    published (future or monthly), that is the players on the previous official list or with a
+    result in the window.
     """
     if not predict and not period.published:
         raise ValueError(f"{period.publication.date()} is not published; use predict mode")
     p = period.players.copy()
-    p["on_list"] = p["C_pub"].notna() if period.published else p["licensed"]
+    p["on_list"] = p["C_pub"].notna() if period.published else p["on_prev_list"] | (p["n_matches"] > 0)
     knots = category_means(p) if predict else fitted_knots(p)
     p["w0"] = start_values(p, knots)
     r = period.matches

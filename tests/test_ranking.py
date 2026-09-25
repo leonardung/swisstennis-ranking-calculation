@@ -126,8 +126,20 @@ def test_predict_unpublished_list():
     with pytest.raises(ValueError):
         evaluate.evaluate(period)
     p = evaluate.evaluate(period, predict=True).set_index("personId")
-    assert p["on_list"].all()  # the licensed players
+    assert p["on_list"].all()  # on the 2025-04-01 list
     assert p.loc[1, "n_matches"] == 1  # the May 2025 win against an unknown opponent
+
+
+def test_monthly_list_and_its_players():
+    history, matches, players = small_league()
+    # player 4 was last on the 2024-10-01 list: not on a list computed after 2025-04-01
+    history = pd.concat([history, history.iloc[[0]].assign(personId=4, date=pd.Timestamp("2024-10-01"))])
+    period = evaluate.build_period(history, matches, players, pd.Timestamp("2025-06-01"))
+    assert (period.start, period.end) == (pd.Timestamp("2024-10-01"), pd.Timestamp("2025-06-01"))
+    p = evaluate.evaluate(period, predict=True).set_index("personId")
+    assert p.loc[4, "W5_prev"] == 6.0 and not p.loc[4, "on_list"]
+    assert p.loc[[1, 2, 3], "on_list"].all()
+    assert p.loc[1, "n_matches"] == 1  # the May 2025 win; W5 is the April list's value
 
 
 def test_start_values_minimum_for_active_players():
