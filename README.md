@@ -23,23 +23,31 @@ uv run pytest
 
 ## Algorithm
 
-`ranking.py` holds the formula, `evaluate.py` selects the period's matches and compares.
+`ranking.py` holds the formula, `evaluate.py` selects each list's matches, derives the inputs and
+compares with the published list.
 
-- Results of the two periods before the list count (1 Apr – 30 Sep, 1 Oct – 31 Mar).
-- W = ½[ln(e^w0 + Σe^wᵢ) − ln(e^−w0 + Σe^−wⱼ)], R = ⅙[… + …], C = W + R.
-- 5 passes; opponents are valued with their W from the previous pass (pass 1: their w0).
-- Per 6 matches one loss (max 4) against the weakest opponent is ignored.
-- Result codes: S/W win, N/Z loss (W/Z = retirement); 0/1 walkovers without play don't count.
-- RankingHistory row dated 1 Apr / 1 Oct = list using results of the year before that date;
-  its `games` equals our match count for 99.8% of players. The current list comes from the licence table.
-- w0 is "derived from" W5 but the rule is unpublished. It is a monotone per-gender function of W5
-  (ratio ~0.83-0.92, floor 0.75), revealed exactly by players without matches (W = w0), and
-  learned per list from them. Players with matches start at least at 1.0 (as do new players).
-- Categories: our C against the published per-gender C thresholds (foreigners are listed
-  outside the quotas, Art. 9.2, so quota ranking doesn't reproduce the list).
+- Results of the two periods before the list count (1 Apr – 30 Sep, 1 Oct – 31 Mar). Codes S/W
+  win, N/Z loss (W/Z = retirement); walkovers 0/1 don't count.
+- W = ½[ln(e^w0 + Σe^wᵢ) − ln(e^−w0 + Σe^−wⱼ)], R = ⅙[… + …], C = W + R; 5 passes, opponents
+  valued with their W of the previous pass; per 6 matches one loss (max 4) vs the weakest
+  opponent is ignored.
+- **w0 from W5** ("interpolation linéaire", `reference/Interpolieren.xlsx`): piecewise-linear
+  between the previous list's category means of W, mapped R8=1 … R1=8, N4=9 … N1=12; below R8
+  0.75. Fitted per list and gender from inactive Swiss players (W = w0). Active players start ≥ 1.0.
+- **Foreigners** (`lzh_kontingent` = 0, Art. 9.2) from R1 up are not computed: they keep W5, their
+  previous rank/category, and C of the Swiss player at that rank. Foreign results (source 610)
+  store a category mean as opponent value; it is replaced by this list's mean.
+- **No-shows** (Art. 5.8): > 3 Swiss tournaments with a walkover loss (code 0) in the window
+  → C − 0.3 (W unchanged).
+- **Assigned values** (Art. 6): new players and players "classified by evaluation" (mostly
+  returning players, ~200 per April list) are published with one fixed (W, C) pair per gender
+  and category. These are read from the published list (external input, not predicted).
+- Categories: our C against the best-separating published C cut per gender and category
+  (foreigners are outside the quotas, so quota ranking doesn't reproduce the list).
 
-Results (players with a previous value): C exact to 0.001 for ~60-75%, same category ~97-98.5%.
-Known gaps: new players (value assigned by Swiss Tennis, Art. 6.2), N1-R1 (international
-results are not in the scraped matches, Art. 4.2), April lists are noticeably worse than October lists.
+Results (all lists 2020-10 … 2026-04): C exact to 0.001 for 94–97.5% of players, same category
+99.8–99.9%, mean |ΔC| ≈ 0.002. The rest comes from values we cannot know: opponent values of
+foreign results (snapshots), assigned values of foreign N players, and who Swiss Tennis
+reclassifies by evaluation.
 
-`reference/` keeps the original notebooks for comparison.
+`reference/` keeps the original notebooks, the rules and Swiss Tennis' explanations.
