@@ -114,5 +114,5 @@ cython_debug/
 
 # custom ignore patterns
 
-data/
 /data/
+/data_old/

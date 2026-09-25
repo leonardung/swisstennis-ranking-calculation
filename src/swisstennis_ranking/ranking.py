@@ -54,6 +54,7 @@ def compute(
     opp_fixed: np.ndarray,
     win: np.ndarray,
     passes: int = PASSES,
+    fixed: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Run the iterative calculation for all players at once.
 
@@ -62,11 +63,14 @@ def compute(
     opp:       opponent's player number, or -1 when the opponent is not part of the calculation
     opp_fixed: value used for opponents with opp == -1 (the adversary value stored with the result)
     win:       True if the player won that match
+    fixed:     optional value per player (NaN = computed) that opponents use in every pass
+               instead of the player's current W (players with an assigned value)
     """
     known = opp >= 0
     W = w0.copy()
     for _ in range(passes):
-        opp_w = np.where(known, W[np.where(known, opp, 0)], opp_fixed)
+        V = W if fixed is None else np.where(np.isnan(fixed), W, fixed)
+        opp_w = np.where(known, V[np.where(known, opp, 0)], opp_fixed)
         W, R = single_pass(w0, player, opp_w, win)
     return W, R
 

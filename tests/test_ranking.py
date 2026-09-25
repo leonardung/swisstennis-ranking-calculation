@@ -126,3 +126,35 @@ def test_start_values_minimum_for_active_players():
     table = {"M": (np.array([0.75, 4.0, 6.0]), np.array([0.75, 3.4, 5.2]))}
     w0 = evaluate.start_values(p, table)
     assert list(w0.round(3)) == [0.75, 1.0, 4.3, 1.0]
+
+
+def test_fixed_opponent_value_is_used_in_every_pass():
+    w0 = np.array([5.0, 4.0])
+    player, opp, win = np.array([0, 1]), np.array([1, 0]), np.array([True, False])
+    fixed = np.array([np.nan, 7.0])  # player 1 has an assigned value
+    W, _ = ranking.compute(w0, player, opp, np.full(2, np.nan), win, fixed=fixed)
+    assert W[0] == pytest.approx(dcl_formula(5.0, [7.0], [])[0])
+
+
+def test_category_threshold_ignores_single_misplaced_player():
+    listed = pd.DataFrame(
+        {
+            "C_pub": [3.0, 2.5, 2.0, 0.75, 1.0, 0.9, 0.8, 0.76],
+            "class_pub": ["R7", "R7", "R7", "R7", "R8", "R8", "R8", "R8"],
+        }
+    )
+    assert evaluate.category_thresholds(listed)["R7"] == 2.0
+
+
+def test_new_player_values_are_category_means():
+    p = pd.DataFrame(
+        {
+            "gender": ["M", "M", "M", "F"],
+            "class_pub": ["R5", "R5", "R5", "R5"],
+            "W5_prev": [4.0, 4.2, np.nan, 3.0],
+            "W_pub": [4.1, 4.3, 9.9, 3.5],
+            "C_pub": [4.5, 4.7, 9.9, 3.9],
+        }
+    )
+    v = evaluate.new_player_values(p)
+    assert v.loc[("M", "R5")].tolist() == pytest.approx([4.2, 4.6])

@@ -43,6 +43,16 @@ query playerRankingHistory($id: Int!, $from: timestamp) {
   }
 }"""
 
+# Per published list: lzh_kontingent is 1 for players inside the category quota and 0 for players
+# outside it (foreigners, Art. 9.2), who carry assigned values instead of computed ones.
+LIST_FLAGS_QUERY = """
+query listFlags($date: timestamp, $offset: Int, $limit: Int) {
+  list: RankingHistory(where: {date: {_eq: $date}}, order_by: {personId: asc}, offset: $offset, limit: $limit) {
+    personId
+    kontingent: lzh_kontingent
+  }
+}"""
+
 CURRENT_SEASON_QUERY = "query { RankSeasonRange(where: {seasonPointer: {_eq: 1}}) { dateBegin } }"
 
 RESULTS_QUERY = """

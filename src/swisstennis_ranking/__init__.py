@@ -36,6 +36,8 @@ def main() -> None:
     s.add_argument("--since", default="2018-04-01", help="oldest history/match date to fetch")
     s.add_argument("--workers", type=int, default=8)
 
+    sub.add_parser("flags", help="add the quota flag (kontingent) of each list to history.parquet")
+
     sub.add_parser("periods", help="list publication dates found in the ranking history")
 
     e = sub.add_parser("evaluate", help="recompute a published list and compare")
@@ -50,6 +52,12 @@ def main() -> None:
         from .scrape import scrape
 
         scrape(args.data, args.since, args.workers)
+        return
+
+    if args.command == "flags":
+        from .scrape import update_list_flags
+
+        update_list_flags(args.data)
         return
 
     evaluate, history, matches, players = _load(args.data)

@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
-from .api import CURRENT_SEASON_QUERY, HISTORY_QUERY, PLAYERS_QUERY, RESULTS_QUERY, Client
+from .api import CURRENT_SEASON_QUERY, HISTORY_QUERY, LIST_FLAGS_QUERY, PLAYERS_QUERY, RESULTS_QUERY, Client
 
 PAGE_SIZE = 5000
 RESULTS_LIMIT = 5000
@@ -112,6 +112,38 @@ def _with_current_list(client: Client, hist: pd.DataFrame, players: pd.DataFrame
     return pd.concat([hist, current[["personId", "firstname", "lastname", "date", "classification", "rank", "W", "C"]]])
 
 
+def add_list_flags(client: Client, hist: pd.DataFrame, min_players: int = 1000) -> pd.DataFrame:
+    """Add the quota flag (kontingent) of every full published list to the history.
+
+    One paged bulk query per list; rows of individual corrections on other dates stay NaN.
+    """
+    day = hist["date"].dt.normalize()
+    counts = hist.groupby(day)["personId"].nunique()
+    frames = []
+    for date in tqdm(counts[counts >= min_players].index, desc="list flags"):
+        rows, offset = [], 0
+        while True:
+            page = client.query(
+                LIST_FLAGS_QUERY, {"date": date.strftime("%Y-%m-%dT00:00:00"), "offset": offset, "limit": PAGE_SIZE}
+            )["list"]
+            rows += page
+            if len(page) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+        frames.append(pd.DataFrame(rows, columns=["personId", "kontingent"]).assign(_day=date))
+    flags = pd.concat(frames).drop_duplicates(["personId", "_day"])
+    out = hist.drop(columns="kontingent", errors="ignore").assign(_day=day)
+    return out.merge(flags, on=["personId", "_day"], how="left").drop(columns="_day")
+
+
+def update_list_flags(data_dir: Path) -> None:
+    """Add the kontingent column to an existing history.parquet (no re-scrape of players)."""
+    path = data_dir / "history.parquet"
+    hist = add_list_flags(Client(), pd.read_parquet(path))
+    hist.to_parquet(path)
+    print(f"kontingent known for {hist['kontingent'].notna().sum()} of {len(hist)} history rows")
+
+
 def scrape(data_dir: Path, since: str, workers: int) -> None:
     raw_dir = data_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +165,7 @@ def scrape(data_dir: Path, since: str, workers: int) -> None:
 
     hist, matches = build_tables(raw_dir)
     hist = _with_current_list(client, hist, players)
+    hist = add_list_flags(client, hist)
     hist.to_parquet(data_dir / "history.parquet")
     matches.to_parquet(data_dir / "matches.parquet")
     print(f"{hist['personId'].nunique()} players with history, {len(matches)} match rows")
