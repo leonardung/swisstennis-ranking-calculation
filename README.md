@@ -44,7 +44,10 @@ Rules:
 - **w0 from W5** ("interpolation linéaire", `reference/Interpolieren.xlsx`): piecewise-linear
   between the previous list's category means of W, mapped R8=1 … R1=8, N4=9 … N1=12; below R8
   0.75. Active players start ≥ 1.0. Reproduce fits the points per list and gender from inactive
-  Swiss players (W = w0); predict uses the means (≈ 0.001 off).
+  Swiss players (W = w0); predict uses the means over the licensed players on the new list
+  (≈ 0.001 off). Past lists in the history also carry players unlicensed then, so a backtest
+  takes those licensed today or with results in the window (the means drift by up to 0.02 over
+  all of them; the proxy weakens for lists several years old).
 - **Foreigners** (`lzh_kontingent` = 0, Art. 9.2) from R1 up are not computed: they keep W5, their
   previous rank/category, and C of the Swiss player at that rank. Foreign results (source 610)
   store a category mean as opponent value; it is replaced by this list's mean.
@@ -52,8 +55,11 @@ Rules:
   → C − 0.3 (W unchanged).
 - **Assigned values** (Art. 6): new players and players "classified by evaluation" (mostly
   returning players, ~200 per April list) are published with one fixed (W, C) pair per gender
-  and category. They take no quota slot. Reproduce reads them from the published list; predict
-  computes everyone.
+  and category. They take no quota slot. Reproduce reads them from the published list. Predict
+  places new players without results in R9 (~94% are) with the R9 pair of the same list a year
+  earlier (the pair is seasonal and stable: C within 0.001 since 2024), outside the quota; who
+  is classified by evaluation (mostly promotions of 1–3 categories) shows no pattern in prior
+  data, so they are computed.
 - **Categories** (Art. 3): per gender, Swiss players ranked by (C, W) fill the quotas
   (M 10/30/70/…/30770, F 10/24/45/…/11824 cumulative); foreigners and assigned players get the
   rank their value would have without taking a slot. The pool seems to be the players licensed on the list
@@ -65,8 +71,10 @@ category 99.9%, mean |ΔC| ≈ 0.002. The rest comes from values we cannot know:
 of foreign results (snapshots), assigned values of foreign N players, and who Swiss Tennis
 reclassifies by evaluation.
 
-Results, predict: same category 97–98% on October lists, 90–92% on April lists (players returning
-for the summer are reclassified by evaluation, which no rule predicts); C exact 55–92%. Monthly
+Results, predict (2021-10, 2023-04, 2024-04, 2025-04, 2025-10, 2026-04): C exact
+68.5/65.4/84.7/94.6/94.4/96.1%, same category 98.0/95.9/95.8/96.1/97.6/99.0%. The rest: players
+classified by evaluation and new players outside R9 (≈ 500 per April list), and, on older lists,
+the unknown licence holders of the time. Monthly
 lists of one R1/R2 player (Nov 2025 – Sep 2026): all categories and match counts right, W and C
 within 0.005–0.03, rank within 9.
 

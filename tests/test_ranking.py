@@ -193,3 +193,57 @@ def test_new_player_values_are_category_means():
     )
     v = evaluate.new_player_values(p)
     assert v.loc[("M", "R5")].tolist() == pytest.approx([4.2, 4.6])
+
+
+def test_new_player_pairs_from_first_appearances():
+    history = pd.DataFrame(
+        {
+            "personId": [1, 1, 2, 3, 4, 5],
+            "date": pd.to_datetime(["2024-10-01", "2025-04-01"] + ["2025-04-01"] * 4),
+            "classification": ["R5", "R5", "R9", "R9", "R9", "R9"],
+            "W": [4.0, 4.1, 0.73, 0.73, 0.70, 0.729],
+            "C": [4.0, 4.5, 0.745, 0.745, 0.80, 0.743],
+        }
+    )
+    gender = pd.Series({1: "M", 2: "M", 3: "M", 4: "M", 5: "F"})
+    pairs = evaluate.new_player_pairs(history, gender, pd.Timestamp("2025-04-01"))
+    # player 1 is not new; the most common pair of each gender and category wins
+    assert pairs.loc[("M", "R9")].tolist() == [0.73, 0.745]
+    assert pairs.loc[("F", "R9")].tolist() == [0.729, 0.743]
+    assert ("M", "R5") not in pairs.index
+    # the first list of the history (everyone appears on it) or a missing list: nothing
+    assert evaluate.new_player_pairs(history, gender, pd.Timestamp("2024-10-01")).empty
+    assert evaluate.new_player_pairs(history, gender, pd.Timestamp("2025-10-01")).empty
+
+
+def test_predict_new_players_get_last_years_pair_and_no_quota_slot():
+    n = 12
+    p = pd.DataFrame(
+        {
+            "gender": ["M"] * n,
+            "W5_prev": [np.nan] + [5.0] * (n - 1),
+            "on_list": [True] * n,
+            "W": [9.0] + [5.0 - i / 100 for i in range(n - 1)],
+            "class": ["R9"] * n,
+        }
+    )
+    p["C"] = p["W"]
+    last_year = pd.DataFrame({"W": [0.73], "C": [0.745]}, index=pd.MultiIndex.from_tuples([("M", "R9")]))
+    assert evaluate.new_player_prediction(p, last_year).loc[("M", "R9")].tolist() == [0.73, 0.745]
+    # without last year's list: the mean of the computed values of the category
+    assert evaluate.new_player_prediction(p, None).loc[("M", "R9"), "C"] == pytest.approx(p["C"][1:].mean())
+    # the new player is classified (no slot): the 10 best others are N1, the 11th N2
+    p = p.assign(foreign=False, classified=p["W5_prev"].isna())
+    _, cat = evaluate.categories(p)
+    assert list(cat[1:]) == ["N1"] * 10 + ["N2"]
+
+
+def test_licensed_then_keeps_licensed_or_active_players():
+    p = pd.DataFrame(
+        {
+            "on_list": [True, True, True, False],
+            "licensed": [True, False, False, True],
+            "n_matches": [0, 3, 0, 0],
+        }
+    )
+    assert list(evaluate.licensed_then(p)) == [True, True, False, False]

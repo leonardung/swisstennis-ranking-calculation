@@ -65,6 +65,10 @@ CATEGORY_MEAN_SNAP = 0.2
 # Categories in which players classified by evaluation (Art. 6.1) are recognised.
 EVALUATED_CATEGORIES = CATEGORIES[:-2]
 
+# Category of new players in predict mode: Swiss Tennis places ~94% of them in R9 (the rest by an
+# evaluation no data predicts).
+NEW_PLAYER_CATEGORY = "R9"
+
 Knots = dict[str, tuple[np.ndarray, np.ndarray]]  # gender -> sorted (W5, w0) interpolation points
 
 
@@ -76,6 +80,8 @@ class Period:
     players: pd.DataFrame  # one row per player, index = player number used by ranking.compute
     matches: pd.DataFrame  # player, opp, opp_fixed, win
     published: bool  # the list exists in the history (else only prediction is possible)
+    # (W, C) of new players per (gender, category) on the list a year earlier (predict mode)
+    new_pairs: pd.DataFrame | None = None
 
 
 def publications(history: pd.DataFrame, min_players: int = 1000) -> list[pd.Timestamp]:
@@ -127,7 +133,8 @@ def build_period(
         ),
         how="left",
     )
-    p["gender"] = p["personId"].map(genders(players, matches))
+    gender = genders(players, matches)
+    p["gender"] = p["personId"].map(gender)
     p["licensed"] = p["personId"].isin(players["personId"])
     # on the previous official list (or a later correction), dated 6 months before the next one
     recent = prev.loc[prev["date"].dt.normalize() >= official - pd.DateOffset(months=6), "personId"]
@@ -147,7 +154,21 @@ def build_period(
 
     p["n_matches"] = np.bincount(rows["player"], minlength=len(p))
     p["no_shows"] = p["personId"].map(no_shows(matches, start, end)).fillna(0).astype(int)
-    return Period(publication, start, end, p, rows, published=not target.empty)
+    pairs = new_player_pairs(history, gender, official - pd.DateOffset(years=1))
+    return Period(publication, start, end, p, rows, published=not target.empty, new_pairs=pairs)
+
+
+def new_player_pairs(history: pd.DataFrame, gender: pd.Series, date: pd.Timestamp) -> pd.DataFrame:
+    """(W, C) per (gender, category) given to new players (Art. 6.2) on the list at `date`: the
+    most common pair among the players whose first list it is. Empty when the list or players
+    first appearing on it are missing."""
+    day = history["date"].dt.normalize()
+    first = history.loc[day == day.groupby(history["personId"]).transform("min")]
+    new = first[(first["date"].dt.normalize() == date) & (day.min() < date)]
+    new = new.assign(gender=new["personId"].map(gender)).dropna(subset=["gender", "W", "C"])
+    counts = new.groupby(["gender", "classification", "W", "C"]).size().reset_index(name="n")
+    top = counts.sort_values("n").drop_duplicates(["gender", "classification"], keep="last")
+    return top.set_index(["gender", "classification"])[["W", "C"]].sort_index()
 
 
 def no_shows(matches: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.Series:
@@ -193,15 +214,31 @@ def genders(players: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
     return known.combine_first(inferred)
 
 
+def licensed_then(p: pd.DataFrame) -> pd.Series:
+    """Predict mode on a past list: the players on it who probably held a licence on its date.
+
+    The history carries every scraped player on every list, licensed then or not, and the licence
+    table of a past date is not in the data; keep the players licensed now or with results in the
+    list's window (a result needs a licence). Exact for the current list; on older lists it misses
+    players who have since dropped their licence.
+    """
+    return p["on_list"] & (p["licensed"] | (p["n_matches"] > 0))
+
+
 # --- w0 from W5 --------------------------------------------------------------------------------
 
 
 def category_means(p: pd.DataFrame) -> Knots:
     """Interpolation points from the previous list: per gender, the mean W5 of the players inside
     the quota in each category, at the knot constant R8=1 … R1=8, N4=9 … N1=12
-    (reference/Interpolieren.xlsx), averaged over the players on the new list. This matches
-    the exact (fitted) points to about 0.001."""
-    swiss = p[~p["foreign"] & p["W5_prev"].notna() & p["class_prev"].isin(CATEGORIES[:-1]) & p["on_list"]]
+    (reference/Interpolieren.xlsx), averaged over the players on the new list who hold a licence
+    (`licensed_then`, default `on_list`). This matches the exact (fitted) points to about 0.001
+    when the licensed players are known (the current list).
+
+    The means are sensitive to who is included: over all players a past list carries in the
+    history (including those without a licence then) they are off by up to 0.02.
+    """
+    swiss = p[p.get("licensed_then", p["on_list"]) & ~p["foreign"] & p["W5_prev"].notna() & p["class_prev"].isin(CATEGORIES[:-1])]
     out = {}
     for gender, g in swiss.groupby("gender"):
         means = g.groupby("class_prev")["W5_prev"].mean()
@@ -316,6 +353,21 @@ def new_player_values(p: pd.DataFrame) -> pd.DataFrame:
     return listed.groupby(["gender", "class_pub"])[["W_pub", "C_pub"]].mean()
 
 
+def new_player_prediction(p: pd.DataFrame, last_year: pd.DataFrame | None) -> pd.DataFrame:
+    """Predict mode: (W, C) per gender and category for new players, who are placed in
+    NEW_PLAYER_CATEGORY.
+
+    The pair is close to the category's mean on the list itself, which is seasonal (in R9 the
+    mean C is ~0.745 in April and ~0.757 in October) and stable from one year to the next:
+    the pair of the same list a year earlier (`last_year`, see new_player_pairs) is within 0.001
+    of it for both genders since 2024 (women earlier: up to 0.005). Falls back to the mean of
+    our computed values.
+    """
+    listed = p[p["on_list"] & p["W5_prev"].notna()]
+    means = listed.groupby(["gender", "class"])[["W", "C"]].mean().rename_axis(["gender", "classification"])
+    return means if last_year is None else last_year.combine_first(means)
+
+
 def evaluated_players(p: pd.DataFrame) -> pd.Series:
     """Players with a previous value that Swiss Tennis classified by evaluation (DCL Art. 6.1).
 
@@ -418,6 +470,7 @@ def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
         raise ValueError(f"{period.publication.date()} is not published; use predict mode")
     p = period.players.copy()
     p["on_list"] = p["C_pub"].notna() if period.published else p["on_prev_list"] | (p["n_matches"] > 0)
+    p["licensed_then"] = licensed_then(p) if predict and period.published else p["on_list"]
     knots = category_means(p) if predict else fitted_knots(p)
     p["w0"] = start_values(p, knots)
     r = period.matches
@@ -441,7 +494,8 @@ def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
         p.loc[sel, "R"] = (p.loc[sel, "C"] - p.loc[sel, "W"]).round(3)
 
     # Values set by Swiss Tennis (Art. 6): classified players get their published pair and
-    # category and, like foreigners, take no quota slot.
+    # category (predict: new players only, see new_player_prediction) and, like foreigners,
+    # take no quota slot.
     p["evaluated"] = False
     p["classified"] = False
     if not predict:
@@ -451,11 +505,18 @@ def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
         p["evaluated"] = evaluated_players(p)
         set_values(p["evaluated"], p["W_pub"], p["C_pub"])
         p["classified"] = new | p["evaluated"]
+    else:
+        p["classified"] = p["on_list"] & p["W5_prev"].isna() & (p["n_matches"] == 0)
     assigned &= ~p["classified"]
     set_values(assigned, p["W5_prev"], C_at_rank(p, assigned))
 
     p["rank"], p["class"] = categories(p, None if predict else published_cuts(p))
-    p.loc[p["classified"], "class"] = p["class_pub"]
+    if predict:
+        p.loc[p["classified"], "class"] = NEW_PLAYER_CATEGORY
+        values = p[["gender", "class"]].join(new_player_prediction(p, period.new_pairs), on=["gender", "class"])
+        set_values(p["classified"] & values["C"].notna(), values["W"], values["C"])
+    else:
+        p.loc[p["classified"], "class"] = p["class_pub"]
     keep = assigned & p["class_prev"].isin(CATEGORIES)
     p.loc[keep, "class"] = p.loc[keep, "class_prev"]
     p["R_pub"] = p["C_pub"] - p["W_pub"]
