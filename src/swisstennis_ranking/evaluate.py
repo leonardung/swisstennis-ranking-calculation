@@ -11,15 +11,16 @@ from . import ranking
 # a list uses the results of the two periods (one year) before it.
 PERIOD_START_MONTHS = (4, 10)
 
-# DCL 2025 Art. 3: last rank of each category (N1 … R8; everyone after that is R9).
-CATEGORIES = ["N1", "N2", "N3", "N4", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8"]
-CONTINGENTS = {
-    "M": [10, 30, 70, 150, 310, 630, 1270, 2550, 5110, 10230, 20470, 30770],
-    "F": [10, 24, 45, 75, 144, 284, 554, 1074, 2074, 4024, 7824, 11824],
-}
+CATEGORIES = ["N1", "N2", "N3", "N4", "R1", "R2", "R3", "R4", "R5", "R6", "R7", "R8", "R9"]
 
-# Start value for players without a previous-period value (old KR: "Mindestausgangswert 1").
-NEW_PLAYER_W0 = 1.0
+# playerWinnerCode: S/N won/lost, W/Z won/lost by retirement (count, Art. 8.5).
+# 0/1 are walkovers without a point played and D (not fetched in practice) do not count.
+WIN_CODES = ["S", "W"]
+LOSS_CODES = ["N", "Z"]
+
+# Minimum start value for players with matches (old KR: "Mindestausgangswert 1"); new players
+# start here too. Players without matches are not raised to it: they keep w0 (floor 0.75).
+MIN_START_VALUE = 1.0
 
 
 @dataclass
@@ -55,57 +56,101 @@ def build_period(
     prev = history[day < end].sort_values("date").drop_duplicates("personId", keep="last")
 
     m = matches[(matches["date"] >= start) & (matches["date"] < end)]
-    m = m[m["playerWinnerCode"].isin(["S", "N"]) & (m["matchNotConsidered"] != True)]  # noqa: E712
-    m = m.drop_duplicates(["personId", "encounterId"])
+    m = m[m["playerWinnerCode"].isin(WIN_CODES + LOSS_CODES)]
+    # Tournament results have no encounterId (NaN) and pending ones 0: only dedupe real ids.
+    m = m[m["encounterId"].fillna(0).eq(0) | ~m.duplicated(["personId", "encounterId"])]
 
     ids = pd.Index(sorted(set(target["personId"]) | set(prev["personId"]) | set(m["personId"])))
     p = pd.DataFrame({"personId": ids})
     p = p.merge(prev[["personId", "W"]].rename(columns={"W": "W5_prev"}), how="left")
     p = p.merge(
-        target[["personId", "firstname", "lastname", "classification", "rank", "W", "C"]].rename(
+        target[["personId", "firstname", "lastname", "classification", "rank", "W", "C", "games"]].rename(
             columns={"W": "W_pub", "C": "C_pub", "classification": "class_pub", "rank": "rank_pub"}
         ),
         how="left",
     )
-    p = p.merge(players[["personId", "gender"]], how="left")
+    p["gender"] = p["personId"].map(genders(players, matches))
 
     rows = pd.DataFrame(
         {
             "player": ids.get_indexer(m["personId"]),
             "opp": ids.get_indexer(m["adversaryPersonId"].fillna(-1).astype(int)),
             "opp_fixed": m["adversaryValue"].to_numpy(dtype=float),
-            "win": (m["playerWinnerCode"] == "S").to_numpy(),
+            "win": m["playerWinnerCode"].isin(WIN_CODES).to_numpy(),
         }
     )
     # Opponents outside the calculation need the value stored with the result.
     rows = rows[(rows["opp"] >= 0) | (rows["opp_fixed"].fillna(0) != 0)].reset_index(drop=True)
 
     p["n_matches"] = np.bincount(rows["player"], minlength=len(p))
-    p["gender"] = p["gender"].fillna(_gender_from_opponents(p, rows))
     return Period(publication, start, end, p, rows)
 
 
-def _gender_from_opponents(p: pd.DataFrame, rows: pd.DataFrame) -> pd.Series:
-    """Unlicensed players have no gender in the player list; singles are played within a gender."""
-    known = rows[rows["opp"] >= 0]
-    opp_gender = p["gender"].to_numpy()[known["opp"]]
-    s = pd.Series(opp_gender, index=known["player"].to_numpy()).dropna()
-    return s.groupby(level=0).agg(lambda g: g.mode().iat[0]).reindex(p.index)
+def genders(players: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
+    """Gender per personId: from the licence list, else from their opponents over all matches
+    (singles are played within a gender; unlicensed players are not in the licence list)."""
+    known = players.set_index("personId")["gender"]
+    m = matches[["personId", "adversaryPersonId"]].dropna()
+    m = m.assign(gender=m["personId"].map(known)).dropna()
+    inferred = (
+        m.groupby(["adversaryPersonId", "gender"]).size().reset_index().sort_values(0)
+        .drop_duplicates("adversaryPersonId", keep="last")
+        .set_index("adversaryPersonId")["gender"]
+    )
+    inferred.index = inferred.index.astype(int)
+    return known.combine_first(inferred)
 
 
-def assign_categories(p: pd.DataFrame, C: str, W: str) -> pd.Series:
-    """Rank by C (ties: higher W) within each gender and map the rank to a category (Art. 3, 5.10)."""
+def assign_categories(p: pd.DataFrame) -> pd.Series:
+    """Category our C would get on the published list: the best category whose lowest
+    published C (per gender) we reach.
+
+    Ranking by the Art. 3 quotas does not reproduce the list: foreign players get a rank but no
+    quota slot (Art. 9.2), and Swiss Tennis adapts the quotas; the published thresholds include both.
+    """
     out = pd.Series(pd.NA, index=p.index, dtype="object")
-    for gender, bounds in CONTINGENTS.items():
-        g = p[(p["gender"] == gender) & p[C].notna()].sort_values([C, W], ascending=False)
-        rank = np.arange(1, len(g) + 1)
-        out.loc[g.index] = [(CATEGORIES + ["R9"])[i] for i in np.searchsorted(bounds, rank)]
+    listed = p[p["C_pub"].notna()]
+    for gender, g in listed.groupby("gender"):
+        lowest = g.groupby("class_pub")["C_pub"].min().reindex(CATEGORIES).dropna()
+        thresholds, names = lowest.to_numpy()[:-1], lowest.index[:-1]  # everyone else: last category
+        best = (g["C"].to_numpy()[:, None] >= thresholds[None, :]).argmax(axis=1)
+        reached = (g["C"].to_numpy()[:, None] >= thresholds[None, :]).any(axis=1)
+        out.loc[g.index] = np.where(reached, names.to_numpy()[best], lowest.index[-1])
     return out
 
 
-def evaluate(period: Period, w0_slope: float = 1.0, w0_intercept: float = 0.0) -> pd.DataFrame:
+def w0_table(p: pd.DataFrame) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """Per gender, the W5 -> w0 conversion used for this list, as sorted (W5, w0) points.
+
+    Swiss Tennis does not publish how w0 is derived from W5. Players without matches in the
+    window have W = w0, so their (W5, published W) pairs reveal the conversion exactly; it is
+    a monotone per-gender function (piecewise, ratio ~0.83-0.92, floored at 0.75).
+    """
+    inactive = p[(p["n_matches"] == 0) & p["W5_prev"].notna() & p["W_pub"].notna()]
+    table = {}
+    for gender, g in inactive.groupby("gender"):
+        pts = g.groupby("W5_prev")["W_pub"].median()
+        table[gender] = (pts.index.to_numpy(), pts.to_numpy())
+    return table
+
+
+def start_values(p: pd.DataFrame, table: dict[str, tuple[np.ndarray, np.ndarray]]) -> pd.Series:
+    """w0 per player: interpolate W5 in the list's conversion table.
+
+    Above the highest inactive player the last ratio w0/W5 is extrapolated.
+    Players with matches start at MIN_START_VALUE or higher; new players at MIN_START_VALUE.
+    """
+    w0 = pd.Series(MIN_START_VALUE, index=p.index)
+    for gender, (x, y) in table.items():
+        sel = (p["gender"] == gender) & p["W5_prev"].notna()
+        w5 = p.loc[sel, "W5_prev"].to_numpy()
+        w0[sel] = np.where(w5 > x[-1], w5 * y[-1] / x[-1], np.interp(w5, x, y))
+    return w0.where(p["n_matches"] == 0, w0.clip(lower=MIN_START_VALUE))
+
+
+def evaluate(period: Period) -> pd.DataFrame:
     p = period.players.copy()
-    p["w0"] = (w0_slope * p["W5_prev"] + w0_intercept).fillna(NEW_PLAYER_W0)
+    p["w0"] = start_values(p, w0_table(p))
     r = period.matches
     W, R = ranking.compute(
         p["w0"].to_numpy(),
@@ -117,9 +162,7 @@ def evaluate(period: Period, w0_slope: float = 1.0, w0_intercept: float = 0.0) -
     p["W"], p["R"] = W.round(3), R.round(3)
     p["C"] = (p["W"] + p["R"]).round(3)
     p["R_pub"] = p["C_pub"] - p["W_pub"]
-    # Only players on the published list are ranked, as in the real list.
-    on_list = p["C_pub"].notna()
-    p["class"] = assign_categories(p.where(on_list), "C", "W")
+    p["class"] = assign_categories(p)
     return p
 
 
@@ -141,13 +184,12 @@ def report(p: pd.DataFrame) -> str:
             f"exact C={np.mean(np.abs(sub.C - sub.C_pub) < 0.0015):.1%}  "
             f"same category={np.mean(sub['class'] == sub['class_pub']):.1%}"
         )
-    by_class = q.groupby("class_pub").apply(
-        lambda g: pd.Series(
-            {"n": len(g), "MAE_C": np.abs(g.C - g.C_pub).mean(), "same_cat": np.mean(g["class"] == g["class_pub"])}
-        ),
-        include_groups=False,
+    by_class = (
+        q.assign(err=np.abs(q.C - q.C_pub), same=q["class"] == q["class_pub"])
+        .groupby("class_pub")
+        .agg(n=("err", "size"), MAE_C=("err", "mean"), same_cat=("same", "mean"))
     )
-    order = [c for c in CATEGORIES + ["R9"] if c in by_class.index]
+    order = [c for c in CATEGORIES if c in by_class.index]
     lines.append(by_class.reindex(order).round(4).to_string())
     return "\n".join(lines)
 

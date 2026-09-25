@@ -3,7 +3,6 @@
 import argparse
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 
@@ -34,15 +33,13 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("scrape", help="download players, ranking history and matches")
-    s.add_argument("--since", default="2019-01-01", help="oldest history/match date to fetch")
+    s.add_argument("--since", default="2018-04-01", help="oldest history/match date to fetch")
     s.add_argument("--workers", type=int, default=8)
 
     sub.add_parser("periods", help="list publication dates found in the ranking history")
 
     e = sub.add_parser("evaluate", help="recompute a published list and compare")
     e.add_argument("--date", help="publication date (default: latest)")
-    e.add_argument("--w0-slope", type=float, default=1.0)
-    e.add_argument("--w0-intercept", type=float, default=0.0)
 
     c = sub.add_parser("calibrate", help="recover w0 from published values and fit w0 = a*W5 + b")
     c.add_argument("--date", help="publication date (default: latest)")
@@ -68,7 +65,7 @@ def main() -> None:
     print(f"list {period.publication.date()}, results {period.start.date()} .. {period.end.date()}")
 
     if args.command == "evaluate":
-        result = evaluate.evaluate(period, args.w0_slope, args.w0_intercept)
+        result = evaluate.evaluate(period)
         out = args.data / f"evaluation_{period.publication.date()}.parquet"
         result.to_parquet(out)
         print(evaluate.report(result))
@@ -76,14 +73,13 @@ def main() -> None:
 
     elif args.command == "calibrate":
         cal = evaluate.calibrate(period)
+        cal["w0_table"] = evaluate.start_values(cal, evaluate.w0_table(period.players))
         out = args.data / f"calibration_{period.publication.date()}.parquet"
         cal.to_parquet(out)
-        for label, sub_ in [("no matches (exact)", cal[cal.n_matches == 0]), ("with matches", cal[cal.n_matches > 0])]:
-            if len(sub_) < 2:
-                continue
-            a, b = np.polyfit(sub_["W5_prev"], sub_["w0"], 1)
-            resid = sub_["w0"] - (a * sub_["W5_prev"] + b)
-            print(f"{label:<20} n={len(sub_):>6}  w0 = {a:.4f} * W5 + {b:+.4f}   MAE {resid.abs().mean():.4f}")
-        bins = pd.cut(cal["W5_prev"], np.arange(-2, 18, 1))
-        print((cal["w0"] - cal["W5_prev"]).groupby(bins, observed=True).describe()[["count", "mean", "std"]].round(3))
+        active = cal[cal["n_matches"] > 0]
+        err = (active["w0"] - active["w0_table"]).abs()
+        print(f"players with matches: {len(active)}; |inverted w0 - table w0|: "
+              f"median {err.median():.4f}, mean {err.mean():.4f}, <0.01: {(err < 0.01).mean():.1%}")
+        bins = pd.cut(active["W5_prev"], [0, 1, 2, 4, 6, 8, 10, 12, 17])
+        print(err.groupby(bins, observed=True).describe()[["count", "50%", "mean"]].round(4))
         print(f"per-player values: {out}")

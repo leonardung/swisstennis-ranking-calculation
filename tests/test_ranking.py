@@ -85,7 +85,8 @@ def test_evaluate_end_to_end():
             "classification": ["R3", "R4", "R5"] * 2,
             "rank": [1, 2, 3] * 2,
             "W": [6.0, 5.0, 4.0, 0, 0, 4.0],
-            "C": [0.0] * 6,
+            "C": [0.0, 0.0, 0.0, 7.0, 5.5, 4.0],
+            "games": [0] * 6,
         }
     )
     matches = pd.DataFrame(
@@ -110,4 +111,18 @@ def test_evaluate_end_to_end():
         W1, W2 = dcl_formula(6.0, [W2], [])[0], dcl_formula(5.0, [], [W1])[0]
     assert p.loc[1, "W"] == pytest.approx(W1, abs=1e-3)
     assert p.loc[3, "W"] == pytest.approx(4.0) and p.loc[3, "n_matches"] == 0
-    assert list(p["class"]) == ["N1", "N1", "N1"]
+    assert list(p["class_pub"]) == ["R3", "R4", "R5"]
+    assert p.loc[3, "class"] == "R5"  # C=4.0 reaches only the R5 threshold
+
+
+def test_start_values_minimum_for_active_players():
+    p = pd.DataFrame(
+        {
+            "gender": ["M", "M", "M", "M"],
+            "W5_prev": [0.75, 0.75, 5.0, np.nan],
+            "n_matches": [0, 3, 3, 2],
+        }
+    )
+    table = {"M": (np.array([0.75, 4.0, 6.0]), np.array([0.75, 3.4, 5.2]))}
+    w0 = evaluate.start_values(p, table)
+    assert list(w0.round(3)) == [0.75, 1.0, 4.3, 1.0]

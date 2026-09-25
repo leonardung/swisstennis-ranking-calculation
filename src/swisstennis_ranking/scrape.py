@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 from tqdm import tqdm
 
-from .api import HISTORY_QUERY, PLAYERS_QUERY, RESULTS_QUERY, Client
+from .api import CURRENT_SEASON_QUERY, HISTORY_QUERY, PLAYERS_QUERY, RESULTS_QUERY, Client
 
 PAGE_SIZE = 5000
 RESULTS_LIMIT = 5000
@@ -102,6 +102,16 @@ def build_tables(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return hist, m
 
 
+def _with_current_list(client: Client, hist: pd.DataFrame, players: pd.DataFrame) -> pd.DataFrame:
+    """RankingHistory lags one list behind; add the current list from the licence table."""
+    season = client.query(CURRENT_SEASON_QUERY, {})["RankSeasonRange"][0]["dateBegin"]
+    date = pd.Timestamp(season)
+    if (hist["date"] == date).any():
+        return hist
+    current = players.assign(date=date).rename(columns={"ranking": "rank"})
+    return pd.concat([hist, current[["personId", "firstname", "lastname", "date", "classification", "rank", "W", "C"]]])
+
+
 def scrape(data_dir: Path, since: str, workers: int) -> None:
     raw_dir = data_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -122,6 +132,7 @@ def scrape(data_dir: Path, since: str, workers: int) -> None:
     _fetch_all(client, missing, since, raw_dir, workers, "unlicensed opponents")
 
     hist, matches = build_tables(raw_dir)
+    hist = _with_current_list(client, hist, players)
     hist.to_parquet(data_dir / "history.parquet")
     matches.to_parquet(data_dir / "matches.parquet")
     print(f"{hist['personId'].nunique()} players with history, {len(matches)} match rows")

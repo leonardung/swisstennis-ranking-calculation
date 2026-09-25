@@ -43,6 +43,8 @@ query playerRankingHistory($id: Int!, $from: timestamp) {
   }
 }"""
 
+CURRENT_SEASON_QUERY = "query { RankSeasonRange(where: {seasonPointer: {_eq: 1}}) { dateBegin } }"
+
 RESULTS_QUERY = """
 query SingleResults($where: AllSingleResults_bool_exp, $limit: Int) {
   results: AllSingleResults(where: $where, order_by: {date: asc}, limit: $limit) {
