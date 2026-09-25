@@ -1,0 +1,10 @@
+.env
+.git
+.venv
+.claude
+data
+data_old
+reference
+web/node_modules
+web/dist
+**/__pycache__

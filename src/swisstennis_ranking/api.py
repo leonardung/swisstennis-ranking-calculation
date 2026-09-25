@@ -53,6 +53,17 @@ query listFlags($date: timestamp, $offset: Int, $limit: Int) {
   }
 }"""
 
+# Players with a result dated on or after $from (to update an existing download).
+RECENT_PLAYERS_QUERY = """
+query recentPlayers($from: timestamp, $offset: Int, $limit: Int) {
+  results: AllSingleResults(
+    where: {date: {_gte: $from}}, distinct_on: playerPersonId, order_by: {playerPersonId: asc},
+    offset: $offset, limit: $limit
+  ) {
+    playerPersonId
+  }
+}"""
+
 CURRENT_SEASON_QUERY = "query { RankSeasonRange(where: {seasonPointer: {_eq: 1}}) { dateBegin } }"
 
 RESULTS_QUERY = """
@@ -97,8 +108,15 @@ def login() -> str:
 
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")
+    # needed in a container (no user namespaces, small /dev/shm)
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
     options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
-    driver = webdriver.Chrome(options=options)
+    # the Docker image uses the distribution's Chromium and driver (else Selenium Manager finds one)
+    if binary := os.environ.get("CHROME_BIN"):
+        options.binary_location = binary
+    service = webdriver.ChromeService(executable_path=os.environ.get("CHROMEDRIVER"))
+    driver = webdriver.Chrome(options=options, service=service)
     try:
         driver.get(LOGIN_URL)
         wait = WebDriverWait(driver, 30)

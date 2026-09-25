@@ -78,7 +78,7 @@ class Period:
     start: pd.Timestamp
     end: pd.Timestamp
     players: pd.DataFrame  # one row per player, index = player number used by ranking.compute
-    matches: pd.DataFrame  # player, opp, opp_fixed, win
+    matches: pd.DataFrame  # player, opp, opp_fixed, win, match (row in the matches table)
     published: bool  # the list exists in the history (else only prediction is possible)
     # (W, C) of new players per (gender, category) on the list a year earlier (predict mode)
     new_pairs: pd.DataFrame | None = None
@@ -115,9 +115,7 @@ def build_period(
     prev = history[day < end].sort_values("date").drop_duplicates("personId", keep="last")
 
     m = matches[(matches["date"] >= start) & (matches["date"] < end)]
-    m = m[m["playerWinnerCode"].isin(WIN_CODES + LOSS_CODES)]
-    # Tournament results have no encounterId (NaN) and pending ones 0: only dedupe real ids.
-    m = m[m["encounterId"].fillna(0).eq(0) | ~m.duplicated(["personId", "encounterId"])]
+    m = dedupe(m[m["playerWinnerCode"].isin(WIN_CODES + LOSS_CODES)])
 
     ids = pd.Index(sorted(set(target["personId"]) | set(prev["personId"]) | set(m["personId"])))
     p = pd.DataFrame({"personId": ids})
@@ -147,6 +145,7 @@ def build_period(
             "opp": ids.get_indexer(m["adversaryPersonId"].fillna(-1).astype(int)),
             "opp_fixed": m["adversaryValue"].to_numpy(dtype=float),
             "win": m["playerWinnerCode"].isin(WIN_CODES).to_numpy(),
+            "match": m.index.to_numpy(),  # row of the result in `matches`
         }
     )
     # Opponents outside the calculation need the value stored with the result.
@@ -156,6 +155,12 @@ def build_period(
     p["no_shows"] = p["personId"].map(no_shows(matches, start, end)).fillna(0).astype(int)
     pairs = new_player_pairs(history, gender, official - pd.DateOffset(years=1))
     return Period(publication, start, end, p, rows, published=not target.empty, new_pairs=pairs)
+
+
+def dedupe(m: pd.DataFrame) -> pd.DataFrame:
+    """One row per match: interclub results can be stored twice under the same encounterId.
+    Tournament results have no encounterId (NaN) and pending ones 0: only dedupe real ids."""
+    return m[m["encounterId"].fillna(0).eq(0) | ~m.duplicated(["personId", "encounterId"])]
 
 
 def new_player_pairs(history: pd.DataFrame, gender: pd.Series, date: pd.Timestamp) -> pd.DataFrame:
@@ -466,6 +471,12 @@ def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
     published (future or monthly), that is the players on the previous official list or with a
     result in the window.
     """
+    return evaluate_detailed(period, predict)[0]
+
+
+def evaluate_detailed(period: Period, predict: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """evaluate(), plus the match rows with the opponent value of the last pass (opp_w) and
+    whether a loss counts (counted; False for the discarded ones, True for wins)."""
     if not predict and not period.published:
         raise ValueError(f"{period.publication.date()} is not published; use predict mode")
     p = period.players.copy()
@@ -475,14 +486,17 @@ def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
     p["w0"] = start_values(p, knots)
     r = period.matches
     assigned = p["foreign"] & (p["W5_prev"] >= ASSIGNED_MIN_W5)
-    W, R = ranking.compute(
+    W, R, opp_w = ranking.compute(
         p["w0"].to_numpy(),
         r["player"].to_numpy(),
         r["opp"].to_numpy(),
         snap_category_means(p, r, knots),
         r["win"].to_numpy(),
         fixed=p["W5_prev"].where(assigned).to_numpy(dtype=float),
+        with_opp_w=True,
     )
+    loss_counts = ranking.counted_losses(r["player"].to_numpy(), opp_w, r["win"].to_numpy(), len(p))
+    rows = r.assign(opp_w=opp_w, counted=r["win"].to_numpy() | loss_counts)
     # The Art. 5.8 deduction is shown in R (published R = C - W).
     p["W"] = W.round(3)
     p["R"] = (R - NO_SHOW_DEDUCTION * (p["no_shows"] > NO_SHOW_LIMIT)).round(3)
@@ -520,7 +534,7 @@ def evaluate(period: Period, predict: bool = False) -> pd.DataFrame:
     keep = assigned & p["class_prev"].isin(CATEGORIES)
     p.loc[keep, "class"] = p.loc[keep, "class_prev"]
     p["R_pub"] = p["C_pub"] - p["W_pub"]
-    return p
+    return p, rows
 
 
 def report(p: pd.DataFrame) -> str:

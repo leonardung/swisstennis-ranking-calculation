@@ -2,12 +2,14 @@
 
 Layout:
     data/raw/<personId>.json   one cached API response per player (makes scraping resumable)
+    data/raw/season            the current official list when the cache was last completed
     data/players.parquet       currently licensed players (both genders)
     data/history.parquet       published ranking values per player and publication date
     data/matches.parquet       single results, one row per (player, match) from the player's view
 """
 
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -15,7 +17,15 @@ import pandas as pd
 from tqdm import tqdm
 
 from .evaluate import publications
-from .api import CURRENT_SEASON_QUERY, HISTORY_QUERY, LIST_FLAGS_QUERY, PLAYERS_QUERY, RESULTS_QUERY, Client
+from .api import (
+    CURRENT_SEASON_QUERY,
+    HISTORY_QUERY,
+    LIST_FLAGS_QUERY,
+    PLAYERS_QUERY,
+    RECENT_PLAYERS_QUERY,
+    RESULTS_QUERY,
+    Client,
+)
 
 PAGE_SIZE = 5000
 RESULTS_LIMIT = 5000
@@ -103,10 +113,50 @@ def build_tables(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return hist, m
 
 
+def current_season(client: Client) -> pd.Timestamp:
+    """Date of the current official list."""
+    return pd.Timestamp(client.query(CURRENT_SEASON_QUERY, {})["RankSeasonRange"][0]["dateBegin"])
+
+
+def recent_players(client: Client, since: pd.Timestamp) -> set[int]:
+    ids, offset = set(), 0
+    while True:
+        page = client.query(
+            RECENT_PLAYERS_QUERY,
+            {"from": since.strftime("%Y-%m-%dT00:00:00"), "offset": offset, "limit": PAGE_SIZE},
+        )["results"]
+        ids |= {r["playerPersonId"] for r in page}
+        if len(page) < PAGE_SIZE:
+            return ids
+        offset += PAGE_SIZE
+
+
+def expire_cache(client: Client, raw_dir: Path, recent_days: int) -> None:
+    """Delete the cached players whose data changed, so that they are fetched again.
+
+    A new official list adds a row to everyone's history: then every file cached before it is
+    stale (the refresh start is kept in `refresh_since` so an interrupted run resumes). Otherwise
+    only players with a result dated in the last `recent_days` days (results are entered late).
+    """
+    season = current_season(client)
+    marker, since_file = raw_dir / "season", raw_dir / "refresh_since"
+    if not marker.exists() or pd.Timestamp(marker.read_text()) != season:
+        if not since_file.exists():
+            since_file.write_text(str(time.time()))
+        cutoff = float(since_file.read_text())
+        stale = [f for f in raw_dir.glob("*.json") if f.stat().st_mtime < cutoff]
+        print(f"new list {season.date()}: fetching all {len(stale)} cached players again")
+    else:
+        ids = recent_players(client, pd.Timestamp.now().normalize() - pd.Timedelta(days=recent_days))
+        stale = [f for i in ids if (f := raw_dir / f"{i}.json").exists()]
+        print(f"{len(stale)} players with recent results")
+    for f in stale:
+        f.unlink()
+
+
 def _with_current_list(client: Client, hist: pd.DataFrame, players: pd.DataFrame) -> pd.DataFrame:
     """RankingHistory lags one list behind; add the current list from the licence table."""
-    season = client.query(CURRENT_SEASON_QUERY, {})["RankSeasonRange"][0]["dateBegin"]
-    date = pd.Timestamp(season)
+    date = current_season(client)
     if (hist["date"] == date).any():
         return hist
     current = players.assign(date=date).rename(columns={"ranking": "rank"})
@@ -137,13 +187,23 @@ def add_list_flags(client: Client, hist: pd.DataFrame) -> pd.DataFrame:
     return out.merge(flags, on=["personId", "_day"], how="left").drop(columns="_day")
 
 
-def scrape(data_dir: Path, since: str, workers: int) -> None:
+def _write(table: pd.DataFrame, data_dir: Path, name: str) -> None:
+    """Write-then-rename: a reader (the web server) never sees a half-written table."""
+    tmp = data_dir / f"{name}.tmp"
+    table.to_parquet(tmp)
+    tmp.replace(data_dir / f"{name}.parquet")
+
+
+def scrape(data_dir: Path, since: str, workers: int, recent_days: int | None = None) -> None:
+    """Download everything not cached yet; with recent_days, first expire_cache()."""
     raw_dir = data_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     client = Client()
+    if recent_days is not None:
+        expire_cache(client, raw_dir, recent_days)
 
     players = fetch_players(client)
-    players.to_parquet(data_dir / "players.parquet")
+    _write(players, data_dir, "players")
     print(f"{len(players)} licensed players ({players['gender'].value_counts().to_dict()})")
 
     _fetch_all(client, set(players["personId"]), since, raw_dir, workers, "players")
@@ -159,6 +219,8 @@ def scrape(data_dir: Path, since: str, workers: int) -> None:
     hist, matches = build_tables(raw_dir)
     hist = _with_current_list(client, hist, players)
     hist = add_list_flags(client, hist)
-    hist.to_parquet(data_dir / "history.parquet")
-    matches.to_parquet(data_dir / "matches.parquet")
+    _write(hist, data_dir, "history")
+    _write(matches, data_dir, "matches")
+    (raw_dir / "season").write_text(current_season(client).isoformat())
+    (raw_dir / "refresh_since").unlink(missing_ok=True)
     print(f"{hist['personId'].nunique()} players with history, {len(matches)} match rows")

@@ -23,6 +23,30 @@ uv run swisstennis-ranking evaluate --date 2026-09-01 --predict  # a monthly lis
 uv run pytest
 ```
 
+Updating an existing download: `scrape --recent-days 45` fetches again the players with a result
+dated in the last 45 days, or everyone once a new official list is out (`data/raw/season`).
+
+## Web UI
+
+Search any player and see the official list next to today's calculated list (the monthly list at
+today's date, predict mode), every match of the window with the points it brought (the player's
+C and W with minus without that match), discarded losses and results leaving after the next
+official list, a win/loss simulator against any opponent (full recalculation of the list) and
+match statistics (sets, games, tiebreaks, deciding sets, opponents' level, head to head…), in
+English or French.
+
+```bash
+PORT=8080 docker compose up -d --build   # http://localhost:8080 (default port 8000)
+```
+
+The container reads `./data` (run a first `scrape` beforehand, or the container does it on first
+start, which takes hours) and updates it every night at `SCRAPE_TIME` (default `03:00` Zurich
+time, empty to disable) with the credentials from `.env`; today's list is recomputed afterwards.
+
+Without Docker: `uv run swisstennis-ranking serve --port 8000` (API at `/api`, UI from
+`web/dist`: `cd web && npm ci && npm run build`; `npm run dev` for development, proxying `/api`
+to port 8000).
+
 ## Algorithm
 
 `ranking.py` holds the formula, `evaluate.py` selects each list's matches, derives the inputs and

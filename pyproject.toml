@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.141.1",
     "numpy>=2.5.3",
     "pandas>=3.0.6",
     "pyarrow>=25.0.1",
@@ -16,6 +17,7 @@ dependencies = [
     "scipy>=1.18.1",
     "selenium>=4.49.0",
     "tqdm>=4.70.1",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.scripts]

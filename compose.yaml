@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    image: swisstennis-ranking
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+    environment:
+      PORT: ${PORT:-8000}
+      # daily update (HH:MM, Europe/Zurich); empty disables it
+      SCRAPE_TIME: ${SCRAPE_TIME-03:00}
+    env_file: .env # MYTENNIS_USER / MYTENNIS_PASSWORD for the scraper
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
