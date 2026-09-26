@@ -8,9 +8,44 @@ services:
       PORT: ${PORT:-8000}
       # daily update (HH:MM, Europe/Zurich); empty disables it
       SCRAPE_TIME: ${SCRAPE_TIME-03:00}
-    env_file: .env # MYTENNIS_USER / MYTENNIS_PASSWORD for the scraper
+    env_file: .env # MYTENNIS_USER / MYTENNIS_PASSWORD, UMAMI_SCRIPT_URL / UMAMI_WEBSITE_ID
     volumes:
       - ./data:/app/data
+    restart: unless-stopped
+
+  # Umami analytics, enabled with COMPOSE_PROFILES=analytics and UMAMI_APP_SECRET in .env.
+  # Dashboard on http://<host>:<UMAMI_PORT> (default 3000); first login admin / umami.
+  umami:
+    image: ghcr.io/umami-software/umami:latest
+    profiles: [analytics]
+    ports:
+      - "${UMAMI_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://umami:umami@umami-db:5432/umami
+      APP_SECRET: ${UMAMI_APP_SECRET:-}
+      # a name ad blockers do not know
+      TRACKER_SCRIPT_NAME: radar.js
+    depends_on:
+      umami-db:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  # only reachable inside the compose network
+  umami-db:
+    image: postgres:15-alpine
+    profiles: [analytics]
+    environment:
+      POSTGRES_DB: umami
+      POSTGRES_USER: umami
+      POSTGRES_PASSWORD: umami
+    volumes:
+      - umami-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U umami -d umami"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   # Cloudflare Tunnel, enabled with COMPOSE_PROFILES=tunnel and TUNNEL_TOKEN in .env. In the
@@ -24,3 +59,6 @@ services:
     depends_on:
       - app
     restart: unless-stopped
+
+volumes:
+  umami-db:

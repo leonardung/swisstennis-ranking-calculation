@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
+import { trackEvent } from "../analytics";
 import { playerHref, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtInt, fmtIntDelta, signClass } from "../format";
@@ -43,6 +44,7 @@ export default function SimulatorTab({ player }: { player: PlayerDetail }) {
     }
     setSelfError(false);
     setOpp(o);
+    trackEvent("simulate", { player: player.name, opponent: o.name });
   };
 
   return (

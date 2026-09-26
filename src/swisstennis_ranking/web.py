@@ -4,6 +4,7 @@ Today's list is the monthly list at today's date in predict mode (see evaluate.b
 is computed at startup and again after every nightly scrape.
 """
 
+import os
 import re
 import subprocess
 import sys
@@ -400,6 +401,12 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
         yield
 
     api = FastAPI(title="Tennis Radar", lifespan=lifespan)
+
+    @api.get("/api/config")
+    def config():
+        # Umami tracker, loaded by the UI when both are set
+        url, website = os.environ.get("UMAMI_SCRIPT_URL"), os.environ.get("UMAMI_WEBSITE_ID")
+        return {"analytics": {"script": url, "website_id": website} if url and website else None}
 
     @api.get("/api/meta")
     def meta():

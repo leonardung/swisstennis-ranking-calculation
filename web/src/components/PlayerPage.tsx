@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { api } from "../api";
+import { trackView } from "../analytics";
 import { playerHref, TABS, useAsync, type Tab } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtInt } from "../format";
@@ -25,6 +26,10 @@ export default function PlayerPage({ id, tab, meta }: { id: number; tab: Tab; me
   useEffect(() => {
     if (p) document.title = `${p.name} · ${t("appName")}`;
   }, [p, t]);
+
+  useEffect(() => {
+    if (p) trackView();
+  }, [p, tab]);
 
   if (!p) {
     return (

@@ -47,6 +47,20 @@ Cloudflare Tunnel: add `COMPOSE_PROFILES=tunnel` and `TUNNEL_TOKEN=<token>` to `
 the tunnel's public hostname to `http://app:8000` (or your `PORT`). The UI has no login of its
 own: protect the hostname with Cloudflare Access if it should not be public.
 
+Analytics (self-hosted [Umami](https://umami.is), optional):
+
+1. In `.env`: add `analytics` to `COMPOSE_PROFILES` (`tunnel,analytics`) and set
+   `UMAMI_APP_SECRET` (`openssl rand -hex 32`); `docker compose up -d`.
+2. Open the dashboard on `http://<host>:3000` (`UMAMI_PORT`), log in with `admin` / `umami`,
+   change the password, and add a website: its id is in the website's settings.
+3. The tracker must be public: add a tunnel public hostname (e.g. `stats.example.com`) pointing to
+   `http://umami:3000`, which also gives the dashboard from anywhere.
+4. In `.env`: `UMAMI_SCRIPT_URL=https://stats.example.com/radar.js` and `UMAMI_WEBSITE_ID=<id>`;
+   `docker compose up -d app`.
+
+It records page views (home, `/player/<id>/<tab>` titled with the player's name) and the events
+`simulate` (player, opponent) and `language`, with no cookies.
+
 Without Docker: `uv run swisstennis-ranking serve --port 8000` (API at `/api`, UI from
 `web/dist`: `cd web && npm ci && npm run build`; `npm run dev` for development, proxying `/api`
 to port 8000).

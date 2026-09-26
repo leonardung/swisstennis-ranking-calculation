@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, clearCache } from "./api";
+import { trackEvent, trackView } from "./analytics";
 import { useAsync, useRoute } from "./hooks";
 import { I18nContext, loadLang, makeT, saveLang, type I18n, type Lang } from "./i18n";
 import Header from "./components/Header";
@@ -16,6 +17,7 @@ export default function App() {
       t: makeT(lang),
       setLang: (l) => {
         saveLang(l);
+        trackEvent("language", { lang: l });
         setLangState(l);
       },
     }),
@@ -52,6 +54,13 @@ export default function App() {
   useEffect(() => {
     window.scrollTo({ top: 0 });
   }, [route.page, route.page === "player" ? route.id : 0]);
+
+  useEffect(() => {
+    if (route.page === "home") {
+      document.title = i18n.t("appName");
+      trackView();
+    }
+  }, [route.page]);
 
   return (
     <I18nContext.Provider value={i18n}>

@@ -50,3 +50,15 @@ def test_player_stats_sets_tiebreaks_and_walkovers():
     assert d["after_first_set"]["lost_first"] == {"played": 0, "won": 0}
     assert d["by_relation"] == [{"relation": "higher", "won": 3, "lost": 1}]
     assert d["streak"]["longest_win"] == 2 and d["streak"]["current_type"] == "win"
+
+
+def test_analytics_config_needs_script_and_website(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.create_app(tmp_path, None, None))  # no lifespan: no data loaded
+    monkeypatch.setenv("UMAMI_SCRIPT_URL", "https://stats.example.com/radar.js")
+    assert client.get("/api/config").json() == {"analytics": None}
+    monkeypatch.setenv("UMAMI_WEBSITE_ID", "abc")
+    assert client.get("/api/config").json() == {
+        "analytics": {"script": "https://stats.example.com/radar.js", "website_id": "abc"}
+    }
