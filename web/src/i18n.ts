@@ -3,8 +3,9 @@ import { createContext, useContext } from "react";
 export type Lang = "en" | "fr";
 
 const en = {
-  appName: "Swiss Tennis Ranking",
-  appTagline: "Official & live DCL ranking calculator",
+  appName: "Tennis Radar",
+  appTagline: "Your Swiss tennis ranking, live",
+  footerNote: "Unofficial tool, not affiliated with Swiss Tennis. Values are recalculated with the DCL formula and may differ from the published lists.",
   searchPlaceholder: "Search a player by name or licence…",
   searchNoResults: "No player found",
   searchSearching: "Searching…",
@@ -173,8 +174,9 @@ const en = {
 export type MsgKey = keyof typeof en;
 
 const fr: Record<MsgKey, string> = {
-  appName: "Classement Swiss Tennis",
-  appTagline: "Calculateur du classement DCL officiel et actuel",
+  appName: "Tennis Radar",
+  appTagline: "Ton classement de tennis suisse, en direct",
+  footerNote: "Outil non officiel, sans lien avec Swiss Tennis. Les valeurs sont recalculées avec la formule DCL et peuvent différer des listes publiées.",
   searchPlaceholder: "Rechercher un joueur par nom ou licence…",
   searchNoResults: "Aucun joueur trouvé",
   searchSearching: "Recherche…",

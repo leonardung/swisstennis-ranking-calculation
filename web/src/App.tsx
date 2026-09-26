@@ -66,7 +66,8 @@ export default function App() {
         )}
       </main>
       <footer className="container footer muted">
-        {i18n.t("appName")} · DCL · C = W + R
+        <div>{i18n.t("appName")} · DCL · C = W + R</div>
+        <div>{i18n.t("footerNote")}</div>
       </footer>
     </I18nContext.Provider>
   );

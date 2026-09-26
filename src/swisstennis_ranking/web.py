@@ -399,7 +399,7 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
         app.start()
         yield
 
-    api = FastAPI(title="Swiss Tennis ranking", lifespan=lifespan)
+    api = FastAPI(title="Tennis Radar", lifespan=lifespan)
 
     @api.get("/api/meta")
     def meta():
