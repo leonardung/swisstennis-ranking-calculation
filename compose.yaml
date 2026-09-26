@@ -12,3 +12,15 @@ services:
     volumes:
       - ./data:/app/data
     restart: unless-stopped
+
+  # Cloudflare Tunnel, enabled with COMPOSE_PROFILES=tunnel and TUNNEL_TOKEN in .env. In the
+  # tunnel's public hostname settings, point the service to http://app:<PORT> (default 8000).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: [tunnel]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - app
+    restart: unless-stopped

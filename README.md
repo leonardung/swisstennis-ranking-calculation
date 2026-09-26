@@ -43,6 +43,10 @@ The container reads `./data` (run a first `scrape` beforehand, or the container 
 start, which takes hours) and updates it every night at `SCRAPE_TIME` (default `03:00` Zurich
 time, empty to disable) with the credentials from `.env`; today's list is recomputed afterwards.
 
+Cloudflare Tunnel: add `COMPOSE_PROFILES=tunnel` and `TUNNEL_TOKEN=<token>` to `.env` and point
+the tunnel's public hostname to `http://app:8000` (or your `PORT`). The UI has no login of its
+own: protect the hostname with Cloudflare Access if it should not be public.
+
 Without Docker: `uv run swisstennis-ranking serve --port 8000` (API at `/api`, UI from
 `web/dist`: `cd web && npm ci && npm run build`; `npm run dev` for development, proxying `/api`
 to port 8000).
