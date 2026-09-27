@@ -173,12 +173,30 @@ def test_categories_by_quota_with_ties_and_foreigners():
             "foreign": [False] * n,
             "classified": [False] * n,
             "on_list": [True] * n,
+            "W5_prev": [1.0] * n,
         }
     )
     p.loc[0, "foreign"] = True  # best player is a foreigner: no quota slot
     rank, cat = evaluate.categories(p)
     assert rank[0] == 1 and rank[1] == 1  # the foreigner shares rank 1 with the best Swiss
     assert list(rank[10:]) == [10, 10] and list(cat[10:]) == ["N1", "N1"]
+
+
+def test_new_players_take_no_rank_slot():
+    # a new player (no previous value) with results is ranked without pushing the others down
+    p = pd.DataFrame(
+        {
+            "gender": ["M"] * 3,
+            "C": [9.0, 8.0, 7.0],
+            "W": [8.0, 7.0, 6.0],
+            "foreign": [False] * 3,
+            "classified": [False] * 3,
+            "on_list": [True] * 3,
+            "W5_prev": [np.nan, 7.5, 6.5],
+        }
+    )
+    rank, _ = evaluate.categories(p)
+    assert list(rank) == [1, 1, 2]
 
 
 def test_new_player_values_are_category_means():
@@ -254,3 +272,21 @@ def test_gender_inferred_through_unlicensed_opponents():
     # 2 only played the licensed 1; 3 only played the unlicensed 2
     matches = pd.DataFrame({"personId": [1, 2, 2, 3], "adversaryPersonId": pd.array([2, 1, 3, 2], dtype="Int64")})
     assert evaluate.genders(players, matches).to_dict() == {1: "F", 2: "F", 3: "F"}
+
+
+def test_placed_players_rank_in_the_middle_of_their_category():
+    # new or evaluated players get the middle of their category's quota range (M R4: 1271..2550)
+    p = pd.DataFrame(
+        {
+            "gender": ["M", "M", "M"],
+            "class": ["R4", "R9", "R5"],
+            "rank": [5.0, 5.0, 5.0],
+            "on_list": [True] * 3,
+            "foreign": [False] * 3,
+            "classified": [True, False, False],
+            "W5_prev": [3.0, np.nan, 3.0],
+        }
+    )
+    rank = evaluate.placed_ranks(p)
+    # R9 ends at the last ranked player: only the third one is ranked here
+    assert list(rank) == [1911, (30770 + 1) // 2 + 1, 5]

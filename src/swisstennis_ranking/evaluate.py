@@ -433,20 +433,26 @@ def published_cuts(p: pd.DataFrame) -> dict[str, np.ndarray]:
     return cuts
 
 
+def ranked(p: pd.DataFrame) -> pd.Series:
+    """Players who take a rank (and quota) slot: Swiss players on the list with a previous value,
+    not classified by Swiss Tennis. New players, even with results, take none on the published
+    lists."""
+    return p["on_list"] & ~p["foreign"] & ~p["classified"] & p["W5_prev"].notna()
+
+
 def categories(p: pd.DataFrame, cuts: dict[str, np.ndarray] | None = None) -> tuple[pd.Series, pd.Series]:
     """(rank, category) per player on the list, from our C (Art. 3, 5.10, 9.2).
 
-    Players inside the quota are ranked per gender by C, then W; equal (C, W) share a rank,
-    and the quota bounds give the category (or `cuts`, the published bounds). Foreigners and
-    classified players (Art. 6) get the rank their (C, W) would have among the other Swiss
-    players, without taking a slot.
+    The ranked players (see ranked()) are ranked per gender by C, then W; equal (C, W) share a
+    rank, and the quota bounds give the category (or `cuts`, the published bounds). The other
+    players get the rank their (C, W) would have among them, without taking a slot.
     """
     rank = pd.Series(np.nan, index=p.index)
     cat = pd.Series(pd.NA, index=p.index, dtype="object")
     for gender, bounds in QUOTAS.items():
         g = p[p["on_list"] & (p["gender"] == gender)]
-        swiss = np.sort(_key(g[~g["foreign"] & ~g["classified"]]))
-        pos = np.searchsorted(swiss, _key(g), side="left") + 1  # 1 + number of Swiss strictly better
+        swiss = np.sort(_key(g[ranked(g)]))
+        pos = np.searchsorted(swiss, _key(g), side="left") + 1  # 1 + number of ranked strictly better
         rank[g.index] = pos
         if cuts is None or gender not in cuts:
             level = np.searchsorted(bounds, pos)
@@ -456,11 +462,25 @@ def categories(p: pd.DataFrame, cuts: dict[str, np.ndarray] | None = None) -> tu
     return rank, cat
 
 
+def placed_ranks(p: pd.DataFrame) -> pd.Series:
+    """Rank of the players Swiss Tennis places in a category (new players, classified by
+    evaluation): the middle of the category's quota range, the last range ending at the last
+    ranked player (see ranked()). Other players keep their rank."""
+    rank = p["rank"].copy()
+    placed = p["on_list"] & ~p["foreign"] & (p["classified"] | p["W5_prev"].isna())
+    for gender, quota in QUOTAS.items():
+        ends = np.array([0, *quota, (ranked(p) & (p["gender"] == gender)).sum()])
+        sel = placed & (p["gender"] == gender) & p["class"].isin(CATEGORIES)
+        level = p.loc[sel, "class"].map(CATEGORIES.index).to_numpy(dtype=int)
+        rank[sel] = (ends[level] + ends[level + 1]) // 2 + 1
+    return rank
+
+
 def C_at_rank(p: pd.DataFrame, assigned: pd.Series) -> pd.Series:
     """C of players with an assigned value: the computed C of the Swiss player (per gender) at
-    their previous rank. Ranks count only players inside the quota on the list (Art. 9.2)."""
+    their previous rank. Ranks count only the ranked players (Art. 9.2)."""
     out = pd.Series(np.nan, index=p.index)
-    for gender, g in p[p["on_list"] & ~p["foreign"] & ~p["classified"]].groupby("gender"):
+    for gender, g in p[ranked(p)].groupby("gender"):
         cs = np.sort(g["C"].to_numpy())[::-1]
         sel = assigned & (p["gender"] == gender) & p["rank_prev"].notna()
         pos = p.loc[sel, "rank_prev"].to_numpy(dtype=int) - 1
@@ -537,8 +557,14 @@ def evaluate_detailed(period: Period, predict: bool = False) -> tuple[pd.DataFra
         p.loc[p["classified"], "class"] = p["class_pub"]
     keep = assigned & p["class_prev"].isin(CATEGORIES)
     p.loc[keep, "class"] = p.loc[keep, "class_prev"]
+    p["rank"] = placed_ranks(p)
     p["R_pub"] = p["C_pub"] - p["W_pub"]
     return p, rows
+
+
+def rank_err(p: pd.DataFrame) -> pd.Series:
+    """|our rank - published rank|."""
+    return (p["rank"] - p["rank_pub"]).abs()
 
 
 def report(p: pd.DataFrame) -> str:
@@ -557,7 +583,8 @@ def report(p: pd.DataFrame) -> str:
             f"  {label:<20} n={len(sub):>6}  MAE W={np.abs(sub.W - sub.W_pub).mean():.4f}  "
             f"R={np.abs(sub.R - sub.R_pub).mean():.4f}  C={np.abs(sub.C - sub.C_pub).mean():.4f}  "
             f"exact C={np.mean(np.abs(sub.C - sub.C_pub) < 0.0015):.1%}  "
-            f"same category={np.mean(sub['class'] == sub['class_pub']):.1%}"
+            f"same category={np.mean(sub['class'] == sub['class_pub']):.1%}  "
+            f"rank MAE={rank_err(sub).mean():.1f} within 10={np.mean(rank_err(sub) <= 10):.1%}"
         )
     by_class = (
         q.assign(err=np.abs(q.C - q.C_pub), same=q["class"] == q["class_pub"])

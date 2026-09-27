@@ -103,8 +103,9 @@ Rules:
   is classified by evaluation (mostly promotions of 1–3 categories) shows no pattern in prior
   data, so they are computed.
 - **Categories** (Art. 3): per gender, Swiss players ranked by (C, W) fill the quotas
-  (M 10/30/70/…/30770, F 10/24/45/…/11824 cumulative); foreigners and assigned players get the
-  rank their value would have without taking a slot. The pool seems to be the players licensed on the list
+  (M 10/30/70/…/30770, F 10/24/45/…/11824 cumulative); foreigners, assigned players and new
+  players (no previous value, even with results) get the rank their value would have without
+  taking a slot. The pool seems to be the players licensed on the list
   date, only known for the current list, so reproduce reads the bounds off the published
   categories (best-separating cut) and predict uses the quotas on the licensed players.
 
@@ -119,5 +120,11 @@ classified by evaluation and new players outside R9 (≈ 500 per April list), an
 the unknown licence holders of the time. Monthly
 lists of one R1/R2 player (Nov 2025 – Sep 2026): all categories and match counts right, W and C
 within 0.005–0.03, rank within 9.
+
+Ranks (`evaluate` prints the rank error) can only be checked on the latest list: the pool of
+older lists (licence holders of the time) is unknown. 2026-04, predict: rank within ±10 for
+99.1% of N1–N4, 94.2% of R1–R3, 51.5% of R4–R6, 0.2% of R7–R9 (tens of thousands of nearly
+equal values); median error 82 places, mean 209 (players classified by evaluation weigh
+heavily). Reproduce: within ±10 for 68.8%, median 10, mean 24.
 
 `reference/` keeps the original notebooks, the rules and Swiss Tennis' explanations.

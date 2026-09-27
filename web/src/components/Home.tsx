@@ -5,67 +5,70 @@ import type { Meta } from "../types";
 import SearchBox from "./SearchBox";
 import { Card } from "./common";
 
-/** Backtests against the published lists (README): predict mode, share of players with C within
- * 0.001 and in the right category; reproduce mode, right category; monthly lists of one player. */
-const PREDICTED = [
-  { list: "2021-10", exact: 0.688, category: 0.979 },
-  { list: "2023-04", exact: 0.657, category: 0.958 },
-  { list: "2024-04", exact: 0.847, category: 0.958 },
-  { list: "2025-04", exact: 0.946, category: 0.961 },
-  { list: "2025-10", exact: 0.944, category: 0.976 },
-  { list: "2026-04", exact: 0.961, category: 0.99 },
+/** Backtest of the April 2026 list (README), predicted as today's list is: rank error per
+ * category group (the only list whose licence holders, hence ranks, are known), share of players
+ * with C within 0.001, and the monthly lists of one R1/R2 player. */
+const LIST = "2026-04";
+const RANKS = [
+  { group: "N1–N4", n: 228, within10: 0.991, median: 1, mean: 5 },
+  { group: "R1–R3", n: 1677, within10: 0.942, median: 2, mean: 697 },
+  { group: "R4–R6", n: 12683, within10: 0.515, median: 10, mean: 484 },
+  { group: "R7–R9", n: 70298, within10: 0.002, median: 113, mean: 148 },
 ];
-const REPRODUCED_CATEGORY = 0.999;
-const MONTHLY = { c: 0.013, rank: 5 };
+const ALL = { n: 84886, within10: 0.1, median: 82, mean: 209 };
+const TOP_WITHIN10 = 0.948; // N1–R3
+const EXACT_C = 0.961;
+const MONTHLY_RANK = 5;
 
 function Accuracy() {
   const { t, locale } = useI18n();
   const pct = (v: number) => new Intl.NumberFormat(locale, { style: "percent", minimumFractionDigits: 1 }).format(v);
-  const month = (ym: string) => new Date(`${ym}-01T00:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
-  const last = PREDICTED[PREDICTED.length - 1];
-  const lastDate = month(last.list);
+  const int = (v: number) => v.toLocaleString(locale);
+  const list = new Date(`${LIST}-01T00:00:00`).toLocaleDateString(locale, { month: "long", year: "numeric" });
   return (
     <Card title={t("accTitle")} className="accuracy">
-      <p className="hint small acc-intro">{t("accIntro")}</p>
+      <p className="hint small acc-intro">{t("accIntro", { date: list })}</p>
       <div className="meta-grid acc-grid">
         <div className="meta-tile">
-          <small>{t("accCategory")}</small>
-          <strong className="acc-big">{pct(last.category)}</strong>
-          <small className="muted">{t("accCategoryNote", { date: lastDate })}</small>
+          <small>{t("accTop")}</small>
+          <strong className="acc-big">{pct(TOP_WITHIN10)}</strong>
+          <small className="muted">{t("accTopNote")}</small>
+        </div>
+        <div className="meta-tile">
+          <small>{t("accMedian")}</small>
+          <strong className="acc-big">{t("accPlaces", { n: int(ALL.median) })}</strong>
+          <small className="muted">{t("accMedianNote", { mean: int(ALL.mean) })}</small>
         </div>
         <div className="meta-tile">
           <small>{t("accExact")}</small>
-          <strong className="acc-big">{pct(last.exact)}</strong>
-          <small className="muted">{t("accExactNote", { date: lastDate })}</small>
-        </div>
-        <div className="meta-tile">
-          <small>{t("accReproduce")}</small>
-          <strong className="acc-big">{pct(REPRODUCED_CATEGORY)}</strong>
-          <small className="muted">{t("accReproduceNote")}</small>
+          <strong className="acc-big">{pct(EXACT_C)}</strong>
+          <small className="muted">{t("accExactNote")}</small>
         </div>
         <div className="meta-tile">
           <small>{t("accMonthly")}</small>
-          <strong className="acc-big">±{MONTHLY.rank}</strong>
-          <small className="muted">
-            {t("accMonthlyNote", { c: MONTHLY.c.toLocaleString(locale) })}
-          </small>
+          <strong className="acc-big">±{MONTHLY_RANK}</strong>
+          <small className="muted">{t("accMonthlyNote")}</small>
         </div>
       </div>
       <div className="table-wrap">
         <table className="data acc-table">
           <thead>
             <tr>
-              <th>{t("accList")}</th>
-              <th className="num">{t("accPredExact")}</th>
-              <th className="num">{t("accPredCategory")}</th>
+              <th>{t("accGroup")}</th>
+              <th className="num">{t("accPlayers")}</th>
+              <th className="num">{t("accWithin10")}</th>
+              <th className="num">{t("accMedianCol")}</th>
+              <th className="num">{t("accMeanCol")}</th>
             </tr>
           </thead>
           <tbody>
-            {PREDICTED.map((r) => (
-              <tr key={r.list}>
-                <td>{month(r.list)}</td>
-                <td className="num">{pct(r.exact)}</td>
-                <td className="num">{pct(r.category)}</td>
+            {[...RANKS, { ...ALL, group: t("accAll") }].map((r) => (
+              <tr key={r.group}>
+                <td>{r.group}</td>
+                <td className="num">{int(r.n)}</td>
+                <td className="num">{pct(r.within10)}</td>
+                <td className="num">{int(r.median)}</td>
+                <td className="num">{int(r.mean)}</td>
               </tr>
             ))}
           </tbody>
