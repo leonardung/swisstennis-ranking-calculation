@@ -14,7 +14,6 @@ const RANKS = [
   { group: "R1–R3", n: 1677, within10: 0.942, median: 2 },
   { group: "R4–R6", n: 12683, within10: 0.515, median: 10 },
 ];
-const ALL = { n: 84886, within10: 0.1, median: 82 };
 const TOP_MEDIAN = 1; // N1–R3
 const TOP_WITHIN10 = 0.948; // N1–R3
 const EXACT_C = 0.961;
@@ -61,7 +60,7 @@ function Accuracy() {
             </tr>
           </thead>
           <tbody>
-            {[...RANKS, { ...ALL, group: t("accAll") }].map((r) => (
+            {RANKS.map((r) => (
               <tr key={r.group}>
                 <td>{r.group}</td>
                 <td className="num">{int(r.n)}</td>
