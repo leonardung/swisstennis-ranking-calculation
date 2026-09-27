@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import evaluate, ranking, stats
 
@@ -396,6 +397,18 @@ class App:
         ]
 
 
+class SinglePageApp(StaticFiles):
+    """The UI's files; any other path outside /api gets index.html (the UI routes itself)."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            if e.status_code != 404 or path == "api" or path.startswith("api/"):
+                raise
+            return await super().get_response("index.html", scope)
+
+
 def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None) -> FastAPI:
     app = App(data_dir, scrape_time)
 
@@ -441,5 +454,5 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
         return app.simulate(player, opponent)
 
     if static_dir is not None and static_dir.is_dir():
-        api.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
+        api.mount("/", SinglePageApp(directory=static_dir, html=True), name="ui")
     return api

@@ -62,3 +62,14 @@ def test_analytics_config_needs_script_and_website(monkeypatch, tmp_path):
     assert client.get("/api/config").json() == {
         "analytics": {"script": "https://stats.example.com/radar.js", "website_id": "abc"}
     }
+
+
+def test_ui_paths_get_index_but_api_paths_404(tmp_path):
+    from fastapi.testclient import TestClient
+
+    (tmp_path / "index.html").write_text("<html>ui</html>")
+    (tmp_path / "app.js").write_text("js")
+    client = TestClient(web.create_app(tmp_path, tmp_path, None))
+    assert client.get("/player/134639/stats").text == "<html>ui</html>"
+    assert client.get("/app.js").text == "js"
+    assert client.get("/api/nothing").status_code == 404

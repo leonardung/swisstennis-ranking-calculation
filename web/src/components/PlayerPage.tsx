@@ -37,7 +37,7 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
         notFound={
           <div className="state-screen small">
             <h2>{t("notFound")}</h2>
-            <a className="btn" href="#/">
+            <a className="btn" href="/">
               {t("backHome")}
             </a>
           </div>

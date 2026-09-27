@@ -1,5 +1,5 @@
 /** Umami analytics, enabled by the server's /api/config (UMAMI_SCRIPT_URL, UMAMI_WEBSITE_ID).
- * Page views are sent by hand: the app routes with the URL hash, which Umami does not follow. */
+ * Page views are sent by hand, once a player page knows its title. */
 
 type Payload = Record<string, string | number>;
 type Umami = { track: (event: unknown, data?: Payload) => void };
@@ -35,10 +35,9 @@ export async function initAnalytics(): Promise<void> {
   }
 }
 
-/** A page view of the current hash route (#/player/1/stats → /player/1/stats), with the
- * current document title. */
+/** A page view of the current route, with the current document title. */
 export function trackView(): void {
-  const url = window.location.hash.replace(/^#/, "") || "/";
+  const url = window.location.pathname;
   const title = document.title;
   send((u) => u.track((props: Payload) => ({ ...props, url, title })));
 }

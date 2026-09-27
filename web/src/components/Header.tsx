@@ -10,7 +10,7 @@ export default function Header({ meta }: { meta: Meta | null }) {
   return (
     <header className="app-header">
       <div className="container header-inner">
-        <a className="brand" href="#/">
+        <a className="brand" href="/">
           <span className="brand-ball" aria-hidden />
           <span className="brand-text">
             <strong>{t("appName")}</strong>

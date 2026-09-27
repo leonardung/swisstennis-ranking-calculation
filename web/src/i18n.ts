@@ -396,12 +396,7 @@ export function loadLang(): Lang {
   } catch {
     /* storage unavailable */
   }
-  try {
-    if (navigator.language?.toLowerCase().startsWith("fr")) return "fr";
-  } catch {
-    /* ignore */
-  }
-  return "en";
+  return "fr";
 }
 
 export function saveLang(lang: Lang): void {
