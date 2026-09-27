@@ -7,7 +7,7 @@ import { Card } from "./common";
 
 /** Backtest of the April 2026 list (README), predicted as today's list is: rank error per
  * category group (the only list whose licence holders, hence ranks, are known), share of players
- * with C within 0.001, and the monthly lists of one R1/R2 player. */
+ * with C within 0.001. */
 const LIST = "2026-04";
 const RANKS = [
   { group: "N1–N4", n: 228, within10: 0.991, median: 1 },
@@ -17,7 +17,6 @@ const RANKS = [
 const TOP_MEDIAN = 1; // N1–R3
 const TOP_WITHIN10 = 0.948; // N1–R3
 const EXACT_C = 0.961;
-const MONTHLY_RANK = 5;
 
 function Accuracy() {
   const { t, locale } = useI18n();
@@ -42,11 +41,6 @@ function Accuracy() {
           <small>{t("accExact")}</small>
           <strong className="acc-big">{pct(EXACT_C)}</strong>
           <small className="muted">{t("accExactNote")}</small>
-        </div>
-        <div className="meta-tile">
-          <small>{t("accMonthly")}</small>
-          <strong className="acc-big">±{MONTHLY_RANK}</strong>
-          <small className="muted">{t("accMonthlyNote")}</small>
         </div>
       </div>
       <div className="table-wrap">
