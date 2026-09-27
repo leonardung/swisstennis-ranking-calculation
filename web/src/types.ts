@@ -66,6 +66,8 @@ export interface OpponentRef {
   id: number | null;
   name: string;
   class: string | null;
+  /** category on the official list in force (matches only) */
+  class_official?: string | null;
   value?: number | null;
 }
 

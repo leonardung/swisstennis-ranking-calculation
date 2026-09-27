@@ -41,6 +41,7 @@ class State:
     number: pd.Series  # personId -> player number
     people: pd.DataFrame  # index personId: name, licence, gender, key (search text)
     official_date: pd.Timestamp
+    official_class: pd.Series  # personId -> category on the official list in force
 
 
 def _fold(s: pd.Series) -> pd.Series:
@@ -74,6 +75,7 @@ def load_state(data_dir: Path) -> State:
     people = people[people["name"].fillna("") != ""]
     people["key"] = _fold(people["name"]) + " " + people["licence"].fillna("").str.replace(".", "", regex=False)
 
+    official_date = [d for d in evaluate.publications(history) if d <= today][-1]
     return State(
         today=today,
         updated=datetime.fromtimestamp((data_dir / "matches.parquet").stat().st_mtime),
@@ -86,7 +88,10 @@ def load_state(data_dir: Path) -> State:
         player_rows=rows.groupby("player").indices,
         number=pd.Series(p.index, index=p["personId"]),
         people=people,
-        official_date=[d for d in evaluate.publications(history) if d <= today][-1],
+        official_date=official_date,
+        official_class=history[history["date"].dt.normalize() == official_date]
+        .drop_duplicates("personId", keep="last")
+        .set_index("personId")["classification"],
     )
 
 
@@ -226,9 +231,7 @@ class App:
         found = found.assign(starts=starts, on_list=today["on_list"], C=today["C"]).sort_values(
             ["starts", "on_list", "C"], ascending=False
         )[:limit]
-        official = s.history[s.history["date"].dt.normalize() == s.official_date].drop_duplicates(
-            "personId", keep="last"
-        ).set_index("personId")["classification"]
+        official = s.official_class
         return [
             {
                 "id": int(pid),
@@ -319,6 +322,7 @@ class App:
                         "id": opp_id,
                         "name": stats._name(x),
                         "class": None if opp is None or not opp["on_list"] else _str(opp["class"]),
+                        "class_official": _str(s.official_class.get(opp_id)),
                         "value": None if c is None else _num(c["opp_w"]),
                     },
                     "score": x["score"],

@@ -4,7 +4,7 @@ import { playerHref, useAsync } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate } from "../format";
 import type { Match } from "../types";
-import { AsyncStatus, Card, CategoryBadge, Delta, Hint, ResultPill } from "./common";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, ResultPill } from "./common";
 
 type Filter = "all" | "wins" | "losses" | "not_counted" | "dropping";
 type SortKey = "date" | "delta";
@@ -182,7 +182,11 @@ function MatchRow({ m }: { m: Match }) {
       </td>
       <td className="nowrap">
         <span className="opp">
-          <CategoryBadge cls={m.opponent.class} size="sm" />
+          {m.opponent.class_official && m.opponent.class ? (
+            <ClassChange from={m.opponent.class_official} to={m.opponent.class} />
+          ) : (
+            <CategoryBadge cls={m.opponent.class ?? m.opponent.class_official} size="sm" />
+          )}
           {m.opponent.id != null ? (
             <a href={playerHref(m.opponent.id)} title={t("openPlayer")}>
               {m.opponent.name}
