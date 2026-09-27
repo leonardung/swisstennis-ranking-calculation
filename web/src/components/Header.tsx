@@ -5,7 +5,7 @@ import type { Meta } from "../types";
 import SearchBox from "./SearchBox";
 import FeedbackButton from "./FeedbackButton";
 
-export default function Header({ meta }: { meta: Meta | null }) {
+export default function Header({ meta, showSearch }: { meta: Meta | null; showSearch: boolean }) {
   const { t, lang, setLang, locale } = useI18n();
   const scrape = meta?.scrape;
   return (
@@ -18,7 +18,7 @@ export default function Header({ meta }: { meta: Meta | null }) {
             <small>{t("appTagline")}</small>
           </span>
         </a>
-        <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />
+        {showSearch && <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />}
         <div className="header-side">
           {meta && (
             <div className="freshness" title={freshnessTitle()}>

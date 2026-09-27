@@ -108,14 +108,14 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
       </div>
 
       <div className="toolbar">
-        <div className="seg" role="group">
+        <div className="seg seg-filters" role="group">
           {FILTERS.map(([k, label]) => (
             <button key={k} className={filter === k ? "active" : ""} onClick={() => setFilter(k)}>
               {t(label)} <span className="count">{counts[k]}</span>
             </button>
           ))}
         </div>
-        <div className="seg" role="group" aria-label={t("sortBy")}>
+        <div className="seg seg-sort" role="group" aria-label={t("sortBy")}>
           <button className={sort.key === "date" ? "active" : ""} onClick={() => toggleSort("date")}>
             {t("sortDate")}
             {sortMark("date")}
@@ -127,7 +127,7 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
         </div>
       </div>
 
-      <div className="table-wrap">
+      <div className="table-wrap matches-wrap">
         <table className="data matches">
           <thead>
             <tr>
@@ -175,12 +175,12 @@ function MatchRow({ m }: { m: Match }) {
   const { t, locale } = useI18n();
   return (
     <tr className={`${m.counted ? "" : "not-counted"} ${m.result === "win" ? "row-win" : "row-loss"}`}>
-      <td className="nowrap">{fmtDate(m.date, locale)}</td>
-      <td className="tourn">
+      <td className="m-date nowrap">{fmtDate(m.date, locale)}</td>
+      <td className="m-tourn tourn">
         <span>{m.tournament}</span>
         <small className="muted">{typeLabel(m.type, t)}</small>
       </td>
-      <td className="nowrap">
+      <td className="m-opp">
         <span className="opp">
           {m.opponent.class_official && m.opponent.class ? (
             <ClassChange from={m.opponent.class_official} to={m.opponent.class} />
@@ -196,14 +196,14 @@ function MatchRow({ m }: { m: Match }) {
           )}
         </span>
       </td>
-      <td className="num">{fmt3(m.opponent.value)}</td>
-      <td className="mono nowrap">{m.score || "–"}</td>
-      <td>
+      <td className="m-oval num">{fmt3(m.opponent.value)}</td>
+      <td className="m-score mono nowrap">{m.score || "–"}</td>
+      <td className="m-res">
         <ResultPill result={m.result} how={m.how} />
       </td>
-      <td className="num">{m.counted ? <Delta value={m.delta_W} /> : "–"}</td>
-      <td className="num strong">{m.counted ? <Delta value={m.delta_C} /> : "–"}</td>
-      <td className="tags">
+      <td className="m-dw num" data-label="W">{m.counted ? <Delta value={m.delta_W} /> : "–"}</td>
+      <td className="m-dc num strong" data-label="C">{m.counted ? <Delta value={m.delta_C} /> : "–"}</td>
+      <td className="m-tags tags">
         {m.counted ? (
           <span className="tag tag-ok">{t("counted")}</span>
         ) : (

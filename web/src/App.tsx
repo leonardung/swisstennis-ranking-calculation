@@ -64,7 +64,7 @@ export default function App() {
 
   return (
     <I18nContext.Provider value={i18n}>
-      <Header meta={meta.data} />
+      <Header meta={meta.data} showSearch={route.page !== "home"} />
       <main className="container">
         {meta.backendLoading && !meta.data ? (
           <BackendLoading />
