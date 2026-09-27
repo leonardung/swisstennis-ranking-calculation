@@ -73,3 +73,21 @@ def test_ui_paths_get_index_but_api_paths_404(tmp_path):
     assert client.get("/player/134639/stats").text == "<html>ui</html>"
     assert client.get("/app.js").text == "js"
     assert client.get("/api/nothing").status_code == 404
+
+
+def test_feedback_is_stored_rate_limited_and_drops_bots(tmp_path):
+    import json
+
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.create_app(tmp_path, None, None))
+    msg = {"message": "Great app", "name": "Leo", "page": "/player/1"}
+    assert client.post("/api/feedback", json={**msg, "website": "spam.example"}).status_code == 204
+    assert not (tmp_path / "feedback.jsonl").exists()
+    for _ in range(web.FEEDBACK_PER_HOUR):
+        assert client.post("/api/feedback", json=msg).status_code == 204
+    assert client.post("/api/feedback", json=msg).status_code == 429
+    assert client.post("/api/feedback", json={"message": ""}).status_code == 422
+    lines = (tmp_path / "feedback.jsonl").read_text().splitlines()
+    assert len(lines) == web.FEEDBACK_PER_HOUR
+    assert json.loads(lines[0]) | {"time": None} == {**msg, "email": None, "time": None}

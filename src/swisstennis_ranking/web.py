@@ -4,6 +4,7 @@ Today's list is the monthly list at today's date in predict mode (see evaluate.b
 is computed at startup and again after every nightly scrape.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -18,7 +19,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -26,6 +28,17 @@ from . import evaluate, ranking, stats
 
 # a nightly scrape refetches the players with a result dated in these last days
 RECENT_DAYS = 45
+# feedback messages accepted per visitor (IP) per hour
+FEEDBACK_PER_HOUR = 5
+
+
+class Feedback(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    name: str | None = Field(None, max_length=100)
+    email: str | None = Field(None, max_length=200)
+    page: str | None = Field(None, max_length=300)
+    # hidden field of the form: only bots fill it in
+    website: str | None = None
 
 
 @dataclass
@@ -142,6 +155,8 @@ class App:
         self.scrape_time = scrape_time
         self.state: State | None = None
         self.scrape = {"running": False, "last_run": None, "last_error": None, "next_run": None}
+        self.feedback_lock = threading.Lock()
+        self.feedback_times: dict[str, list[float]] = {}
 
     # --- lifecycle ---------------------------------------------------------------------------
 
@@ -195,6 +210,20 @@ class App:
         return self.state
 
     # --- queries -----------------------------------------------------------------------------
+
+    def feedback(self, f: Feedback, ip: str) -> None:
+        """Append a visitor's message to data/feedback.jsonl (bots are dropped silently)."""
+        if f.website:
+            return
+        now = time.time()
+        with self.feedback_lock:
+            recent = [t for t in self.feedback_times.get(ip, []) if now - t < 3600]
+            if len(recent) >= FEEDBACK_PER_HOUR:
+                raise HTTPException(429, "too many messages, try again later")
+            self.feedback_times[ip] = recent + [now]
+            entry = {"time": datetime.now().isoformat(timespec="seconds"), **f.model_dump(exclude={"website"})}
+            with open(self.data_dir / "feedback.jsonl", "a", encoding="utf-8") as out:
+                out.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def meta(self) -> dict:
         s = self.s()
@@ -424,6 +453,13 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
         # Umami tracker, loaded by the UI when both are set
         url, website = os.environ.get("UMAMI_SCRIPT_URL"), os.environ.get("UMAMI_WEBSITE_ID")
         return {"analytics": {"script": url, "website_id": website} if url and website else None}
+
+    @api.post("/api/feedback", status_code=204)
+    def feedback(f: Feedback, request: Request):
+        # behind the Cloudflare tunnel every request comes from cloudflared
+        ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
+        app.feedback(f, ip)
+        return Response(status_code=204)
 
     @api.get("/api/meta")
     def meta():

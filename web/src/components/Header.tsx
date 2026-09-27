@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { fmtDate, fmtDateTime } from "../format";
 import type { Meta } from "../types";
 import SearchBox from "./SearchBox";
+import FeedbackButton from "./FeedbackButton";
 
 export default function Header({ meta }: { meta: Meta | null }) {
   const { t, lang, setLang, locale } = useI18n();
@@ -34,6 +35,7 @@ export default function Header({ meta }: { meta: Meta | null }) {
               </span>
             </div>
           )}
+          <FeedbackButton />
           <button
             className="btn btn-ghost lang-toggle"
             onClick={() => setLang(lang === "en" ? "fr" : "en")}

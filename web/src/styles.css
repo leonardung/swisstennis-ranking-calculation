@@ -1361,3 +1361,89 @@ table {
 .acc-table {
   margin-top: 16px;
 }
+
+/* ---------- Feedback ---------- */
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+}
+.btn-primary:hover {
+  background: var(--accent);
+  filter: brightness(1.08);
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.feedback-btn {
+  font-size: 13px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+dialog.feedback {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+dialog.feedback::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}
+.feedback-body {
+  padding: 20px;
+}
+.feedback-body h2 {
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+.feedback form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.feedback label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 0;
+}
+.feedback textarea,
+.feedback input {
+  font: inherit;
+  color: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.feedback textarea {
+  resize: vertical;
+}
+.feedback-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: end; /* fields stay aligned even if a label wraps */
+  gap: 12px;
+}
+.feedback-trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.feedback-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
