@@ -10,12 +10,11 @@ import { Card } from "./common";
  * with C within 0.001, and the monthly lists of one R1/R2 player. */
 const LIST = "2026-04";
 const RANKS = [
-  { group: "N1–N4", n: 228, within10: 0.991, median: 1, mean: 5 },
-  { group: "R1–R3", n: 1677, within10: 0.942, median: 2, mean: 697 },
-  { group: "R4–R6", n: 12683, within10: 0.515, median: 10, mean: 484 },
-  { group: "R7–R9", n: 70298, within10: 0.002, median: 113, mean: 148 },
+  { group: "N1–N4", n: 228, within10: 0.991, median: 1 },
+  { group: "R1–R3", n: 1677, within10: 0.942, median: 2 },
+  { group: "R4–R6", n: 12683, within10: 0.515, median: 10 },
 ];
-const ALL = { n: 84886, within10: 0.1, median: 82, mean: 209 };
+const ALL = { n: 84886, within10: 0.1, median: 82 };
 const TOP_WITHIN10 = 0.948; // N1–R3
 const EXACT_C = 0.961;
 const MONTHLY_RANK = 5;
@@ -37,7 +36,7 @@ function Accuracy() {
         <div className="meta-tile">
           <small>{t("accMedian")}</small>
           <strong className="acc-big">{t("accPlaces", { n: int(ALL.median) })}</strong>
-          <small className="muted">{t("accMedianNote", { mean: int(ALL.mean) })}</small>
+          <small className="muted">{t("accMedianNote")}</small>
         </div>
         <div className="meta-tile">
           <small>{t("accExact")}</small>
@@ -58,7 +57,6 @@ function Accuracy() {
               <th className="num">{t("accPlayers")}</th>
               <th className="num">{t("accWithin10")}</th>
               <th className="num">{t("accMedianCol")}</th>
-              <th className="num">{t("accMeanCol")}</th>
             </tr>
           </thead>
           <tbody>
@@ -68,7 +66,6 @@ function Accuracy() {
                 <td className="num">{int(r.n)}</td>
                 <td className="num">{pct(r.within10)}</td>
                 <td className="num">{int(r.median)}</td>
-                <td className="num">{int(r.mean)}</td>
               </tr>
             ))}
           </tbody>
