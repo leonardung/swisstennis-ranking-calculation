@@ -931,14 +931,6 @@ table {
 .summary-item strong {
   font-size: 17px;
 }
-.summary-leaving {
-  flex-wrap: wrap;
-  border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
-  background: var(--warn-bg);
-}
-.summary-leaving strong {
-  font-size: 15px;
-}
 .toolbar {
   display: flex;
   justify-content: space-between;

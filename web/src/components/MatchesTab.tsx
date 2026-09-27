@@ -3,7 +3,7 @@ import { api } from "../api";
 import { playerHref, useAsync } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate } from "../format";
-import type { Match, Meta } from "../types";
+import type { Match } from "../types";
 import { AsyncStatus, Card, CategoryBadge, Delta, Hint, ResultPill } from "./common";
 
 type Filter = "all" | "wins" | "losses" | "not_counted" | "dropping";
@@ -23,31 +23,22 @@ export function typeLabel(type: string, t: (k: MsgKey) => string): string {
   return s === key ? type : s;
 }
 
-export default function MatchesTab({ playerId, meta }: { playerId: number; meta: Meta | null }) {
+export default function MatchesTab({ playerId }: { playerId: number }) {
   const { t, locale } = useI18n();
   const st = useAsync((s) => api.matches(playerId, s), [playerId]);
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "date", desc: true });
 
   const all = st.data?.matches ?? [];
-  const nextOfficial = st.data?.window.next_official ?? meta?.next_official ?? null;
 
   const summary = useMemo(() => {
     let counted = 0,
-      discarded = 0,
-      leavingC = 0,
-      leavingW = 0,
-      leavingN = 0;
+      discarded = 0;
     for (const m of all) {
       if (m.counted) counted++;
       if (m.reason === "discarded_loss") discarded++;
-      if (m.drops_after_next_official && m.counted) {
-        leavingN++;
-        leavingC += m.delta_C ?? 0;
-        leavingW += m.delta_W ?? 0;
-      }
     }
-    return { counted, discarded, leavingC, leavingW, leavingN };
+    return { counted, discarded };
   }, [all]);
 
   const counts = useMemo(() => {
@@ -114,17 +105,6 @@ export default function MatchesTab({ playerId, meta }: { playerId: number; meta:
           <strong>{summary.discarded}</strong>
           <span>{t("summaryDiscarded")}</span>
         </div>
-        {nextOfficial && (
-          <div className="summary-item summary-leaving">
-            <span>{t("summaryLeaving", { date: fmtDate(nextOfficial, locale) })}</span>
-            <strong>
-              C <Delta value={summary.leavingC} /> · W <Delta value={summary.leavingW} />
-            </strong>
-            <small className="muted">
-              {summary.leavingN} {t("dropsOutShort")}
-            </small>
-          </div>
-        )}
       </div>
 
       <div className="toolbar">

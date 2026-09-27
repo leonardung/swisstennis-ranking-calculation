@@ -15,6 +15,7 @@ const RANKS = [
   { group: "R4–R6", n: 12683, within10: 0.515, median: 10 },
 ];
 const ALL = { n: 84886, within10: 0.1, median: 82 };
+const TOP_MEDIAN = 1; // N1–R3
 const TOP_WITHIN10 = 0.948; // N1–R3
 const EXACT_C = 0.961;
 const MONTHLY_RANK = 5;
@@ -35,8 +36,8 @@ function Accuracy() {
         </div>
         <div className="meta-tile">
           <small>{t("accMedian")}</small>
-          <strong className="acc-big">{t("accPlaces", { n: int(ALL.median) })}</strong>
-          <small className="muted">{t("accMedianNote")}</small>
+          <strong className="acc-big">{t("accPlace", { n: int(TOP_MEDIAN) })}</strong>
+          <small className="muted">{t("accTopNote")}</small>
         </div>
         <div className="meta-tile">
           <small>{t("accExact")}</small>

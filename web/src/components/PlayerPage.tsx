@@ -4,7 +4,6 @@ import { trackView } from "../analytics";
 import { playerHref, TABS, useAsync, type Tab } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtInt } from "../format";
-import type { Meta } from "../types";
 import { AsyncStatus, CategoryBadge } from "./common";
 import OverviewTab from "./OverviewTab";
 import MatchesTab from "./MatchesTab";
@@ -18,7 +17,7 @@ const TAB_LABEL: Record<Tab, MsgKey> = {
   stats: "tabStats",
 };
 
-export default function PlayerPage({ id, tab, meta }: { id: number; tab: Tab; meta: Meta | null }) {
+export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
   const { t, locale } = useI18n();
   const st = useAsync((s) => api.player(id, s), [id]);
   const p = st.data;
@@ -97,7 +96,7 @@ export default function PlayerPage({ id, tab, meta }: { id: number; tab: Tab; me
 
       <div className="tab-body">
         {tab === "overview" && <OverviewTab player={p} />}
-        {tab === "matches" && <MatchesTab playerId={id} meta={meta} />}
+        {tab === "matches" && <MatchesTab playerId={id} />}
         {tab === "simulator" && <SimulatorTab player={p} />}
         {tab === "stats" && <StatsTab playerId={id} />}
       </div>

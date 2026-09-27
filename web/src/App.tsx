@@ -69,7 +69,7 @@ export default function App() {
         {meta.backendLoading && !meta.data ? (
           <BackendLoading />
         ) : route.page === "player" ? (
-          <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} meta={meta.data} />
+          <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : (
           <Home meta={meta.data} />
         )}
