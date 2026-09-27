@@ -112,16 +112,22 @@ export function navigate(href: string): void {
   window.dispatchEvent(new Event(ROUTE_CHANGE));
 }
 
-// Links shared before the switch from hash routes (#/player/1) keep working.
-if (window.location.hash.startsWith("#/")) {
-  window.history.replaceState(null, "", window.location.hash.slice(1));
+/** Links shared before the switch from hash routes (#/player/1) keep working. */
+function redirectHashRoute(): void {
+  if (window.location.hash.startsWith("#/")) {
+    window.history.replaceState(null, "", window.location.hash.slice(1));
+  }
 }
+redirectHashRoute();
 
 /** The current route; plain same-site links navigate without reloading the page. */
 export function useRoute(): Route {
   const [route, setRoute] = useState<Route>(() => parsePath(window.location.pathname));
   useEffect(() => {
-    const on = () => setRoute(parsePath(window.location.pathname));
+    const on = () => {
+      redirectHashRoute();
+      setRoute(parsePath(window.location.pathname));
+    };
     const click = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = (e.target as Element).closest?.("a");
@@ -130,10 +136,12 @@ export function useRoute(): Route {
       navigate(a.pathname);
     };
     window.addEventListener("popstate", on);
+    window.addEventListener("hashchange", on);
     window.addEventListener(ROUTE_CHANGE, on);
     document.addEventListener("click", click);
     return () => {
       window.removeEventListener("popstate", on);
+      window.removeEventListener("hashchange", on);
       window.removeEventListener(ROUTE_CHANGE, on);
       document.removeEventListener("click", click);
     };
