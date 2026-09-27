@@ -238,30 +238,10 @@ main.container {
 .brand:hover {
   text-decoration: none;
 }
-.brand-ball {
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #e4f46e, var(--ball) 55%, #9fb52a);
-  position: relative;
-  overflow: hidden;
-  box-shadow: inset -2px -3px 6px rgba(0, 0, 0, 0.15);
-}
-.brand-ball::before,
-.brand-ball::after {
-  content: "";
-  position: absolute;
-  width: 30px;
-  height: 30px;
-  border: 2px solid rgba(255, 255, 255, 0.9);
-  border-radius: 50%;
-  top: 0;
-}
-.brand-ball::before {
-  left: -21px;
-}
-.brand-ball::after {
-  right: -21px;
+.brand-logo {
+  display: block;
+  width: 32px;
+  height: 32px;
 }
 .brand-text {
   display: flex;

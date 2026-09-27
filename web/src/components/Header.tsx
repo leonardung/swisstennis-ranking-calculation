@@ -12,7 +12,7 @@ export default function Header({ meta, showSearch }: { meta: Meta | null; showSe
     <header className="app-header">
       <div className="container header-inner">
         <a className="brand" href="/">
-          <span className="brand-ball" aria-hidden />
+          <img className="brand-logo" src="/logo.svg" alt="" width={32} height={32} />
           <span className="brand-text">
             <strong>{t("appName")}</strong>
             <small>{t("appTagline")}</small>
