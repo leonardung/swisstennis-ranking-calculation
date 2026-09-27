@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { ApiError } from "../api";
 import { useI18n } from "../i18n";
 import { categoryIndex, categoryMove, fmtDelta, signClass } from "../format";
@@ -96,6 +96,19 @@ export function AsyncStatus({
   }
   if (loading) return <Spinner label={t("loading")} />;
   return null;
+}
+
+/** A label with a short explanation shown on hover or keyboard focus. */
+export function Hint({ label, text, align = "start" }: { label: ReactNode; text: string; align?: "start" | "end" }) {
+  const id = useId();
+  return (
+    <span className="hint-tip" tabIndex={0} aria-describedby={id}>
+      {label}
+      <span role="tooltip" id={id} className={`hint-pop hint-pop-${align}`}>
+        {text}
+      </span>
+    </span>
+  );
 }
 
 export function Card({ title, children, className = "", actions }: { title?: ReactNode; children: ReactNode; className?: string; actions?: ReactNode }) {

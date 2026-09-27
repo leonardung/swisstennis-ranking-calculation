@@ -187,6 +187,7 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
             </ResponsiveContainer>
           </div>
         )}
+        {points.length > 0 && <p className="hint small">{t(showRank ? "historyHelpRank" : "historyHelpValues")}</p>}
       </Card>
     </div>
   );

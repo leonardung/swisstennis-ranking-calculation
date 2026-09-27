@@ -114,7 +114,7 @@ of foreign results (snapshots), assigned values of foreign N players, and who Sw
 reclassifies by evaluation.
 
 Results, predict (2021-10, 2023-04, 2024-04, 2025-04, 2025-10, 2026-04): C exact
-68.5/65.4/84.7/94.6/94.4/96.1%, same category 98.0/95.9/95.8/96.1/97.6/99.0%. The rest: players
+68.8/65.7/84.7/94.6/94.4/96.1%, same category 97.9/95.8/95.8/96.1/97.6/99.0%. The rest: players
 classified by evaluation and new players outside R9 (≈ 500 per April list), and, on older lists,
 the unknown licence holders of the time. Monthly
 lists of one R1/R2 player (Nov 2025 – Sep 2026): all categories and match counts right, W and C

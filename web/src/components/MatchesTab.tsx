@@ -4,7 +4,7 @@ import { playerHref, useAsync } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate } from "../format";
 import type { Match, Meta } from "../types";
-import { AsyncStatus, Card, CategoryBadge, Delta, ResultPill } from "./common";
+import { AsyncStatus, Card, CategoryBadge, Delta, Hint, ResultPill } from "./common";
 
 type Filter = "all" | "wins" | "losses" | "not_counted" | "dropping";
 type SortKey = "date" | "delta";
@@ -157,12 +157,17 @@ export default function MatchesTab({ playerId, meta }: { playerId: number; meta:
               </th>
               <th>{t("tournament")}</th>
               <th>{t("opponent")}</th>
-              <th className="num">{t("oppValue")}</th>
+              <th className="num">
+                <Hint label={t("oppValue")} text={t("oppValueHelp")} />
+              </th>
               <th>{t("score")}</th>
               <th>{t("result")}</th>
-              <th className="num">Δ W</th>
+              <th className="num">
+                <Hint label="Δ W" text={t("deltaWHelp")} align="end" />
+              </th>
               <th className="num sortable" onClick={() => toggleSort("delta")}>
-                Δ C{sortMark("delta")}
+                <Hint label="Δ C" text={t("deltaCHelp")} align="end" />
+                {sortMark("delta")}
               </th>
               <th>{t("status")}</th>
             </tr>
