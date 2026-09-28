@@ -201,7 +201,8 @@ export interface Stats {
   by_month: (WL & { month: string })[];
   best_wins: NotableMatch[];
   worst_losses: NotableMatch[];
-  opponents: (WL & { id: number | null; name: string; last_date: string })[];
+  /** class: on today's list */
+  opponents: (WL & { id: number | null; name: string; last_date: string; class: string | null })[];
 }
 
 /** A match in a popup list (the matches behind a statistic or a leaderboard row). */

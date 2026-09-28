@@ -614,7 +614,12 @@ class App:
 
     def player_stats(self, pid: int, range_: str) -> dict:
         m, years = self._stats_matches(pid, range_)
-        return {"range": range_, "years": years, **stats.player_stats(m)}
+        out = stats.player_stats(m)
+        # each opponent's category on today's list
+        today = self.s().p.loc[lambda p: p["on_list"]].set_index("personId")["class"]
+        for o in out["opponents"]:
+            o["class"] = _str(today.get(o["id"]))
+        return {"range": range_, "years": years, **out}
 
     def stat_matches(self, pid: int, range_: str, key: str, value: str | None) -> list[dict]:
         m, _ = self._stats_matches(pid, range_)

@@ -16,6 +16,8 @@ const SUGGESTED = 6;
 interface Opp {
   id: number;
   name: string;
+  /** category on today's list */
+  cls: string | null;
   /** matches played against them (most played) or the last one (recent) */
   n?: number;
   lastDate?: string;
@@ -37,7 +39,7 @@ export default function SimulatorTab({ player }: { player: PlayerDetail }) {
       .filter((o) => !taken.has(o.id))
       .sort((a, b) => b.won + b.lost - (a.won + a.lost) || b.last_date.localeCompare(a.last_date))
       .slice(0, SUGGESTED);
-    const opp = (o: (typeof known)[number]): Opp => ({ id: o.id!, name: o.name, n: o.won + o.lost, lastDate: o.last_date });
+    const opp = (o: (typeof known)[number]): Opp => ({ id: o.id!, name: o.name, cls: o.class, n: o.won + o.lost, lastDate: o.last_date });
     return [byDate.map(opp), byCount.map(opp)];
   }, [stats.data, player.id]);
 
@@ -62,6 +64,7 @@ export default function SimulatorTab({ player }: { player: PlayerDetail }) {
         <div className="chips">
           {list.map((o) => (
             <button key={o.id} className={`chip ${oppId === o.id ? "active" : ""}`} onClick={() => pick(o)} title={title(o)}>
+              {o.cls && <CategoryBadge cls={o.cls} size="sm" />}
               {o.name}
             </button>
           ))}
