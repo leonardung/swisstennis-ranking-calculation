@@ -104,10 +104,7 @@ function Upsets({ data, filter, open, toggle }: { data: Data["upsets"]; filter: 
                   </span>
                 </span>
               </div>
-              <small className="muted hl-upset-meta">
-                {fmtDate(u.date, locale)}
-                {u.tournament && ` · ${u.tournament}`}
-              </small>
+              <small className="muted hl-upset-meta">{fmtDate(u.date, locale)}</small>
             </li>
           ))}
         </ol>

@@ -276,7 +276,6 @@ export interface Upset {
   gender: string;
   group: HlGroup;
   date: string;
-  tournament: string | null;
   winner: PersonRef & { class: string; W: number | null };
   loser: PersonRef & { class: string; W: number | null };
   levels: number;

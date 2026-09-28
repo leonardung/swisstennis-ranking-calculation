@@ -309,7 +309,6 @@ def build(
             "gender": r["gender"],
             "group": r["group"],
             "date": r["date"].date().isoformat(),
-            "tournament": None if pd.isna(r["tournamentName"]) else str(r["tournamentName"]),
             "winner": {**_person(people, r["personId"]), "class": r["own_class"], "W": _num(r["own_W"])},
             "loser": _loser(r),
             "levels": int(r["levels"]),
