@@ -222,6 +222,12 @@ main.container {
   font-size: 18px;
   line-height: 1;
 }
+.season-spinner {
+  flex: none;
+}
+.season-spinner.idle {
+  visibility: hidden;
+}
 .season-step:disabled {
   opacity: 0.35;
   cursor: default;

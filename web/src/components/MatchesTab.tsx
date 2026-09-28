@@ -4,7 +4,7 @@ import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate, fmtDateShort } from "../format";
 import type { Match, Season } from "../types";
-import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, ResultPill, Spinner, Standing } from "./common";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, ResultPill, Standing } from "./common";
 
 type Filter = "all" | "wins" | "losses" | "not_counted" | "dropping";
 type SortKey = "date" | "delta";
@@ -111,7 +111,7 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
     <Card
       title={t(past ? "matchesTitlePast" : "matchesTitle")}
       actions={
-        <div className="range-select">
+        <div className="range-select" aria-busy={st.loading}>
           <span id="season-label">{t("season")}</span>
           {/* seasons go from today's window (0) back in time */}
           <button
@@ -139,7 +139,8 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
           >
             ›
           </button>
-          {st.loading && <Spinner />}
+          {/* its place is kept while idle: the controls do not move */}
+          <span className={`spinner season-spinner ${st.loading ? "" : "idle"}`} aria-hidden />
         </div>
       }
     >
