@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
-import { fmt3, fmtDate } from "../format";
+import { fmt3, fmtChance, fmtDate } from "../format";
 import type { BoardKey, BoardRow, Highlights as Data, HlGroup, PersonRef } from "../types";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint } from "./common";
 import MatchListDialog, { opens, type MatchQuery } from "./MatchListDialog";
@@ -94,6 +94,7 @@ function Upsets({ data, filter, open, toggle }: { data: Data["upsets"]; filter: 
               <div className="hl-upset-side">
                 <span className="tag tag-ok">{t("hlLevels", { n: u.levels })}</span>
                 <span className="mono small">{u.score}</span>
+                {u.chance != null && <span className="small muted">{t("hlUpsetChance", { p: fmtChance(u.chance) })}</span>}
                 <span className="hl-upset-gain">
                   <Delta value={u.C} /> <small className="muted">C</small>
                 </span>

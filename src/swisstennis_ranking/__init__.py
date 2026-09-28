@@ -43,6 +43,8 @@ def main() -> None:
         "(everyone when a new official list came out)",
     )
 
+    sub.add_parser("train-winprob", help="fit the win probability model on the scraped results")
+
     sub.add_parser("periods", help="list publication dates found in the ranking history")
 
     e = sub.add_parser("evaluate", help="compute a list and compare it with the published one")
@@ -69,6 +71,12 @@ def main() -> None:
         from .scrape import scrape
 
         scrape(args.data, args.since, args.workers, args.recent_days)
+        return
+
+    if args.command == "train-winprob":
+        from .winprob import train
+
+        train(args.data)
         return
 
     if args.command == "serve":

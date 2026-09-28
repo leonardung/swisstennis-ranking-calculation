@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
-import { fmt3, fmtDate, fmtDateShort } from "../format";
+import { fmt3, fmtChance, fmtDate, fmtDateShort } from "../format";
 import type { Match, Season } from "../types";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, ResultPill, Standing } from "./common";
 
@@ -209,7 +209,9 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
                 </th>
               )}
               <th>{t("score")}</th>
-              <th>{t("result")}</th>
+              <th>
+                <Hint label={t("result")} text={t("resultChanceHelp")} />
+              </th>
               {!past && (
                 <>
                   <th className="num">
@@ -282,6 +284,11 @@ function MatchRow({ m, past }: { m: Match; past: boolean }) {
       <td className="m-score mono nowrap">{m.score || "–"}</td>
       <td className="m-res">
         <ResultPill result={m.result} how={m.how} />
+        {m.chance != null && (
+          <small className="m-chance muted" title={t("chanceBefore", { p: fmtChance(m.chance) })}>
+            {fmtChance(m.chance)}
+          </small>
+        )}
       </td>
       {!past && (
         <>

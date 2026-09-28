@@ -20,6 +20,7 @@ uv run swisstennis-ranking evaluate --date 2025-10-01  # reproduce a published l
 uv run swisstennis-ranking evaluate --date 2025-10-01 --predict  # same, using only prior knowledge
 uv run swisstennis-ranking evaluate --date 2026-10-01 --predict  # a future list
 uv run swisstennis-ranking evaluate --date 2026-09-01 --predict  # a monthly list
+uv run swisstennis-ranking train-winprob               # win probability model (data/winprob-*.json)
 uv run pytest
 ```
 
@@ -41,7 +42,8 @@ PORT=8080 docker compose up -d --build   # http://localhost:8080 (default port 8
 
 The container reads `./data` (run a first `scrape` beforehand, or the container does it on first
 start, which takes hours) and updates it every night at `SCRAPE_TIME` (default `03:00` Zurich
-time, empty to disable) with the credentials from `.env`; today's list is recomputed afterwards.
+time, empty to disable) with the credentials from `.env`; the win probability model is trained
+again (`winprob.py`, a few minutes) and today's list is recomputed afterwards.
 
 Cloudflare Tunnel: add `COMPOSE_PROFILES=tunnel` and `TUNNEL_TOKEN=<token>` to `.env` and point
 the tunnel's public hostname to `http://app:8000` (or your `PORT`). The UI has no login of its

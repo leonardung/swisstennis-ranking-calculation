@@ -994,6 +994,37 @@ table {
 .simulator .card + .card {
   margin-top: 0;
 }
+.chance-names {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.chance-names span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chance-names strong {
+  font-size: 18px;
+}
+.chance-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.chance-bar span:last-child {
+  flex: 1;
+}
+.m-chance {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
 .sim-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

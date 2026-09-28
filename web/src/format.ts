@@ -30,6 +30,12 @@ export function fmtPct(part: number, total: number): string {
   return p == null ? DASH : `${p.toFixed(1)}%`;
 }
 
+/** A win probability (0..1) as a whole percentage; never a certain 0% or 100%. */
+export function fmtChance(p: number): string {
+  const pct = Math.round(p * 100);
+  return pct >= 100 ? ">99%" : pct <= 0 ? "<1%" : `${pct}%`;
+}
+
 export function fmtInt(n: number | null | undefined, locale?: string): string {
   return n == null ? DASH : n.toLocaleString(locale);
 }

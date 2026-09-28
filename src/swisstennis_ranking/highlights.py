@@ -207,11 +207,14 @@ def build(
     placed: pd.Index,
     today: pd.Timestamp,
     match_gain: Callable[[int, int], float | None],
+    match_chance: Callable[[pd.Index], pd.Series],
 ) -> dict:
     """The highlights as JSON. `today_list` is today's calculated list (index personId: class,
     rank, C); `people` has name and gender (index personId); `placed` are the players whose
     category on the official list Swiss Tennis set (left out of last season's movers);
-    `match_gain(personId, row)` is the C a result (its row in `matches`) brings today."""
+    `match_gain(personId, row)` is the C a result (its row in `matches`) brings today;
+    `match_chance(rows)` the winner's chance before those results (NaN without a model): the
+    week's upsets come the least expected first."""
     genders = [g for g in ("M", "F") if (people["gender"] == g).any()]
 
     official = list_at(history, official_date).rename(columns={"classification": "class"})
@@ -298,6 +301,8 @@ def build(
     start = week - pd.Timedelta(days=7)
     up = upsets(matches, history, start, today)
     up = up[up["personId"].isin(people.index)]
+    up = up.assign(chance=match_chance(pd.Index(up["row"])).to_numpy())
+    up = up.sort_values("chance", kind="stable", na_position="last")
     up = _top(up.assign(gender=up["personId"].map(people["gender"]), group=up["own_class"].map(group_of)))
     upset_rows = [
         {
@@ -310,6 +315,7 @@ def build(
             "levels": int(r["levels"]),
             "score": r["score"],
             "C": _num(match_gain(int(r["personId"]), r["row"])),
+            "chance": _num(r["chance"]),
         }
         for _, r in up.iterrows()
     ]

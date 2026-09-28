@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import unicodedata
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -24,7 +25,7 @@ from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import evaluate, highlights, ranking, stats
+from . import evaluate, highlights, ranking, stats, winprob
 
 # a nightly scrape refetches the players with a result dated in these last days
 RECENT_DAYS = 45
@@ -63,6 +64,12 @@ class State:
     official_date: pd.Timestamp
     official_class: pd.Series  # personId -> category on the official list in force
     highlights: dict  # home page: leaderboards, upsets of the week, biggest movers (JSON)
+    # win probability of personId against opp in matches (personId, opp, date, type); None
+    # without a trained model
+    # (hypothetical: the mean of both models, see winprob.Model.chance)
+    chance: Callable[[pd.DataFrame], np.ndarray | None]
+    # the chance before each result (rows of `matches`) of its player; NaN for walkovers
+    match_chance: Callable[[pd.Index], pd.Series]
 
 
 def _fold(s: pd.Series) -> pd.Series:
@@ -102,6 +109,21 @@ def load_state(data_dir: Path) -> State:
     today_list = p[p["on_list"]].set_index("personId")[["class", "rank", "C"]]
     number = pd.Series(p.index, index=p["personId"])
     player_rows = rows.groupby("player").indices
+    match_rows = matches.groupby("personId").indices
+    model = _winprob_model(data_dir)
+    born = winprob.people(players)
+
+    def chance(q: pd.DataFrame, played: bool = False) -> np.ndarray | None:
+        if model is None:
+            return None
+        ids = pd.unique(pd.concat([q["personId"], q["opp"]]))
+        pos = np.concatenate([match_rows.get(i, np.array([], int)) for i in ids] + [np.array([], int)])
+        return model.chance(q, winprob.results(matches.iloc[pos]), history, born, played)
+
+    def match_chance(rows: pd.Index) -> pd.Series:
+        q = winprob.results(matches.loc[rows])
+        c = chance(q, played=True)
+        return pd.Series(np.nan if c is None else c, index=q.index).reindex(rows)
 
     def match_gain(pid: int, row: int) -> float | None:
         """The C that the result in row `row` of `matches` brings to player `pid` today."""
@@ -119,7 +141,7 @@ def load_state(data_dir: Path) -> State:
         updated=datetime.fromtimestamp((data_dir / "matches.parquet").stat().st_mtime),
         history=history,
         matches=matches,
-        match_rows=matches.groupby("personId").indices,
+        match_rows=match_rows,
         period=period,
         p=p,
         rows=rows,
@@ -140,8 +162,20 @@ def load_state(data_dir: Path) -> State:
             ),
             today,
             match_gain,
+            match_chance,
         ),
+        chance=chance,
+        match_chance=match_chance,
     )
+
+
+def _winprob_model(data_dir: Path) -> winprob.Model | None:
+    """The trained win probability model, None before the first training (or if it cannot load)."""
+    try:
+        return winprob.Model(data_dir) if all((data_dir / f).exists() for f in winprob.MODEL_FILES) else None
+    except Exception as e:  # a broken file only costs the probabilities
+        print(f"win probability model not loaded: {e!r}", file=sys.stderr)
+        return None
 
 
 def _num(v, digits: int = 3):
@@ -217,21 +251,28 @@ class App:
 
     def _scrape(self, recent_days: int | None = None) -> None:
         self.scrape.update(running=True, last_error=None)
-        cmd = [sys.executable, "-m", "swisstennis_ranking", "--data", str(self.data_dir), "scrape"]
-        if recent_days is not None:
-            cmd += ["--recent-days", str(recent_days)]
-        log = self.data_dir / "scrape.log"
+        args = ["scrape"] + ([] if recent_days is None else ["--recent-days", str(recent_days)])
+        # then the win probability model on the new results (its own process: its memory is freed)
+        if self._command(args, "scrape.log"):
+            self._command(["train-winprob"], "winprob.log")
+        self.scrape.update(running=False, last_run=datetime.now().isoformat(timespec="seconds"))
+        # also when the scrape failed: today's list moves with the date
+        if (self.data_dir / "history.parquet").exists():
+            self._reload()
+
+    def _command(self, args: list[str], log_name: str) -> bool:
+        """Run a CLI command on the data, output to data/log_name; False (and last_error) on failure."""
+        cmd = [sys.executable, "-m", "swisstennis_ranking", "--data", str(self.data_dir), *args]
+        log = self.data_dir / log_name
         try:
             with log.open("w") as out:
                 done = subprocess.run(cmd, stdout=out, stderr=subprocess.STDOUT)
             if done.returncode:
                 self.scrape["last_error"] = log.read_text(errors="replace")[-2000:]
+            return done.returncode == 0
         except Exception as e:  # keep the scheduler alive
             self.scrape["last_error"] = repr(e)
-        self.scrape.update(running=False, last_run=datetime.now().isoformat(timespec="seconds"))
-        # also when the scrape failed: today's list moves with the date
-        if (self.data_dir / "history.parquet").exists():
-            self._reload()
+            return False
 
     def _reload(self) -> None:
         try:
@@ -402,6 +443,7 @@ class App:
         dW, dC = match_deltas(r["w0"], rows["opp_w"].to_numpy(), rows["win"].to_numpy())
         calc = rows.assign(dW=dW, dC=dC).set_index("match")
         next_official = evaluate.next_list(s.today)
+        chance = s.match_chance(m.index)
 
         out = []
         for idx, x in m.iterrows():
@@ -432,6 +474,7 @@ class App:
                     "score": x["score"],
                     "result": x["result"],
                     "how": x["how"],
+                    "chance": _num(chance[idx]),
                     "counted": reason is None,
                     "reason": reason,
                     "delta_W": None if reason else _num(c["dW"]),
@@ -458,6 +501,9 @@ class App:
             raise HTTPException(400, "a player cannot play himself")
         a, b = s.number[pid], s.number[oid]
         out = {"player": {"before": values(before_a)}, "opponent": {"before": values(before_b)}}
+        q = pd.DataFrame({"personId": [pid], "opp": [oid], "date": [s.today], "type": [winprob.TOURNAMENT]})
+        c = s.chance(q)
+        out["chance"] = None if c is None else _num(c[0])
         for outcome, win in (("win", True), ("loss", False)):
             extra = pd.DataFrame(
                 {"player": [a, b], "opp": [b, a], "opp_fixed": [np.nan] * 2, "win": [win, not win], "match": [-1, -1]}

@@ -106,6 +106,8 @@ export interface Match {
   score: string;
   result: Result;
   how: How;
+  /** the chance of winning before the match (none for walkovers or without a model) */
+  chance: number | null;
   counted: boolean;
   reason: Reason | null;
   delta_W: number | null;
@@ -143,6 +145,8 @@ export interface SimSide {
 export interface SimulateResponse {
   player: SimSide;
   opponent: SimSide;
+  /** the player's chance of beating the opponent (none without a model) */
+  chance: number | null;
 }
 
 export interface WL {
@@ -278,6 +282,7 @@ export interface Upset {
   levels: number;
   score: string;
   C: number | null; // what the win brings the winner today
+  chance: number | null; // the winner's chance before the match
 }
 
 export type HlGroup = "N1-R3" | "R4-R9";

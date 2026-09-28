@@ -5,7 +5,7 @@ import { trackEvent } from "../analytics";
 import { useChartColors } from "../chartTheme";
 import { playerHref, useAsync, useDebounced, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
-import { CATEGORIES, fmt3, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
+import { CATEGORIES, fmt3, fmtChance, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
 import type { PlayerDetail, SimSide, SimState } from "../types";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, Spinner } from "./common";
 import { MatchTable } from "./MatchListDialog";
@@ -87,6 +87,7 @@ export default function SimulatorTab({ player }: { player: PlayerDetail }) {
             </Card>
           ) : sim.data && opp ? (
             <>
+              {sim.data.chance != null && <ChanceCard chance={sim.data.chance} player={player.name} opponent={opp.name} />}
               <div className="sim-grid">
                 <SimCard title={player.name} role={t("simPlayer")} side={sim.data.player} perspective="player" playerName={player.name} />
                 <SimCard
@@ -110,6 +111,28 @@ export default function SimulatorTab({ player }: { player: PlayerDetail }) {
       <MoveUpCard playerId={player.id} />
       <PredictCard player={player} />
     </div>
+  );
+}
+
+/** The player's and the opponent's chance of winning, as a split bar in the rank chart's colors. */
+function ChanceCard({ chance, player, opponent }: { chance: number; player: string; opponent: string }) {
+  const { t } = useI18n();
+  const colors = useChartColors();
+  return (
+    <Card title={<Hint label={t("simChance")} text={t("simChanceHelp")} />}>
+      <div className="chance-names">
+        <span>
+          {player} <strong>{fmtChance(chance)}</strong>
+        </span>
+        <span>
+          <strong>{fmtChance(1 - chance)}</strong> {opponent}
+        </span>
+      </div>
+      <div className="chance-bar" aria-hidden>
+        <span style={{ width: `${chance * 100}%`, background: colors.s1 }} />
+        <span style={{ background: colors.s2 }} />
+      </div>
+    </Card>
   );
 }
 
