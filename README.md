@@ -42,8 +42,9 @@ PORT=8080 docker compose up -d --build   # http://localhost:8080 (default port 8
 
 The container reads `./data` (run a first `scrape` beforehand, or the container does it on first
 start, which takes hours) and updates it every night at `SCRAPE_TIME` (default `03:00` Zurich
-time, empty to disable) with the credentials from `.env`; the win probability model is trained
-again (`winprob.py`, a few minutes) and today's list is recomputed afterwards.
+time, empty to disable) with the credentials from `.env`; today's list is recomputed afterwards.
+The win probability model (`winprob.py`, a few minutes, under 4 GB) is trained on all the results
+at the first start and whenever a new official list is out.
 
 Cloudflare Tunnel: add `COMPOSE_PROFILES=tunnel` and `TUNNEL_TOKEN=<token>` to `.env` and point
 the tunnel's public hostname to `http://app:8000` (or your `PORT`). The UI has no login of its

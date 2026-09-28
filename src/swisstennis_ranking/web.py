@@ -235,6 +235,9 @@ class App:
     def _run(self) -> None:
         if (self.data_dir / "history.parquet").exists():
             self._reload()
+            # no model yet (first start): train it, then load it
+            if self._train_if_stale():
+                self._reload()
         else:
             self._scrape()
         if not self.scrape_time:
@@ -252,13 +255,17 @@ class App:
     def _scrape(self, recent_days: int | None = None) -> None:
         self.scrape.update(running=True, last_error=None)
         args = ["scrape"] + ([] if recent_days is None else ["--recent-days", str(recent_days)])
-        # then the win probability model on the new results (its own process: its memory is freed)
         if self._command(args, "scrape.log"):
-            self._command(["train-winprob"], "winprob.log")
+            self._train_if_stale()
         self.scrape.update(running=False, last_run=datetime.now().isoformat(timespec="seconds"))
         # also when the scrape failed: today's list moves with the date
         if (self.data_dir / "history.parquet").exists():
             self._reload()
+
+    def _train_if_stale(self) -> bool:
+        """Train the win probability model when a new official list is out or there is none (its
+        own process: its memory is freed); True if it was trained."""
+        return winprob.stale(self.data_dir) and self._command(["train-winprob"], "winprob.log")
 
     def _command(self, args: list[str], log_name: str) -> bool:
         """Run a CLI command on the data, output to data/log_name; False (and last_error) on failure."""

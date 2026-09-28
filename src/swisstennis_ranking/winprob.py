@@ -4,8 +4,9 @@ Features, for the player (a_) and the opponent (b_): the official list in force 
 rank, lists appeared on, W change since the previous list), the form from earlier days (career
 and last 90 / 365 days' wins and matches, days since the last match), the age (the licence
 number holds the birth year) and, for the match, the head to head so far, the gender and its
-type (interclub, tournament...). Trained after every scrape on the results since TRAIN_SINCE; a
-probability is the mean of the model from both sides, so the two players' add up to 1.
+type (interclub, tournament...). Trained on all the results when a new official list is out
+(stale()); a probability is the mean of the model from both sides, so the two players' add up
+to 1.
 
 Two models, each trained on one half of the matches (fold()): a played match gets the chance
 from the model that did not see it (a model knows the results it was trained on too well), a
@@ -21,7 +22,8 @@ import pandas as pd
 from .evaluate import CATEGORIES, LOSS_CODES, WIN_CODES, dedupe
 
 MODEL_FILES = ("winprob-0.json", "winprob-1.json")
-TRAIN_SINCE = pd.Timestamp("2018-01-01")
+# model attribute: the latest official list when it was trained
+LIST_ATTR = "list_date"
 # a hypothetical match (the simulator) is a tournament match: first digit of the result source
 TOURNAMENT = 4
 # licence numbers 903.96.276.0: born 1996; two digits above this are 19xx
@@ -36,8 +38,8 @@ PARAMS = {
     "max_bin": 128,
 }
 ROUNDS = 800
-# features are computed for this many matches at a time (memory)
-CHUNK = 500_000
+# features are computed, and given to the training, this many matches at a time (memory)
+CHUNK = 100_000
 
 SIDE = ["W", "C", "cls", "rank", "n_lists", "W_trend", "days_since", "career_n", "rate_career",
         "w90", "n90", "w365", "n365", "rate365", "age"]
@@ -94,12 +96,12 @@ def features(q: pd.DataFrame, res: pd.DataFrame, history: pd.DataFrame, born: pd
     q = q.reset_index(drop=True)
     day = res.groupby(["personId", "date"])["win"].agg(w="sum", n="size").reset_index()
     g = day.groupby("personId")
-    day = day.assign(cw=g["w"].cumsum(), cn=g["n"].cumsum(), last=day["date"])[["personId", "date", "last", "cw", "cn"]]
-    day = day.sort_values("date")
+    day = day.assign(cw=g["w"].cumsum().astype("int32"), cn=g["n"].cumsum().astype("int32"), last=day["date"])
+    day = day[["personId", "date", "last", "cw", "cn"]].sort_values("date")
     pair = res.groupby(["personId", "opp", "date"])["win"].agg(w="sum", n="size").reset_index()
     gp = pair.groupby(["personId", "opp"])
-    pair = pair.assign(hw=gp["w"].cumsum(), hn=gp["n"].cumsum())[["personId", "opp", "date", "hw", "hn"]]
-    pair = pair.sort_values("date")
+    pair = pair.assign(hw=gp["w"].cumsum().astype("int32"), hn=gp["n"].cumsum().astype("int32"))
+    pair = pair[["personId", "opp", "date", "hw", "hn"]].sort_values("date")
 
     ids = pd.concat([q["personId"], q["opp"]]).unique()
     h = history.loc[history["personId"].isin(ids) & history["W"].notna()].sort_values("date")
@@ -116,12 +118,15 @@ def features(q: pd.DataFrame, res: pd.DataFrame, history: pd.DataFrame, born: pd
             "n_lists": gh.cumcount() + 1,
             "W_trend": h["W"] - gh["W"].shift(),
         }
-    )
+    ).astype({c: "float32" for c in ("W", "C", "cls", "rank", "n_lists", "W_trend")})
+    del h, gh
+    _free()
 
-    def part(q: pd.DataFrame) -> pd.DataFrame:
-        return _features(q.reset_index(drop=True), day, pair, lists, born)
-
-    return pd.concat([part(q.iloc[i : i + CHUNK]) for i in range(0, len(q), CHUNK)], ignore_index=True)
+    # filled in place: the whole table exists once (float32)
+    out = np.empty((len(q), len(FEATURES)), dtype="float32")
+    for i in range(0, len(q), CHUNK):
+        out[i : i + CHUNK] = _features(q.iloc[i : i + CHUNK].reset_index(drop=True), day, pair, lists, born).to_numpy()
+    return pd.DataFrame(out, columns=FEATURES, copy=False)
 
 
 def _features(q: pd.DataFrame, day: pd.DataFrame, pair: pd.DataFrame, lists: pd.DataFrame, born: pd.DataFrame) -> pd.DataFrame:
@@ -156,8 +161,42 @@ def _features(q: pd.DataFrame, day: pd.DataFrame, pair: pd.DataFrame, lists: pd.
     return out[FEATURES].astype("float32")
 
 
+def _latest_list(data_dir: Path) -> str:
+    import pyarrow.parquet as pq
+
+    return pq.read_table(data_dir / "history.parquet", columns=["date"])["date"].to_pandas().max().date().isoformat()
+
+
+def stale(data_dir: Path) -> bool:
+    """True without a model, or when it was trained before the latest official list."""
+    import xgboost as xgb
+
+    try:
+        attrs = []
+        for name in MODEL_FILES:
+            b = xgb.Booster()
+            b.load_model(data_dir / name)
+            attrs.append(b.attr(LIST_ATTR))
+    except Exception:  # missing or unreadable
+        return True
+    return any(a != _latest_list(data_dir) for a in attrs)
+
+
+def _free() -> None:
+    """Give the memory freed so far back to the system (the training runs on a small server)."""
+    import ctypes
+
+    import pyarrow as pa
+
+    pa.default_memory_pool().release_unused()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except OSError:  # not glibc
+        pass
+
+
 def train(data_dir: Path) -> None:
-    """Fit the two models (one per fold) on the results since TRAIN_SINCE, saved to data_dir."""
+    """Fit the two models (one per fold) on all the results, saved to data_dir."""
     import pyarrow.parquet as pq
     import xgboost as xgb
 
@@ -165,18 +204,41 @@ def train(data_dir: Path) -> None:
     # names as categories: a fraction of the memory
     played = [("playerWinnerCode", "in", WIN_CODES + LOSS_CODES)]
     matches = pq.read_table(data_dir / "matches.parquet", columns=cols, filters=played, read_dictionary=["tournamentName"])
-    res = results(matches.to_pandas())
+    res = results(matches.to_pandas(self_destruct=True, split_blocks=True))
     del matches
+    _free()
     history = pq.read_table(
         data_dir / "history.parquet", columns=["personId", "date", "classification", "rank", "W", "C"], read_dictionary=["classification"]
-    ).to_pandas()
+    ).to_pandas(self_destruct=True, split_blocks=True)
     born = people(pd.read_parquet(data_dir / "players.parquet", columns=["personId", "licenceNumber", "gender"]))
-    q = res[res["date"] >= TRAIN_SINCE]
-    X, y, f = features(q, res, history, born), q["win"].to_numpy(), fold(q)
+    latest = history["date"].max().date().isoformat()
+    X, y, f = features(res, res, history, born).to_numpy(), res["win"].to_numpy(), fold(res)
     del res, history
+    _free()
+
+    class Rows(xgb.DataIter):
+        """Rows `rows` of X and y, CHUNK at a time: a fold is never copied whole."""
+
+        def __init__(self, rows: np.ndarray):
+            self.rows, self.i = rows, 0
+            super().__init__()
+
+        def next(self, input_data) -> bool:
+            if self.i >= len(self.rows):
+                return False
+            r = self.rows[self.i : self.i + CHUNK]
+            input_data(data=X[r], label=y[r], feature_names=FEATURES)
+            self.i += CHUNK
+            return True
+
+        def reset(self) -> None:
+            self.i = 0
+
     for k, name in enumerate(MODEL_FILES):
-        data = xgb.QuantileDMatrix(X[f == k], y[f == k], max_bin=PARAMS["max_bin"])
+        data = xgb.QuantileDMatrix(Rows(np.flatnonzero(f == k)), max_bin=PARAMS["max_bin"])
         model = xgb.train({**PARAMS, "nthread": os.cpu_count()}, data, ROUNDS)
+        del data
+        model.set_attr(**{LIST_ATTR: latest})
         tmp = data_dir / f"tmp-{name}"  # the extension picks the format
         model.save_model(tmp)
         os.replace(tmp, data_dir / name)

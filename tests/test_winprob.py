@@ -59,3 +59,15 @@ def test_chances_of_both_players_add_up_to_one():
         a = model.chance(q, res, HISTORY, BORN, played)
         b = model.chance(q.rename(columns={"personId": "opp", "opp": "personId"}), res, HISTORY, BORN, played)
         assert 0 < a[0] < 1 and abs(a[0] + b[0] - 1) < 1e-6
+
+
+def test_the_model_is_stale_without_it_or_before_the_latest_list(tmp_path):
+    HISTORY.to_parquet(tmp_path / "history.parquet")
+    assert winprob.stale(tmp_path)
+    X = pd.DataFrame(np.zeros((4, len(winprob.FEATURES))), columns=winprob.FEATURES)
+    model = xgb.train({"objective": "binary:logistic"}, xgb.DMatrix(X, [0, 1, 0, 1]), 1)
+    for listed, expected in (("2026-10-01", False), ("2026-04-01", True)):
+        model.set_attr(**{winprob.LIST_ATTR: listed})
+        for name in winprob.MODEL_FILES:
+            model.save_model(tmp_path / name)
+        assert winprob.stale(tmp_path) == expected

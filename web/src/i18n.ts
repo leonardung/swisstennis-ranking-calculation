@@ -169,7 +169,7 @@ const en = {
 
   simTitle: "Match simulator",
   simChance: "Chances of winning",
-  simChanceHelp: "Estimated for a tournament match today by a model trained on all results since 2018: both players' list values, recent form, age and head-to-head.",
+  simChanceHelp: "Estimated for a tournament match today by a model trained on all the results: both players' list values, recent form, age and head-to-head.",
   simIntro: "Pick an opponent to see how a win or a loss would change both players' ranking.",
   simSearch: "Search an opponent…",
   simRecent: "Recent opponents",
@@ -454,7 +454,7 @@ const fr: Record<MsgKey, string> = {
 
   simTitle: "Simulateur de match",
   simChance: "Chances de victoire",
-  simChanceHelp: "Estimation pour un match de tournoi aujourd'hui, par un modèle entraîné sur tous les résultats depuis 2018 : valeurs de classement des deux joueurs, forme récente, âge et confrontations directes.",
+  simChanceHelp: "Estimation pour un match de tournoi aujourd'hui, par un modèle entraîné sur tous les résultats : valeurs de classement des deux joueurs, forme récente, âge et confrontations directes.",
   simIntro: "Choisissez un adversaire pour voir comment une victoire ou une défaite changerait le classement des deux joueurs.",
   simSearch: "Rechercher un adversaire…",
   simRecent: "Adversaires récents",
