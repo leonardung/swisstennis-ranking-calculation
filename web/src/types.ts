@@ -37,11 +37,26 @@ export interface OfficialRanking {
   C: number | null;
 }
 
+export interface OfficialRanking {
+  /** false: not on the list in force, these are the latest list the player was on */
+  current?: boolean;
+}
+
+export interface FreeValues {
+  W: number | null;
+  R: number | null;
+  C: number | null;
+  rank: number | null;
+  class: string | null;
+}
+
 export interface TodayRanking extends OfficialRanking {
   R: number | null;
   w0: number | null;
   n_matches: number | null;
   note: null | "assigned" | "classified";
+  /** assigned value (foreigner): the values the matches would give, for information */
+  free: FreeValues | null;
 }
 
 export interface HistoryPoint {
@@ -172,4 +187,62 @@ export interface H2HMatch {
   score: string;
   result: Result;
   how: How;
+}
+
+export interface PersonRef {
+  id: number;
+  name: string;
+}
+
+export type BoardKey = "tiebreaks" | "super_tiebreaks" | "three_sets" | "comebacks" | "bagels" | "streak";
+
+export interface BoardRow {
+  player: PersonRef & { class: string | null };
+  value: number;
+  won?: number;
+  lost?: number;
+  start?: string;
+  end?: string;
+  ongoing?: boolean;
+}
+
+export interface Upset {
+  gender: string;
+  group: HlGroup;
+  date: string;
+  tournament: string | null;
+  winner: PersonRef & { class: string; W: number | null };
+  loser: PersonRef & { class: string; W: number | null };
+  levels: number;
+  score: string;
+}
+
+export type HlGroup = "N1-R3" | "R4-R9";
+
+export interface ListPoint {
+  class: string;
+  rank: number | null;
+  C: number | null;
+}
+
+export interface Mover {
+  gender: string;
+  group: HlGroup;
+  player: PersonRef;
+  from: ListPoint;
+  to: ListPoint;
+  levels: number;
+  gain: number | null;
+}
+
+export interface MoverList {
+  from: string;
+  to: string;
+  players: Mover[];
+}
+
+export interface Highlights {
+  leaderboards: { since: string; min_played: Partial<Record<BoardKey, number>>; players: Record<string, Record<BoardKey, BoardRow[]>> };
+  upsets: { from: string; to: string; matches: Upset[] };
+  movers: { today: MoverList; season?: MoverList };
 }

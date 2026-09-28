@@ -19,7 +19,9 @@ interface Point {
 export default function OverviewTab({ player }: { player: PlayerDetail }) {
   const { t, locale } = useI18n();
   const o = player.official;
-  const d = player.today;
+  const today = player.today;
+  // a foreigner's fixed value: the column shows the values the matches would give instead
+  const d = today?.free ? { ...today, ...today.free } : today;
   const colors = useChartColors();
 
   const rankDelta = o?.rank != null && d?.rank != null ? o.rank - d.rank : null; // positive = improved
@@ -31,11 +33,13 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
       .map((h) => ({ ...h, ts: Date.parse(h.date) }))
       .filter((h) => !Number.isNaN(h.ts))
       .sort((a, b) => a.ts - b.ts);
-    if (d && !pts.some((p) => p.date === d.date)) {
-      pts.push({ date: d.date, ts: Date.parse(d.date), W: d.W, C: d.C, rank: d.rank, class: d.class, today: true });
+    // the values of the next list (a foreigner's fixed value, not the free one)
+    const n = today;
+    if (n && !pts.some((p) => p.date === n.date)) {
+      pts.push({ date: n.date, ts: Date.parse(n.date), W: n.W, C: n.C, rank: n.rank, class: n.class, today: true });
     }
     return pts;
-  }, [player.history, d]);
+  }, [player.history, today]);
 
   const [showRank, setShowRank] = useState(true);
 
@@ -53,7 +57,10 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
                 </th>
                 <th>
                   {t("calculatedToday")}
-                  <small>{d ? fmtDate(d.date, locale) : "–"}</small>
+                  <small>
+                    {d ? fmtDate(d.date, locale) : "–"}
+                    {today?.free && <span className="tag tag-drop free-flag">🔒 {t("freeFlag")}</span>}
+                  </small>
                 </th>
                 <th>{t("change")}</th>
               </tr>
@@ -115,8 +122,15 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
           </table>
         </div>
         {!o && <p className="hint">{t("noOfficial")}</p>}
+        {o && o.current === false && <p className="hint">{t("officialOld", { date: fmtDate(o.date, locale) })}</p>}
         {!d && <p className="hint">{t("noToday")}</p>}
-        {d?.note === "assigned" && <p className="hint hint-info">ⓘ {t("noteAssigned")}</p>}
+        {today?.free && (
+          <p className="hint hint-info">
+            🔒{" "}
+            {t("noteFree")}
+          </p>
+        )}
+        {d?.note === "assigned" && !today?.free && <p className="hint hint-info">ⓘ {t("noteAssigned")}</p>}
         {d?.note === "classified" && <p className="hint hint-info">ⓘ {t("noteClassified")}</p>}
       </Card>
 

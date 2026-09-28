@@ -1542,3 +1542,187 @@ dialog.feedback::backdrop {
   gap: 8px;
   margin-top: 4px;
 }
+
+/* home page highlights: upsets, movers, leaderboards */
+.hl-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+.highlights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+.highlights > .card + .card {
+  margin-top: 0;
+}
+.hl-card .hl-list {
+  margin-bottom: 8px;
+}
+/* upsets and movers side by side: they share their rows (head, intro, list, "show more")
+   and every list row has the same height, so the rows line up across the two cards */
+@media (min-width: 901px) {
+  .hl-pair {
+    display: grid;
+    grid-row: span 4;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+    align-content: start;
+  }
+  .hl-pair .hl-more {
+    align-self: end;
+  }
+  .hl-pair .hl-list > li {
+    height: 80px;
+    box-sizing: border-box;
+    align-content: center;
+    overflow: hidden;
+  }
+  .hl-pair .hl-upset-main {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .hl-pair .hl-who,
+  .hl-pair .hl-mover > a {
+    overflow: hidden;
+  }
+  .hl-pair .hl-who a,
+  .hl-pair .hl-mover > a,
+  .hl-pair .hl-upset-meta {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+.highlights .hl-card:last-child {
+  grid-column: 1 / -1;
+}
+.hl-card .hint {
+  margin: -6px 0 12px;
+}
+.hl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hl-list > li {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.hl-list > li:first-child {
+  border-top: 0;
+}
+.hl-pos {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  min-width: 1.6em;
+}
+.hl-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.hl-upset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+}
+.hl-upset-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.hl-upset-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.hl-upset-meta {
+  grid-column: 1 / -1;
+}
+.hl-mover {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+.hl-mover-val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 7.5em;
+}
+.hl-boards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.hl-board h4 {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 0 0 6px;
+}
+.hl-board-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.hl-board-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.hl-board-val {
+  font-variant-numeric: tabular-nums;
+  font-size: 16px;
+}
+@media (max-width: 900px) {
+  .highlights,
+  .hl-boards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .hl-mover {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .hl-filter > div,
+  .hl-filter > .seg {
+    flex: 1;
+  }
+  .hl-filter .seg {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  .hl-mover .class-change {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .hl-mover-val {
+    grid-row: 1 / span 2;
+    grid-column: 3;
+  }
+}
+.hl-more {
+  margin-top: 8px;
+  width: 100%;
+}
+.hl-more {
+  justify-content: center;
+  text-align: center;
+}
+.free-flag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 0 6px;
+}

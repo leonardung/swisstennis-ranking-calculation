@@ -150,13 +150,15 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
                     {p.licence && <small className="muted mono">{p.licence}</small>}
                   </span>
                   <span className="search-cats">
-                    <CategoryBadge cls={p.class_official} size="sm" />
-                    {p.class_today && p.class_today !== p.class_official && (
+                    {/* no official category: today's alone, without "– →" */}
+                    {(p.class_official || !p.class_today) && <CategoryBadge cls={p.class_official} size="sm" />}
+                    {p.class_official && p.class_today && p.class_today !== p.class_official && (
                       <>
                         <span className="muted">→</span>
                         <CategoryBadge cls={p.class_today} size="sm" />
                       </>
                     )}
+                    {!p.class_official && p.class_today && <CategoryBadge cls={p.class_today} size="sm" />}
                   </span>
                 </li>
               ))}

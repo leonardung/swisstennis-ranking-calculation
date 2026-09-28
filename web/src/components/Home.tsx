@@ -2,6 +2,7 @@ import { navigate, playerHref } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmtDate, fmtDateTime } from "../format";
 import type { Meta } from "../types";
+import Highlights from "./Highlights";
 import SearchBox from "./SearchBox";
 import { Card } from "./common";
 
@@ -111,6 +112,7 @@ export default function Home({ meta }: { meta: Meta | null }) {
           </div>
         </section>
       )}
+      <Highlights />
       <Accuracy />
     </div>
   );

@@ -1,5 +1,6 @@
 import type {
   H2HMatch,
+  Highlights,
   MatchesResponse,
   Meta,
   PlayerDetail,
@@ -70,6 +71,7 @@ export const api = {
     get<Stats>(`/api/players/${id}/stats?range=${encodeURIComponent(range)}`, signal),
   h2h: (id: number, opponentId: number, signal?: AbortSignal) =>
     get<H2HMatch[]>(`/api/players/${id}/h2h/${opponentId}`, signal),
+  highlights: (signal?: AbortSignal) => get<Highlights>("/api/highlights", signal),
   simulate: (player: number, opponent: number, signal?: AbortSignal) =>
     get<SimulateResponse>(`/api/simulate?player=${player}&opponent=${opponent}`, signal),
 };

@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import evaluate, ranking, stats
+from . import evaluate, highlights, ranking, stats
 
 # a nightly scrape refetches the players with a result dated in these last days
 RECENT_DAYS = 45
@@ -56,6 +56,7 @@ class State:
     people: pd.DataFrame  # index personId: name, licence, gender, key (search text)
     official_date: pd.Timestamp
     official_class: pd.Series  # personId -> category on the official list in force
+    highlights: dict  # home page: leaderboards, upsets of the week, biggest movers (JSON)
 
 
 def _fold(s: pd.Series) -> pd.Series:
@@ -89,7 +90,10 @@ def load_state(data_dir: Path) -> State:
     people = people[people["name"].fillna("") != ""]
     people["key"] = _fold(people["name"]) + " " + people["licence"].fillna("").str.replace(".", "", regex=False)
 
-    official_date = [d for d in evaluate.publications(history) if d <= today][-1]
+    lists = [d for d in evaluate.publications(history) if d <= today]
+    official_date = lists[-1]
+    official = highlights.list_at(history, official_date)
+    today_list = p[p["on_list"]].set_index("personId")[["class", "rank", "C"]]
     return State(
         today=today,
         updated=datetime.fromtimestamp((data_dir / "matches.parquet").stat().st_mtime),
@@ -103,9 +107,19 @@ def load_state(data_dir: Path) -> State:
         number=pd.Series(p.index, index=p["personId"]),
         people=people,
         official_date=official_date,
-        official_class=history[history["date"].dt.normalize() == official_date]
-        .drop_duplicates("personId", keep="last")
-        .set_index("personId")["classification"],
+        official_class=official["classification"],
+        highlights=highlights.build(
+            history,
+            matches,
+            today_list,
+            people,
+            official_date,
+            lists[-2] if len(lists) > 1 else None,
+            highlights.placed_players(
+                history, matches, players, official_date, data_dir / f"placed_{official_date.date()}.parquet"
+            ),
+            today,
+        ),
     )
 
 
@@ -281,6 +295,8 @@ class App:
         off = self._official(s, pid)
         hist = s.history[s.history["personId"] == pid].sort_values("date")
         hist = hist.assign(day=hist["date"].dt.normalize()).drop_duplicates("day", keep="last")
+        # the list in force, else the latest list the player was on
+        last = off if off is not None else None if hist.empty else hist.iloc[-1]
         note = "classified" if r["classified"] else "assigned" if r["foreign"] and r["W5_prev"] >= evaluate.ASSIGNED_MIN_W5 else None
         return {
             "id": pid,
@@ -288,13 +304,14 @@ class App:
             "licence": _str(person["licence"]),
             "gender": _str(person["gender"]),
             "official": None
-            if off is None
+            if last is None
             else {
-                "date": s.official_date.date().isoformat(),
-                "class": _str(off["classification"]),
-                "rank": _int(off["rank"]),
-                "W": _num(off["W"]),
-                "C": _num(off["C"]),
+                "date": (s.official_date if off is not None else last["day"]).date().isoformat(),
+                "current": off is not None,
+                "class": _str(last["classification"]),
+                "rank": _int(last["rank"]),
+                "W": _num(last["W"]),
+                "C": _num(last["C"]),
             },
             "today": None
             if not r["on_list"]
@@ -305,6 +322,7 @@ class App:
                 "w0": _num(r["w0"]),
                 "n_matches": int(r["n_matches"]),
                 "note": note,
+                "free": self._free_values(s, r) if note == "assigned" else None,
             },
             "history": [
                 {
@@ -317,6 +335,19 @@ class App:
                 for _, h in hist.iterrows()
             ],
         }
+
+    def _free_values(self, s: State, r: pd.Series) -> dict:
+        """Values of a player with an assigned value (foreigner, Art. 9.2) as if computed from
+        the matches, for information: one pass against the opponents' values of today's list;
+        rank and category of that C among the ranked players of the same gender."""
+        rows = s.rows.iloc[s.player_rows.get(r.name, np.array([], int))]
+        W, R = ranking.single_pass(np.array([r["w0"]]), np.zeros(len(rows), int), rows["opp_w"].to_numpy(), rows["win"].to_numpy())
+        C = W[0] + R[0]
+        others = s.p[evaluate.ranked(s.p) & (s.p["gender"] == r["gender"]) & (s.p["personId"] != r["personId"])]
+        others = others.sort_values("C", ascending=False)
+        rank = int((others["C"] > C).sum()) + 1
+        cls = others["class"].iloc[min(rank, len(others)) - 1] if len(others) else None
+        return {"W": _num(W[0]), "R": _num(R[0]), "C": _num(C), "rank": rank, "class": _str(cls)}
 
     def player_matches(self, pid: int) -> dict:
         s = self.s()
@@ -409,6 +440,9 @@ class App:
         m = stats.with_categories(m, s.history, pid)
         return {"range": range_, "years": years, **stats.player_stats(m)}
 
+    def highlights(self) -> dict:
+        return self.s().highlights
+
     def h2h(self, pid: int, oid: int) -> list[dict]:
         s = self.s()
         self._player(s, pid)
@@ -484,6 +518,10 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
     @api.get("/api/players/{pid}/h2h/{oid}")
     def h2h(pid: int, oid: int):
         return app.h2h(pid, oid)
+
+    @api.get("/api/highlights")
+    def highlights():
+        return app.highlights()
 
     @api.get("/api/simulate")
     def simulate(player: int, opponent: int):
