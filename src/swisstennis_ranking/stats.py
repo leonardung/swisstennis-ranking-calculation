@@ -12,7 +12,7 @@ TYPES = {1: "interclub", 2: "interclub", 3: "interclub", 4: "tournament", 6: "ab
 # a third set won with 10 or more points is a match tiebreak
 MATCH_TIEBREAK_MIN = 10
 # wins against the strongest opponents shown in a career
-CAREER_BEST_WINS = 3
+CAREER_BEST_WINS = 4
 
 
 def _sets(m: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
