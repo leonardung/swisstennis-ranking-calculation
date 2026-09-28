@@ -102,3 +102,20 @@ def test_feedback_is_stored_rate_limited_and_drops_bots(tmp_path):
     lines = (tmp_path / "feedback.jsonl").read_text().splitlines()
     assert len(lines) == web.FEEDBACK_PER_HOUR
     assert json.loads(lines[0]) | {"time": None} == {**msg, "email": None, "time": None}
+
+
+def test_matches_of_a_statistic():
+    m = _results(
+        [((7, 6), (3, 6), (10, 8)), ((6, 0), (6, 7), (4, 6)), ((-1, -1), (-1, -1), (-1, -1)), ((6, 4), (7, 5), (-1, -1))],
+        ["S", "N", "1", "S"],
+    ).assign(date=pd.to_datetime(["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04"]))
+    history = pd.DataFrame({"personId": [1, 2], "date": pd.to_datetime(["2026-04-01"] * 2),
+                            "classification": ["R3", "R2"], "W": [6.5, 7.5]})
+    m = stats.with_categories(stats.describe(m), history, 1)
+    dates = lambda key, value=None: [r["date"] for r in stats.match_list(stats.matches_of(m, key, value))]  # noqa: E731
+    assert dates("tiebreaks") == ["2026-05-02", "2026-05-01"]
+    assert dates("bagels") == ["2026-05-02"] and dates("walkovers") == ["2026-05-03"]
+    assert dates("streak", "win") == ["2026-05-04", "2026-05-03"] and dates("streak", "loss") == ["2026-05-02"]
+    assert dates("by_relation", "higher") == dates("matches")
+    with pytest.raises(KeyError):
+        stats.matches_of(m, "nothing")

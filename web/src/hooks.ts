@@ -148,3 +148,25 @@ export function useRoute(): Route {
   }, []);
   return route;
 }
+
+/** Opens `dialog` as a modal and holds the page behind it still: the page is pinned at its
+ * scroll position and keeps its scrollbar (with nothing to scroll), so it does not shift
+ * sideways. Released when the dialog closes, or by the returned function (idempotent). */
+export function showModal(dialog: HTMLDialogElement): () => void {
+  const y = window.scrollY;
+  const root = document.documentElement.style;
+  const body = document.body.style;
+  if (document.documentElement.scrollHeight > window.innerHeight) root.overflowY = "scroll";
+  Object.assign(body, { position: "fixed", top: `-${y}px`, left: "0", right: "0" });
+  let held = true;
+  const release = () => {
+    if (!held) return;
+    held = false;
+    root.overflowY = "";
+    Object.assign(body, { position: "", top: "", left: "", right: "" });
+    window.scrollTo({ top: y, behavior: "instant" });
+  };
+  dialog.addEventListener("close", release, { once: true });
+  if (!dialog.open) dialog.showModal();
+  return release;
+}

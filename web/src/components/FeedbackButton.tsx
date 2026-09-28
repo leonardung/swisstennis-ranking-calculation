@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { trackEvent } from "../analytics";
+import { showModal } from "../hooks";
 import { useI18n } from "../i18n";
 
 type Status = "idle" | "sending" | "sent" | "error" | "limited";
@@ -12,7 +13,7 @@ export default function FeedbackButton() {
 
   const open = () => {
     setStatus("idle");
-    dialog.current?.showModal();
+    if (dialog.current) showModal(dialog.current);
   };
   const close = () => dialog.current?.close();
 

@@ -7,6 +7,7 @@ import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate, fmtMonth, fmtPct, pctValue } from "../format";
 import type { NotableMatch, Stats, WL } from "../types";
 import { AsyncStatus, Card, CategoryBadge, ResultPill, Spinner } from "./common";
+import MatchListDialog, { opens, type MatchQuery } from "./MatchListDialog";
 import { typeLabel } from "./MatchesTab";
 
 export default function StatsTab({ playerId }: { playerId: number }) {
@@ -38,60 +39,74 @@ export default function StatsTab({ playerId }: { playerId: number }) {
         {selector}
         {st.loading && st.data && <Spinner />}
       </div>
-      {st.data ? <StatsBody s={st.data} playerId={playerId} /> : <AsyncStatus {...st} />}
+      {st.data ? <StatsBody s={st.data} playerId={playerId} range={range} /> : <AsyncStatus {...st} />}
     </div>
   );
 }
 
-function StatsBody({ s, playerId }: { s: Stats; playerId: number }) {
+/** Opens the list of the matches behind a statistic (see stats.matches_of): key, title, group value. */
+type Show = (key: string, title: ReactNode, value?: string) => () => void;
+
+function StatsBody({ s, playerId, range }: { s: Stats; playerId: number; range: string }) {
   const { t } = useI18n();
   const m = s.matches;
+  const [query, setQuery] = useState<MatchQuery | null>(null);
+  const show: Show = (key, title, value) => () =>
+    setQuery({ key: `${key}:${value ?? ""}`, title, load: (sig) => api.statMatches(playerId, range, key, value, sig) });
   return (
     <>
+      {query && <MatchListDialog key={query.key} query={query} onClose={() => setQuery(null)} />}
       <div className="stat-grid">
         <StatCard title={t("matchesStat")} won={m.won} lost={m.lost} big />
         <StatCard title={t("setsStat")} won={s.sets.won} lost={s.sets.lost} big />
         <StatCard title={t("gamesStat")} won={s.games.won} lost={s.games.lost} big />
-        <StreakCard s={s} />
+        <StreakCard s={s} show={show} />
         <StatCard title={t("twoSets")} {...s.two_sets} />
         <StatCard title={t("threeSets")} {...s.three_sets} />
-        <StatCard title={t("decidingSet")} {...s.deciding_set} />
-        <StatCard title={t("matchTiebreak")} {...s.match_tiebreak} />
-        <StatCard title={t("tiebreaks")} {...s.tiebreaks} />
-        <StatCard title={t("sets75")} {...s.sets_7_5} />
+        <StatCard title={t("decidingSet")} {...s.deciding_set} onOpen={show("deciding_set", t("decidingSet"))} />
+        <StatCard title={t("matchTiebreak")} {...s.match_tiebreak} onOpen={show("match_tiebreak", t("matchTiebreak"))} />
+        <StatCard title={t("tiebreaks")} {...s.tiebreaks} onOpen={show("tiebreaks", t("tiebreaks"))} />
+        <StatCard title={t("sets75")} {...s.sets_7_5} onOpen={show("sets_7_5", t("sets75"))} />
         <StatCard
           title={t("afterWonFirst")}
+          onOpen={show("after_won_first", t("afterWonFirst"))}
           won={s.after_first_set.won_first.won}
           lost={s.after_first_set.won_first.played - s.after_first_set.won_first.won}
         />
         <StatCard
           title={t("afterLostFirst")}
+          onOpen={show("after_lost_first", t("afterLostFirst"))}
           won={s.after_first_set.lost_first.won}
           lost={s.after_first_set.lost_first.played - s.after_first_set.lost_first.won}
         />
-        <StatCard title={t("bagels")} won={s.bagels.given} lost={s.bagels.received} labels={[t("given"), t("received")]} />
-        <StatCard title={t("breadsticks")} won={s.breadsticks.given} lost={s.breadsticks.received} labels={[t("given"), t("received")]} />
-        <StatCard title={t("walkoversStat")} won={m.walkovers_won} lost={m.walkovers_lost} />
-        <StatCard title={t("retiredStat")} won={m.retired_won} lost={m.retired_lost} />
+        <StatCard title={t("bagels")} won={s.bagels.given} lost={s.bagels.received} labels={[t("given"), t("received")]} onOpen={show("bagels", t("bagels"))} />
+        <StatCard title={t("breadsticks")} won={s.breadsticks.given} lost={s.breadsticks.received} labels={[t("given"), t("received")]} onOpen={show("breadsticks", t("breadsticks"))} />
+        <StatCard title={t("walkoversStat")} won={m.walkovers_won} lost={m.walkovers_lost} onOpen={show("walkovers", t("walkoversStat"))} />
+        <StatCard title={t("retiredStat")} won={m.retired_won} lost={m.retired_lost} onOpen={show("retired", t("retiredStat"))} />
       </div>
 
       <div className="grid-2">
         <Card title={t("byRelation")}>
           <WLTable
             rows={s.by_relation.map((r) => ({ key: r.relation, label: t(`rel_${r.relation}` as MsgKey), ...r }))}
+            onOpen={(key, label) => show("by_relation", <>{t("byRelation")} · {label}</>, key)()}
           />
         </Card>
         <Card title={t("byType")}>
-          <WLTable rows={s.by_type.map((r) => ({ key: r.type, label: typeLabel(r.type, t), ...r }))} />
+          <WLTable
+            rows={s.by_type.map((r) => ({ key: r.type, label: typeLabel(r.type, t), ...r }))}
+            onOpen={(key, label) => show("by_type", <>{t("byType")} · {label}</>, key)()}
+          />
         </Card>
       </div>
 
-      <TimeChart s={s} />
+      <TimeChart s={s} show={show} />
 
       <div className="grid-2">
         <Card title={t("byClass")}>
           <WLTable
             rows={s.by_class.map((r) => ({ key: r.class ?? "none", label: <CategoryBadge cls={r.class} size="sm" />, ...r }))}
+            onOpen={(key, label) => show("by_class", <>{t("byClass")} · {label}</>, key)()}
           />
         </Card>
         <div className="stack">
@@ -120,10 +135,24 @@ function WLBar({ won, lost }: { won: number; lost: number }) {
   );
 }
 
-function StatCard({ title, won, lost, big, labels }: { title: string; won: number; lost: number; big?: boolean; labels?: [string, string] }) {
+function StatCard({
+  title,
+  won,
+  lost,
+  big,
+  labels,
+  onOpen,
+}: {
+  title: string;
+  won: number;
+  lost: number;
+  big?: boolean;
+  labels?: [string, string];
+  onOpen?: () => void;
+}) {
   const { t } = useI18n();
   return (
-    <div className={`stat-card ${big ? "stat-big" : ""}`}>
+    <div className={`stat-card ${big ? "stat-big" : ""} ${onOpen ? "opens" : ""}`} {...(onOpen && opens(onOpen, t("showMatches")))}>
       <div className="stat-title">{title}</div>
       <div className="stat-main">
         <span className="stat-value">
@@ -142,23 +171,26 @@ function StatCard({ title, won, lost, big, labels }: { title: string; won: numbe
   );
 }
 
-function StreakCard({ s }: { s: Stats }) {
+function StreakCard({ s, show }: { s: Stats; show: Show }) {
   const { t } = useI18n();
   const cur = s.streak;
+  const tip = t("showMatches");
   return (
     <div className="stat-card stat-big">
       <div className="stat-title">{t("streaks")}</div>
       <div className="stat-main">
-        <span className={`stat-value ${cur.current_type === "win" ? "pos" : cur.current_type === "loss" ? "neg" : ""}`}>
+        <span
+          {...(cur.current_type && opens(show("streak", t("currentStreak"), "current"), tip))}
+          className={`stat-value ${cur.current_type ? "opens" : ""} ${cur.current_type === "win" ? "pos" : cur.current_type === "loss" ? "neg" : ""}`}>
           {cur.current_type ? `${cur.current} ${cur.current_type === "win" ? "W" : "L"}` : "–"}
         </span>
         <span className="stat-pct muted">{t("currentStreak")}</span>
       </div>
       <div className="streak-rows">
-        <span>
+        <span className={s.streak.longest_win ? "opens" : ""} {...(s.streak.longest_win > 0 && opens(show("streak", t("longestWin"), "win"), tip))}>
           {t("longestWin")}: <strong className="pos">{s.streak.longest_win}</strong>
         </span>
-        <span>
+        <span className={s.streak.longest_loss ? "opens" : ""} {...(s.streak.longest_loss > 0 && opens(show("streak", t("longestLoss"), "loss"), tip))}>
           {t("longestLoss")}: <strong className="neg">{s.streak.longest_loss}</strong>
         </span>
       </div>
@@ -166,7 +198,7 @@ function StreakCard({ s }: { s: Stats }) {
   );
 }
 
-function WLTable({ rows }: { rows: (WL & { key: string; label: ReactNode })[] }) {
+function WLTable({ rows, onOpen }: { rows: (WL & { key: string; label: ReactNode })[]; onOpen: (key: string, label: ReactNode) => void }) {
   const { t } = useI18n();
   if (rows.length === 0) return <p className="muted">{t("noData")}</p>;
   return (
@@ -183,7 +215,7 @@ function WLTable({ rows }: { rows: (WL & { key: string; label: ReactNode })[] })
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.key}>
+            <tr key={r.key} className="opens" {...opens(() => onOpen(r.key, r.label), t("showMatches"))}>
               <th>{r.label}</th>
               <td className="num pos">{r.won}</td>
               <td className="num neg">{r.lost}</td>
@@ -199,17 +231,19 @@ function WLTable({ rows }: { rows: (WL & { key: string; label: ReactNode })[] })
   );
 }
 
-function TimeChart({ s }: { s: Stats }) {
+function TimeChart({ s, show }: { s: Stats; show: Show }) {
   const { t, locale } = useI18n();
   const colors = useChartColors();
   const [mode, setMode] = useState<"month" | "year">(s.by_month.length > 1 ? "month" : "year");
   const data = useMemo(
     () =>
       mode === "month"
-        ? [...s.by_month].sort((a, b) => a.month.localeCompare(b.month)).map((r) => ({ label: fmtMonth(r.month, locale), won: r.won, lost: r.lost }))
-        : [...s.by_year].sort((a, b) => a.year - b.year).map((r) => ({ label: String(r.year), won: r.won, lost: r.lost })),
+        ? [...s.by_month].sort((a, b) => a.month.localeCompare(b.month)).map((r) => ({ key: r.month, label: fmtMonth(r.month, locale), won: r.won, lost: r.lost }))
+        : [...s.by_year].sort((a, b) => a.year - b.year).map((r) => ({ key: String(r.year), label: String(r.year), won: r.won, lost: r.lost })),
     [mode, s, locale],
   );
+  const openBar = (_: unknown, i: number) =>
+    show(`by_${mode}`, `${mode === "month" ? t("byMonth") : t("byYear")} · ${data[i].label}`, data[i].key)();
   return (
     <Card
       title={mode === "month" ? t("byMonth") : t("byYear")}
@@ -229,7 +263,11 @@ function TimeChart({ s }: { s: Stats }) {
       ) : (
         <div className="chart-box">
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -16 }} barCategoryGap="20%">
+            <BarChart
+              data={data}
+              margin={{ top: 8, right: 8, bottom: 0, left: -16 }}
+              barCategoryGap="20%"
+            >
               <CartesianGrid stroke={colors.grid} vertical={false} />
               <XAxis dataKey="label" stroke={colors.axis} tick={{ fontSize: 12 }} tickLine={false} minTickGap={8} />
               <YAxis stroke={colors.axis} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -239,8 +277,8 @@ function TimeChart({ s }: { s: Stats }) {
                 formatter={(v, name) => [String(v), name === "won" ? t("won") : t("lost")]}
               />
               <Legend verticalAlign="top" height={28} itemSorter={null} formatter={(v: string) => (v === "won" ? t("won") : t("lost"))} />
-              <Bar dataKey="won" stackId="a" fill={colors.win} stroke={colors.surface} strokeWidth={1} isAnimationActive={false} />
-              <Bar dataKey="lost" stackId="a" fill={colors.loss} stroke={colors.surface} strokeWidth={1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="won" stackId="a" onClick={openBar} cursor="pointer" fill={colors.win} stroke={colors.surface} strokeWidth={1} isAnimationActive={false} />
+              <Bar dataKey="lost" stackId="a" onClick={openBar} cursor="pointer" fill={colors.loss} stroke={colors.surface} strokeWidth={1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </div>

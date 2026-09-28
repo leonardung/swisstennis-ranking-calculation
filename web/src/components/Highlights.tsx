@@ -5,6 +5,7 @@ import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate } from "../format";
 import type { BoardKey, BoardRow, Highlights as Data, HlGroup, PersonRef } from "../types";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint } from "./common";
+import MatchListDialog, { opens, type MatchQuery } from "./MatchListDialog";
 
 const SHOWN = 5;
 const GENDERS: [string, MsgKey][] = [
@@ -56,7 +57,12 @@ function More({ total, open, toggle }: { total: number; open: boolean; toggle: (
 }
 
 function PlayerLink({ p }: { p: PersonRef }) {
-  return <a href={playerHref(p.id)}>{p.name}</a>;
+  // inside a row that opens a match list: the link only goes to the player
+  return (
+    <a href={playerHref(p.id)} onClick={(e) => e.stopPropagation()}>
+      {p.name}
+    </a>
+  );
 }
 
 function Upsets({ data, filter, open, toggle }: { data: Data["upsets"]; filter: Filter; open: boolean; toggle: () => void }) {
@@ -148,11 +154,13 @@ function Leaderboards({ data }: { data: Data["leaderboards"] }) {
   const { t, locale } = useI18n();
   const [gender, setGender] = useState("M");
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState<MatchQuery | null>(null);
   const boards = data.players[gender];
   const pct = (v: number) => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(v);
   const longest = Math.max(0, ...BOARDS.map(([k]) => boards?.[k]?.length ?? 0));
   return (
     <Card title={t("hlBoardsTitle")} className="hl-card" actions={<GenderSeg value={gender} onChange={setGender} />}>
+      {query && <MatchListDialog key={query.key} query={query} onClose={() => setQuery(null)} />}
       <p className="hint small">{t("hlBoardsIntro", { since: fmtDate(data.since, locale) })}</p>
       <div className="hl-boards">
         {BOARDS.map(([k, label, help]) => (
@@ -162,7 +170,19 @@ function Leaderboards({ data }: { data: Data["leaderboards"] }) {
             </h4>
             <ol className="hl-list">
               {(boards?.[k] ?? []).slice(0, open ? undefined : SHOWN).map((r, i) => (
-                <li key={r.player.id} className="hl-board-row">
+                <li
+                  key={r.player.id}
+                  className="hl-board-row opens"
+                  {...opens(
+                    () =>
+                      setQuery({
+                        key: `${k}:${r.player.id}`,
+                        title: `${r.player.name} · ${t(label)}`,
+                        load: (sig) => api.boardMatches(k, r.player.id, sig),
+                      }),
+                    t("showMatches"),
+                  )}
+                >
                   <span className="hl-pos">{i + 1}</span>
                   <span className="hl-board-name">
                     <span className="hl-who">

@@ -1,5 +1,6 @@
 import type {
   H2HMatch,
+  ListedMatch,
   Highlights,
   MatchesResponse,
   Meta,
@@ -71,6 +72,14 @@ export const api = {
     get<Stats>(`/api/players/${id}/stats?range=${encodeURIComponent(range)}`, signal),
   h2h: (id: number, opponentId: number, signal?: AbortSignal) =>
     get<H2HMatch[]>(`/api/players/${id}/h2h/${opponentId}`, signal),
+  statMatches: (id: number, range: string, key: string, value: string | undefined, signal?: AbortSignal) =>
+    get<ListedMatch[]>(
+      `/api/players/${id}/stats/matches?range=${encodeURIComponent(range)}&key=${key}` +
+        (value != null ? `&value=${encodeURIComponent(value)}` : ""),
+      signal,
+    ),
+  boardMatches: (key: string, id: number, signal?: AbortSignal) =>
+    get<ListedMatch[]>(`/api/highlights/${key}/${id}`, signal),
   highlights: (signal?: AbortSignal) => get<Highlights>("/api/highlights", signal),
   simulate: (player: number, opponent: number, signal?: AbortSignal) =>
     get<SimulateResponse>(`/api/simulate?player=${player}&opponent=${opponent}`, signal),

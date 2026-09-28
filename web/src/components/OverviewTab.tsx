@@ -30,13 +30,14 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
 
   const points: Point[] = useMemo(() => {
     const pts: Point[] = player.history
-      .map((h) => ({ ...h, ts: Date.parse(h.date) }))
+      // the rank axis is logarithmic: a 0 cannot be drawn
+      .map((h) => ({ ...h, rank: positive(h.rank), ts: Date.parse(h.date) }))
       .filter((h) => !Number.isNaN(h.ts))
       .sort((a, b) => a.ts - b.ts);
     // the values of the next list (a foreigner's fixed value, not the free one)
     const n = today;
     if (n && !pts.some((p) => p.date === n.date)) {
-      pts.push({ date: n.date, ts: Date.parse(n.date), W: n.W, C: n.C, rank: n.rank, class: n.class, today: true });
+      pts.push({ date: n.date, ts: Date.parse(n.date), W: n.W, C: n.C, rank: positive(n.rank), class: n.class, today: true });
     }
     return pts;
   }, [player.history, today]);
@@ -168,6 +169,7 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
                 {showRank ? (
                   <YAxis
                     reversed
+                    scale="log"
                     stroke={colors.axis}
                     tick={{ fontSize: 12 }}
                     tickLine={false}
@@ -206,6 +208,8 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
     </div>
   );
 }
+
+const positive = (v: number | null | undefined) => (v != null && v > 0 ? v : null);
 
 function HistoryTooltip({ active, payload, showRank }: { active?: boolean; payload?: { payload: Point }[]; showRank: boolean }) {
   const { t, locale } = useI18n();

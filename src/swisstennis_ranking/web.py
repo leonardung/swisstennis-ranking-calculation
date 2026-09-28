@@ -425,7 +425,9 @@ class App:
             out["opponent"][outcome] = values(p.loc[b])
         return out
 
-    def player_stats(self, pid: int, range_: str) -> dict:
+    def _stats_matches(self, pid: int, range_: str) -> tuple[pd.DataFrame, list[int]]:
+        """The player's matches in `range_` (window, all or a year), describe()d and
+        with_categories()d, and the years with matches."""
         s = self.s()
         self._player(s, pid)
         m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
@@ -437,8 +439,29 @@ class App:
             if not range_.isdigit():
                 raise HTTPException(400, "range must be window, all or a year")
             m = m[m["date"].dt.year == int(range_)]
-        m = stats.with_categories(m, s.history, pid)
+        return stats.with_categories(m, s.history, pid), years
+
+    def player_stats(self, pid: int, range_: str) -> dict:
+        m, years = self._stats_matches(pid, range_)
         return {"range": range_, "years": years, **stats.player_stats(m)}
+
+    def stat_matches(self, pid: int, range_: str, key: str, value: str | None) -> list[dict]:
+        m, _ = self._stats_matches(pid, range_)
+        try:
+            return stats.match_list(stats.matches_of(m, key, value))
+        except KeyError:
+            raise HTTPException(400, f"unknown statistic {key} {value or ''}".strip()) from None
+
+    def board_matches(self, key: str, pid: int) -> list[dict]:
+        s = self.s()
+        # a leaderboard player may have no matches in today's period: known is enough
+        if pid not in s.people.index:
+            raise HTTPException(404, f"unknown player {pid}")
+        if key != "streak" and key not in highlights.RATIOS:
+            raise HTTPException(404, f"unknown leaderboard {key}")
+        m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
+        m = stats.describe(highlights.board_matches(m, s.today, key))
+        return stats.match_list(stats.with_categories(m, s.history, pid))
 
     def highlights(self) -> dict:
         return self.s().highlights
@@ -518,6 +541,14 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
     @api.get("/api/players/{pid}/h2h/{oid}")
     def h2h(pid: int, oid: int):
         return app.h2h(pid, oid)
+
+    @api.get("/api/players/{pid}/stats/matches")
+    def stat_matches(pid: int, key: str, range: str = "window", value: str | None = None):
+        return app.stat_matches(pid, range, key, value)
+
+    @api.get("/api/highlights/{key}/{pid}")
+    def board_matches(key: str, pid: int):
+        return app.board_matches(key, pid)
 
     @api.get("/api/highlights")
     def highlights():

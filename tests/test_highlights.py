@@ -66,3 +66,17 @@ def test_placed_players_are_read_from_the_cache(tmp_path):
     pd.DataFrame({"personId": [3, 5]}).to_parquet(cache)
     # no data needed: the reproduction is not run again
     assert highlights.placed_players(None, None, None, pd.Timestamp("2026-04-01"), cache).tolist() == [3, 5]
+
+
+def test_board_matches_are_the_counted_ones():
+    won = ((6, 4), (6, 4))
+    m = _matches([
+        (1, 2, "2026-01-01", "S", ((7, 6), (3, 6), (10, 8))),
+        (1, 2, "2026-01-02", "N", ((0, 6), (6, 0), (4, 6))),
+        (1, 2, "2026-02-01", "S", won),
+        (1, 2, "2026-02-02", "S", won),
+    ])
+    dates = lambda key: [d.day for d in highlights.board_matches(m, TODAY, key)["date"]]  # noqa: E731
+    assert dates("tiebreaks") == [1] and dates("super_tiebreaks") == [1]
+    assert dates("three_sets") == [1, 2] and dates("comebacks") == [2]
+    assert dates("bagels") == [2] and dates("streak") == [1, 2]  # 1 and 2 February

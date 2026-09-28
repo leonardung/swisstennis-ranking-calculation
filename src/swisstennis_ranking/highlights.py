@@ -34,14 +34,13 @@ def list_at(history: pd.DataFrame, date: pd.Timestamp) -> pd.DataFrame:
     return h.set_index("personId")[["classification", "rank", "W", "C"]]
 
 
-def leaderboards(matches: pd.DataFrame, today: pd.Timestamp) -> pd.DataFrame:
-    """Per player over the last LEADERBOARD_YEARS: tiebreak sets (7-6), match tiebreaks,
-    three-set matches and matches after losing the first set, won and lost; sets won 6-0 and the
-    other sets (match tiebreaks are no set); and the longest run of wins (walkovers skipped, retirements counted)
-    with its first and last date and whether it is still running."""
+def _board_rows(matches: pd.DataFrame, today: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The results counted by the leaderboards (last LEADERBOARD_YEARS, walkovers left out: no
+    score and no streak), by player and date, and per result: tiebreak sets (7-6), match
+    tiebreak, three-set match and match after losing the first set, won and lost; sets won 6-0
+    and the other sets (a match tiebreak is no set); the run of equal results it belongs to."""
     m = matches[(matches["date"] >= today - pd.DateOffset(years=LEADERBOARD_YEARS)) & (matches["date"] < today + pd.Timedelta(days=1))]
-    code = m["playerWinnerCode"]
-    m = dedupe(m[code.isin(WIN_CODES + LOSS_CODES)])  # walkovers have no score and no streak
+    m = dedupe(m[m["playerWinnerCode"].isin(WIN_CODES + LOSS_CODES)])
     m = m.sort_values(["personId", "date"], kind="stable")
     win = m["playerWinnerCode"].isin(WIN_CODES).to_numpy()
     normal = m["playerWinnerCode"].isin(["S", "N"]).to_numpy()
@@ -57,6 +56,10 @@ def leaderboards(matches: pd.DataFrame, today: pd.Timestamp) -> pd.DataFrame:
     pid = m["personId"].to_numpy()
     d = pd.DataFrame({
         "personId": pid,
+        "date": m["date"].to_numpy(),
+        "win": win,
+        # a new run starts at each change of player or of result
+        "run": np.cumsum(np.r_[True, (pid[1:] != pid[:-1]) | (win[1:] != win[:-1])])[: len(m)],
         "tb_won": (tb & (mine > theirs)).sum(axis=1),
         "tb_lost": (tb & (mine < theirs)).sum(axis=1),
         "three_won": three & win,
@@ -68,19 +71,41 @@ def leaderboards(matches: pd.DataFrame, today: pd.Timestamp) -> pd.DataFrame:
         "bagels": bagels,
         "other_sets": sets.sum(axis=1) - bagels,
     })
-    out = d.groupby("personId").sum()
+    return m, d
 
-    # runs: a new one starts at each change of player or of result
-    run = np.cumsum(np.r_[True, (pid[1:] != pid[:-1]) | (win[1:] != win[:-1])])
+
+def _best_runs(d: pd.DataFrame) -> pd.DataFrame:
+    """Per player (index) the longest run of wins of _board_rows(), the latest of equal ones:
+    its run, length (streak), first and last date and whether it is still running."""
     runs = (
-        pd.DataFrame({"personId": pid, "run": run, "date": m["date"].to_numpy()})[win]
+        d[d["win"]]
         .groupby("run")
         .agg(personId=("personId", "first"), streak=("date", "size"), start=("date", "min"), end=("date", "max"))
     )
     best = runs.reset_index().sort_values(["streak", "end"], ascending=False).drop_duplicates("personId")
-    last_run = pd.Series(run).groupby(pid).max()
+    last_run = d.groupby("personId")["run"].max()
     best["ongoing"] = best["run"].to_numpy() == last_run.reindex(best["personId"]).to_numpy()
-    return out.join(best.set_index("personId")[["streak", "start", "end", "ongoing"]])
+    return best.set_index("personId")
+
+
+def leaderboards(matches: pd.DataFrame, today: pd.Timestamp) -> pd.DataFrame:
+    """Per player, the counts of _board_rows() summed and the longest run of wins (streak, start,
+    end, ongoing)."""
+    _, d = _board_rows(matches, today)
+    out = d.drop(columns=["date", "win", "run"]).groupby("personId").sum()
+    return out.join(_best_runs(d)[["streak", "start", "end", "ongoing"]])
+
+
+def board_matches(matches: pd.DataFrame, today: pd.Timestamp, key: str) -> pd.DataFrame:
+    """The results behind a player's row on the `key` leaderboard (`matches`: the player's results)."""
+    m, d = _board_rows(matches, today)
+    if key == "streak":
+        keep = d["run"].isin(_best_runs(d)["run"])
+    else:
+        # bagels: the matches with a 6-0 set (the other sets are every match)
+        cols = list(RATIOS[key][:1] if key == "bagels" else RATIOS[key][:2])
+        keep = (d[cols] > 0).any(axis=1)
+    return m[keep.to_numpy()]
 
 
 def upsets(matches: pd.DataFrame, history: pd.DataFrame, start: pd.Timestamp, today: pd.Timestamp) -> pd.DataFrame:

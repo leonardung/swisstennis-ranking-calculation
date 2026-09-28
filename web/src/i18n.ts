@@ -160,6 +160,8 @@ const en = {
   reason_no_value: "Opponent without value",
   dropsOut: "Last list {date}",
   noMatches: "No matches",
+  matchCount: "{n} matches",
+  showMatches: "Show the matches",
   deltaHelp: "Δ = change in the player's value caused by this single match (with vs. without it).",
 
   simTitle: "Match simulator",
@@ -398,6 +400,8 @@ const fr: Record<MsgKey, string> = {
   reason_no_value: "Adversaire sans valeur",
   dropsOut: "Dernière liste {date}",
   noMatches: "Aucun match",
+  matchCount: "{n} matchs",
+  showMatches: "Voir les matchs",
   deltaHelp: "Δ = variation de la valeur du joueur due à ce seul match (avec vs. sans).",
 
   simTitle: "Simulateur de match",

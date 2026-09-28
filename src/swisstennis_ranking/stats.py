@@ -72,36 +72,132 @@ def _streaks(results: list[str]) -> dict:
     return {"current": run, "current_type": prev, "longest_win": longest["win"], "longest_loss": longest["loss"]}
 
 
-def _count(mask) -> int:
-    return int(np.count_nonzero(mask))
-
-
-def player_stats(m: pd.DataFrame) -> dict:
-    """Statistics of a player's matches (describe()d and with_categories()d, in date order)."""
+def per_match(m: pd.DataFrame) -> pd.DataFrame:
+    """Per match (describe()d), how many of each statistic the player won and lost: columns
+    <key>_won and <key>_lost. Sets, games, tiebreaks, 7-5 sets, 6-0 and 6-1 sets count per set or
+    game; the rest is 0 or 1."""
     win = (m["result"] == "win").to_numpy()
     walk = (m["how"] == "walkover").to_numpy()
-    ret = (m["how"] == "retired").to_numpy()
-    played = m[~walk]
-    pwin = (played["result"] == "win").to_numpy()
-    mine, theirs = _sets(played)
-    done = (mine >= 0) & (theirs >= 0)
+    mine, theirs = _sets(m)
+    done = (mine >= 0) & (theirs >= 0) & ~walk[:, None]
     set_won, set_lost = done & (mine > theirs), done & (mine < theirs)
     mtb = done[:, 2] & (np.maximum(mine[:, 2], theirs[:, 2]) >= MATCH_TIEBREAK_MIN)
     games = done.copy()
     games[:, 2] &= ~mtb
     n_sets = done.sum(axis=1)
-    first_won = set_won[:, 0]
     tb = done & (((mine == 7) & (theirs == 6)) | ((mine == 6) & (theirs == 7)))
     s75 = done & (((mine == 7) & (theirs == 5)) | ((mine == 5) & (theirs == 7)))
     decider = (n_sets == 3) & ~mtb
     # retired matches may end after one set: only complete two-set or three-set matches count there
-    complete = played["how"].to_numpy() == "normal"
+    complete = (m["how"] == "normal").to_numpy()
 
+    def wl(mask):
+        return mask & win, mask & ~win
+
+    def score(a, b):
+        return (games & (mine == a) & (theirs == b)).sum(axis=1), (games & (mine == b) & (theirs == a)).sum(axis=1)
+
+    counts = {
+        "matches": (win, ~win),
+        "sets": (set_won.sum(axis=1), set_lost.sum(axis=1)),
+        "games": (np.where(games, mine, 0).sum(axis=1), np.where(games, theirs, 0).sum(axis=1)),
+        "two_sets": wl(complete & (n_sets == 2)),
+        "three_sets": wl(complete & (n_sets == 3)),
+        "after_won_first": wl(complete & set_won[:, 0]),
+        "after_lost_first": wl(complete & set_lost[:, 0]),
+        "deciding_set": (decider & set_won[:, 2], decider & set_lost[:, 2]),
+        "match_tiebreak": (mtb & set_won[:, 2], mtb & set_lost[:, 2]),
+        "tiebreaks": ((tb & set_won).sum(axis=1), (tb & set_lost).sum(axis=1)),
+        "sets_7_5": ((s75 & set_won).sum(axis=1), (s75 & set_lost).sum(axis=1)),
+        "bagels": score(6, 0),
+        "breadsticks": score(6, 1),
+        "walkovers": wl(walk),
+        "retired": wl((m["how"] == "retired").to_numpy()),
+    }
+    return pd.DataFrame(
+        {f"{k}_{side}": np.asarray(v, dtype=int) for k, wl_ in counts.items() for side, v in zip(("won", "lost"), wl_)},
+        index=m.index,
+    )
+
+
+def _relation(m: pd.DataFrame) -> pd.Series:
+    """The opponent's category compared with the player's: higher, same, lower or unknown."""
     rel = pd.Series("unknown", index=m.index)
     both = m["own_class"].isin(CATEGORIES) & m["opp_class"].isin(CATEGORIES)
     level = {c: i for i, c in enumerate(CATEGORIES)}
     diff = m.loc[both, "opp_class"].map(level) - m.loc[both, "own_class"].map(level)
     rel[both] = np.select([diff < 0, diff > 0], ["higher", "lower"], "same")
+    return rel
+
+
+# the groups of player_stats(): the value of each match
+GROUPS = {
+    "by_relation": _relation,
+    "by_class": lambda m: m["opp_class"],
+    "by_type": lambda m: m["type"],
+    "by_year": lambda m: m["date"].dt.year.astype(str),
+    "by_month": lambda m: m["date"].dt.strftime("%Y-%m"),
+}
+
+
+def _streak_rows(result: pd.Series, which: str) -> np.ndarray:
+    """Rows of the current run of equal results ("current"), or of the longest run of "win" or
+    "loss" (the latest of equal ones)."""
+    r = result.to_numpy()
+    if len(r) == 0:
+        return np.zeros(0, bool)
+    run = np.cumsum(np.r_[True, r[1:] != r[:-1]])
+    if which == "current":
+        return run == run[-1]
+    size = np.bincount(run)[run]
+    of = r == which
+    if not of.any():
+        return np.zeros(len(r), bool)
+    return run == run[of & (size == size[of].max())][-1]
+
+
+def matches_of(m: pd.DataFrame, key: str, value: str | None = None) -> pd.DataFrame:
+    """The matches (of player_stats()'s input) behind one statistic: a per_match() key, a GROUPS
+    key and its value, or "streak" and current, win or loss. KeyError for an unknown key."""
+    if key == "streak":
+        if value not in ("current", "win", "loss"):
+            raise KeyError(value)
+        return m[_streak_rows(m["result"], value)]
+    if key in GROUPS:
+        return m[(GROUPS[key](m).astype(str) == value).to_numpy()]
+    c = per_match(m)
+    return m[((c[f"{key}_won"] + c[f"{key}_lost"]) > 0).to_numpy()]
+
+
+def match_list(m: pd.DataFrame) -> list[dict]:
+    """Matches (describe()d, with_categories()d) for a list, the latest first."""
+    return [
+        {
+            "date": r["date"].date().isoformat(),
+            "tournament": _str(r["tournamentName"]),
+            "opponent": {"id": _id(r["adversaryPersonId"]), "name": _name(r), "class": _str(r["opp_class"])},
+            "score": r["score"],
+            "result": r["result"],
+            "how": r["how"],
+        }
+        for _, r in m.sort_values("date", ascending=False, kind="stable").iterrows()
+    ]
+
+
+def player_stats(m: pd.DataFrame) -> dict:
+    """Statistics of a player's matches (describe()d and with_categories()d, in date order)."""
+    c = per_match(m).sum()
+
+    def wl(key: str) -> dict:
+        return {"won": int(c[f"{key}_won"]), "lost": int(c[f"{key}_lost"])}
+
+    def given(key: str) -> dict:
+        return {"given": int(c[f"{key}_won"]), "received": int(c[f"{key}_lost"])}
+
+    def after(key: str) -> dict:
+        return {"played": int(c[f"{key}_won"] + c[f"{key}_lost"]), "won": int(c[f"{key}_won"])}
+
+    played = m[m["how"] != "walkover"]
 
     def match_row(r) -> dict:
         return {
@@ -129,41 +225,25 @@ def player_stats(m: pd.DataFrame) -> dict:
     return {
         "matches": {
             "played": len(m),
-            "won": _count(win),
-            "lost": _count(~win),
-            "walkovers_won": _count(walk & win),
-            "walkovers_lost": _count(walk & ~win),
-            "retired_won": _count(ret & win),
-            "retired_lost": _count(ret & ~win),
+            **wl("matches"),
+            "walkovers_won": int(c["walkovers_won"]),
+            "walkovers_lost": int(c["walkovers_lost"]),
+            "retired_won": int(c["retired_won"]),
+            "retired_lost": int(c["retired_lost"]),
         },
-        "sets": {"won": int(set_won.sum()), "lost": int(set_lost.sum())},
-        "games": {
-            "won": int(np.where(games, mine, 0).sum()),
-            "lost": int(np.where(games, theirs, 0).sum()),
-        },
-        "two_sets": {"won": _count(complete & (n_sets == 2) & pwin), "lost": _count(complete & (n_sets == 2) & ~pwin)},
-        "three_sets": {"won": _count(complete & (n_sets == 3) & pwin), "lost": _count(complete & (n_sets == 3) & ~pwin)},
-        "after_first_set": {
-            "won_first": {"played": _count(complete & first_won), "won": _count(complete & first_won & pwin)},
-            "lost_first": {
-                "played": _count(complete & set_lost[:, 0]),
-                "won": _count(complete & set_lost[:, 0] & pwin),
-            },
-        },
-        "deciding_set": {"won": _count(decider & set_won[:, 2]), "lost": _count(decider & set_lost[:, 2])},
-        "match_tiebreak": {"won": _count(mtb & set_won[:, 2]), "lost": _count(mtb & set_lost[:, 2])},
-        "tiebreaks": {"won": int((tb & set_won).sum()), "lost": int((tb & set_lost).sum())},
-        "sets_7_5": {"won": int((s75 & set_won).sum()), "lost": int((s75 & set_lost).sum())},
-        "bagels": {
-            "given": int((games & (mine == 6) & (theirs == 0)).sum()),
-            "received": int((games & (mine == 0) & (theirs == 6)).sum()),
-        },
-        "breadsticks": {
-            "given": int((games & (mine == 6) & (theirs == 1)).sum()),
-            "received": int((games & (mine == 1) & (theirs == 6)).sum()),
-        },
+        "sets": wl("sets"),
+        "games": wl("games"),
+        "two_sets": wl("two_sets"),
+        "three_sets": wl("three_sets"),
+        "after_first_set": {"won_first": after("after_won_first"), "lost_first": after("after_lost_first")},
+        "deciding_set": wl("deciding_set"),
+        "match_tiebreak": wl("match_tiebreak"),
+        "tiebreaks": wl("tiebreaks"),
+        "sets_7_5": wl("sets_7_5"),
+        "bagels": given("bagels"),
+        "breadsticks": given("breadsticks"),
         "streak": _streaks(list(m["result"])),
-        "by_relation": _won_lost(m.assign(relation=rel), "relation"),
+        "by_relation": _won_lost(m.assign(relation=_relation(m)), "relation"),
         "by_class": sorted(
             _won_lost(m.dropna(subset=["opp_class"]).rename(columns={"opp_class": "class"}), "class"),
             key=lambda r: CATEGORIES.index(r["class"]) if r["class"] in CATEGORIES else len(CATEGORIES),

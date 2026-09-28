@@ -181,6 +181,16 @@ export interface Stats {
   opponents: (WL & { id: number | null; name: string; last_date: string })[];
 }
 
+/** A match in a popup list (the matches behind a statistic or a leaderboard row). */
+export interface ListedMatch {
+  date: string;
+  tournament: string | null;
+  opponent: OpponentRef;
+  score: string;
+  result: Result;
+  how: How;
+}
+
 export interface H2HMatch {
   date: string;
   tournament: string | null;
