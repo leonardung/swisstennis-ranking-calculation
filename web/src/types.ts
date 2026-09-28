@@ -74,7 +74,7 @@ export interface OpponentRef {
 export interface Match {
   id: number;
   date: string;
-  tournament: string;
+  tournament: string | null;
   type: MatchType | string;
   opponent: OpponentRef;
   score: string;
@@ -118,7 +118,7 @@ export interface WL {
 
 export interface NotableMatch {
   date: string;
-  tournament: string;
+  tournament: string | null;
   opponent: OpponentRef;
   opponent_value: number | null;
   score: string;
@@ -168,7 +168,7 @@ export interface Stats {
 
 export interface H2HMatch {
   date: string;
-  tournament: string;
+  tournament: string | null;
   score: string;
   result: Result;
   how: How;

@@ -346,7 +346,7 @@ class App:
                 {
                     "id": int(idx),
                     "date": x["date"].date().isoformat(),
-                    "tournament": x["tournamentName"],
+                    "tournament": _str(x["tournamentName"]),
                     "type": x["type"],
                     "opponent": {
                         "id": opp_id,
@@ -417,7 +417,7 @@ class App:
         return [
             {
                 "date": x["date"].date().isoformat(),
-                "tournament": x["tournamentName"],
+                "tournament": _str(x["tournamentName"]),
                 "score": x["score"],
                 "result": x["result"],
                 "how": x["how"],

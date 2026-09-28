@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -50,6 +52,15 @@ def test_player_stats_sets_tiebreaks_and_walkovers():
     assert d["after_first_set"]["lost_first"] == {"played": 0, "won": 0}
     assert d["by_relation"] == [{"relation": "higher", "won": 3, "lost": 1}]
     assert d["streak"]["longest_win"] == 2 and d["streak"]["current_type"] == "win"
+
+
+def test_player_stats_without_tournament_name_is_valid_json():
+    # foreign results often come without a tournament name
+    m = _results([((6, 4), (6, 4), (-1, -1))], ["S"]).assign(tournamentName=np.nan)
+    history = pd.DataFrame({"personId": [1, 2], "date": pd.to_datetime(["2026-04-01"] * 2),
+                            "classification": ["R3", "R2"], "W": [6.5, 7.5]})
+    d = stats.player_stats(stats.with_categories(stats.describe(m), history, 1))
+    json.dumps(d, allow_nan=False)
 
 
 def test_analytics_config_needs_script_and_website(monkeypatch, tmp_path):

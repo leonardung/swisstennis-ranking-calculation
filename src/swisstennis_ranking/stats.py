@@ -103,7 +103,7 @@ def player_stats(m: pd.DataFrame) -> dict:
     def match_row(r) -> dict:
         return {
             "date": r["date"].date().isoformat(),
-            "tournament": r["tournamentName"],
+            "tournament": _str(r["tournamentName"]),
             "opponent": {"id": _id(r["adversaryPersonId"]), "name": _name(r), "class": _str(r["opp_class"])},
             "opponent_value": _num(r["value"]),
             "score": r["score"],

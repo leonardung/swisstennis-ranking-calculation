@@ -263,7 +263,7 @@ function NotableList({ title, items, kind }: { title: string; items: NotableMatc
               <div className="notable-main">
                 {it.opponent.id != null ? <a href={playerHref(it.opponent.id)}>{it.opponent.name}</a> : <span>{it.opponent.name}</span>}
                 <small className="muted">
-                  {fmtDate(it.date, locale)} · {it.tournament}
+                  {fmtDate(it.date, locale)}{it.tournament && ` · ${it.tournament}`}
                 </small>
               </div>
               <div className="notable-side">
