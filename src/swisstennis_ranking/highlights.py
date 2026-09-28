@@ -18,7 +18,7 @@ LEADERBOARD_YEARS = 5
 TOP = 25
 # ratio leaderboards: (columns of leaderboards(): successes, others; minimum of both together)
 RATIOS = {
-    "tiebreaks": ("tb_won", "tb_lost", 10),  # tiebreak sets (7-6) and match tiebreaks
+    "tiebreaks": ("tb_won", "tb_lost", 15),  # tiebreak sets (7-6) and match tiebreaks
     "three_sets": ("three_won", "three_lost", 15),  # three-set matches
     "bagels": ("bagels", "other_sets", 50),  # sets won 6-0 among the sets played
 }
