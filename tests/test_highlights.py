@@ -34,8 +34,8 @@ def test_leaderboards_count_tiebreaks_three_sets_and_the_longest_streak():
     ])
     b = highlights.leaderboards(m, TODAY)
     r = b.loc[1]
-    assert (r["tb_won"], r["tb_lost"], r["three_won"], r["three_lost"]) == (1, 1, 1, 1)
-    assert (r["mtb_won"], r["mtb_lost"], r["back_won"], r["back_lost"]) == (1, 0, 0, 1)
+    # tiebreaks: 7-6 sets and the match tiebreak
+    assert (r["tb_won"], r["tb_lost"], r["three_won"], r["three_lost"]) == (2, 1, 1, 1)
     assert (r["bagels"], r["other_sets"]) == (0, 2 + 2 + 3 + 2 + 2)  # no match tiebreak, no old match
     assert r["streak"] == 2 and r["start"] == pd.Timestamp("2026-02-01") and r["ongoing"]
     assert (r["mtb_points"], r["mtb_mine"], r["mtb_theirs"]) == (18, 10, 8)
@@ -81,8 +81,7 @@ def test_board_matches_are_the_counted_ones():
         (1, 2, "2026-02-02", "S", won),
     ])
     dates = lambda key: [d.day for d in highlights.board_matches(m, TODAY, key)["date"]]  # noqa: E731
-    assert dates("tiebreaks") == [1] and dates("super_tiebreaks") == [1]
-    assert dates("three_sets") == [1, 2] and dates("comebacks") == [2]
+    assert dates("tiebreaks") == [1] and dates("three_sets") == [1, 2]
     assert dates("bagels") == [2] and dates("streak") == [1, 2]  # 1 and 2 February
 
 

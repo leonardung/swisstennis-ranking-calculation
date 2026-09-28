@@ -16,11 +16,9 @@ const GROUPS: HlGroup[] = ["N1-R3", "R4-R9"];
 // board, title, explanation shown on the title (ratios: the minimum played, filled in)
 const BOARDS: [BoardKey, MsgKey, MsgKey][] = [
   ["tiebreaks", "hlTiebreaks", "hlMinTiebreaks"],
-  ["super_tiebreaks", "hlSuperTiebreaks", "hlMinSuperTiebreaks"],
   ["longest_super_tiebreak", "hlLongestSuperTiebreak", "hlLongestSuperTiebreakHelp"],
   ["biggest_upset", "hlBiggestUpset", "hlBiggestUpsetHelp"],
   ["three_sets", "hlThreeSets", "hlMinThreeSets"],
-  ["comebacks", "hlComebacks", "hlMinComebacks"],
   ["bagels", "hlBagels", "hlMinBagels"],
   ["streak", "hlStreak", "hlStreakHelp"],
 ];

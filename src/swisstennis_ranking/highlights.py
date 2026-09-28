@@ -18,10 +18,8 @@ LEADERBOARD_YEARS = 5
 TOP = 25
 # ratio leaderboards: (columns of leaderboards(): successes, others; minimum of both together)
 RATIOS = {
-    "tiebreaks": ("tb_won", "tb_lost", 10),  # tiebreak sets (7-6)
-    "super_tiebreaks": ("mtb_won", "mtb_lost", 5),  # match tiebreaks
+    "tiebreaks": ("tb_won", "tb_lost", 10),  # tiebreak sets (7-6) and match tiebreaks
     "three_sets": ("three_won", "three_lost", 15),  # three-set matches
-    "comebacks": ("back_won", "back_lost", 25),  # matches after losing the first set
     "bagels": ("bagels", "other_sets", 50),  # sets won 6-0 among the sets played
 }
 # upsets and movers are filtered by gender and by group: the winner's / the starting category
@@ -37,8 +35,8 @@ def list_at(history: pd.DataFrame, date: pd.Timestamp) -> pd.DataFrame:
 
 def _board_rows(matches: pd.DataFrame, today: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The results counted by the leaderboards (last LEADERBOARD_YEARS, walkovers left out: no
-    score and no streak), by player and date, and per result: tiebreak sets (7-6), match
-    tiebreak, three-set match and match after losing the first set, won and lost; sets won 6-0
+    score and no streak), by player and date, and per result: tiebreaks (7-6 sets and the match
+    tiebreak) and three-set match, won and lost; sets won 6-0
     and the other sets (a match tiebreak is no set); the points of a match tiebreak (mtb_mine,
     mtb_theirs, 0 without one); the run of equal results it belongs to."""
     m = matches[(matches["date"] >= today - pd.DateOffset(years=LEADERBOARD_YEARS)) & (matches["date"] < today + pd.Timedelta(days=1))]
@@ -54,7 +52,6 @@ def _board_rows(matches: pd.DataFrame, today: pd.Timestamp) -> tuple[pd.DataFram
     sets[:, 2] &= ~mtb
     bagels = (sets & (mine == 6) & (theirs == 0)).sum(axis=1)
     three = normal & (done.sum(axis=1) == 3)
-    first_lost = normal & done[:, 0] & (mine[:, 0] < theirs[:, 0])
     pid = m["personId"].to_numpy()
     d = pd.DataFrame({
         "personId": pid,
@@ -62,14 +59,10 @@ def _board_rows(matches: pd.DataFrame, today: pd.Timestamp) -> tuple[pd.DataFram
         "win": win,
         # a new run starts at each change of player or of result
         "run": np.cumsum(np.r_[True, (pid[1:] != pid[:-1]) | (win[1:] != win[:-1])])[: len(m)],
-        "tb_won": (tb & (mine > theirs)).sum(axis=1),
-        "tb_lost": (tb & (mine < theirs)).sum(axis=1),
+        "tb_won": (tb & (mine > theirs)).sum(axis=1) + (mtb & (mine[:, 2] > theirs[:, 2])),
+        "tb_lost": (tb & (mine < theirs)).sum(axis=1) + (mtb & (mine[:, 2] < theirs[:, 2])),
         "three_won": three & win,
         "three_lost": three & ~win,
-        "mtb_won": mtb & (mine[:, 2] > theirs[:, 2]),
-        "mtb_lost": mtb & (mine[:, 2] < theirs[:, 2]),
-        "back_won": first_lost & win,
-        "back_lost": first_lost & ~win,
         "bagels": bagels,
         "other_sets": sets.sum(axis=1) - bagels,
         "mtb_mine": np.where(mtb, mine[:, 2], 0),

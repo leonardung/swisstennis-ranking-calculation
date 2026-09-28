@@ -253,7 +253,7 @@ export interface PersonRef {
   name: string;
 }
 
-export type BoardKey = "tiebreaks" | "super_tiebreaks" | "longest_super_tiebreak" | "biggest_upset" | "three_sets" | "comebacks" | "bagels" | "streak";
+export type BoardKey = "tiebreaks" | "longest_super_tiebreak" | "biggest_upset" | "three_sets" | "bagels" | "streak";
 
 export interface BoardRow {
   player: PersonRef & { class: string | null };
