@@ -37,7 +37,7 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
     return pts;
   }, [player.history, d]);
 
-  const [showRank, setShowRank] = useState(false);
+  const [showRank, setShowRank] = useState(true);
 
   return (
     <div className="overview">
@@ -124,11 +124,11 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
         title={t("history")}
         actions={
           <div className="seg" role="group">
-            <button className={!showRank ? "active" : ""} onClick={() => setShowRank(false)}>
-              {t("chartValues")}
-            </button>
             <button className={showRank ? "active" : ""} onClick={() => setShowRank(true)}>
               {t("chartRank")}
+            </button>
+            <button className={!showRank ? "active" : ""} onClick={() => setShowRank(false)}>
+              {t("chartValues")}
             </button>
           </div>
         }
