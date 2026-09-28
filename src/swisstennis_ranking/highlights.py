@@ -93,9 +93,10 @@ def _best_runs(d: pd.DataFrame) -> pd.DataFrame:
 
 
 def _longest_mtb(d: pd.DataFrame) -> pd.DataFrame:
-    """Per player (index) the match tiebreak of _board_rows() with the most points, the latest of
-    equal ones: its row, points, the player's and the opponent's points and date."""
-    t = d[d["mtb_mine"] + d["mtb_theirs"] > 0].assign(mtb_points=lambda t: t["mtb_mine"] + t["mtb_theirs"])
+    """Per player (index) the won match tiebreak of _board_rows() with the most points, the latest
+    of equal ones (only won: each tiebreak is listed once): its row, points, the player's and the
+    opponent's points and date."""
+    t = d[d["mtb_mine"] > d["mtb_theirs"]].assign(mtb_points=lambda t: t["mtb_mine"] + t["mtb_theirs"])
     t = t.rename_axis("row").reset_index().sort_values(["mtb_points", "date"], kind="stable")
     return t.drop_duplicates("personId", keep="last").set_index("personId")[["row", "mtb_points", "mtb_mine", "mtb_theirs", "date"]]
 
@@ -126,21 +127,22 @@ def board_matches(matches: pd.DataFrame, today: pd.Timestamp, key: str) -> pd.Da
 def upsets(matches: pd.DataFrame, history: pd.DataFrame, start: pd.Timestamp, today: pd.Timestamp) -> pd.DataFrame:
     """Wins (not walkovers or retirements) from `start` to today against a player of a higher
     category, both on the list in force at the match; biggest category gap first, then W gap.
+    Not by players rated at the floor then (no results yet: their category is a placeholder).
     `row`: the result's row in `matches`."""
     m = matches[(matches["date"] >= start) & (matches["date"] < today + pd.Timedelta(days=1))]
-    m = describe(dedupe(m[(m["playerWinnerCode"] == "S") & m["adversaryPersonId"].notna()])).sort_values("date")
+    m = dedupe(m[(m["playerWinnerCode"] == "S") & m["adversaryPersonId"].notna()]).sort_values("date")
     m = m.assign(adversaryPersonId=m["adversaryPersonId"].astype("int64"), row=m.index)
     ids = set(m["personId"]) | set(m["adversaryPersonId"])
-    h = history.loc[history["personId"].isin(ids), ["personId", "date", "classification", "W"]].dropna()
+    h = history.loc[history["personId"].isin(ids), ["personId", "date", "classification", "W", "C"]].dropna()
     h = h[h["classification"].isin(CATEGORIES)].sort_values("date")
-    m = pd.merge_asof(m, h.rename(columns={"classification": "own_class", "W": "own_W"}), on="date", by="personId")
-    opp = h.rename(columns={"personId": "adversaryPersonId", "classification": "opp_class", "W": "opp_W"})
+    m = pd.merge_asof(m, h.rename(columns={"classification": "own_class", "W": "own_W", "C": "own_C"}), on="date", by="personId")
+    opp = h.drop(columns="C").rename(columns={"personId": "adversaryPersonId", "classification": "opp_class", "W": "opp_W"})
     m = pd.merge_asof(m, opp, on="date", by="adversaryPersonId").dropna(subset=["own_class", "opp_class"])
     m = m.assign(
         levels=m["own_class"].map(LEVEL) - m["opp_class"].map(LEVEL),
         W_gap=m["opp_W"] - m["own_W"],
     )
-    return m[m["levels"] > 0].sort_values(["levels", "W_gap"], ascending=False)
+    return describe(m[(m["levels"] > 0) & (m["own_C"] > FLOOR_START_VALUE)]).sort_values(["levels", "W_gap"], ascending=False)
 
 
 def placed_players(
@@ -226,6 +228,14 @@ def build(
     board = leaderboards(matches, today)
     board = board[board.index.isin(people.index)].join(people[["name", "gender"]])
 
+    def _loser(r: pd.Series) -> dict:
+        """The beaten player of an upsets() row."""
+        pid = r["adversaryPersonId"]
+        name = people.at[pid, "name"] if pid in people.index else " ".join(
+            str(x) for x in (r["adversaryFirstname"], r["adversaryLastname"]) if not pd.isna(x)
+        )
+        return {"id": int(pid), "name": name, "class": r["opp_class"], "W": _num(r["opp_W"])}
+
     def ranked_person(pid) -> dict:
         cls = category.get(pid)
         return {**_person(people, pid), "class": None if pd.isna(cls) else str(cls)}
@@ -264,11 +274,29 @@ def build(
             for pid, r in g.iterrows()
         ]
 
+    # each player's biggest upset (the first of upsets(): biggest gap first)
+    big = upsets(matches, history, today - pd.DateOffset(years=LEADERBOARD_YEARS), today)
+    big = big[big["personId"].isin(people.index)].drop_duplicates("personId")
+    big = big.assign(gender=big["personId"].map(people["gender"]))
+
+    def upset_board(g: pd.DataFrame) -> list[dict]:
+        return [
+            {
+                "player": {**_person(people, r["personId"]), "class": r["own_class"]},
+                "value": int(r["levels"]),
+                "opponent": _loser(r),
+                "score": r["score"],
+                "date": r["date"].date().isoformat(),
+            }
+            for _, r in g.head(TOP).iterrows()
+        ]
+
     boards = {
         g: {
             **{key: ratio_board(board[board["gender"] == g], *cols) for key, cols in RATIOS.items()},
             "streak": streak_board(board[board["gender"] == g]),
             "longest_super_tiebreak": mtb_board(board[board["gender"] == g]),
+            "biggest_upset": upset_board(big[big["gender"] == g]),
         }
         for g in genders
     }
@@ -285,13 +313,7 @@ def build(
             "date": r["date"].date().isoformat(),
             "tournament": None if pd.isna(r["tournamentName"]) else str(r["tournamentName"]),
             "winner": {**_person(people, r["personId"]), "class": r["own_class"], "W": _num(r["own_W"])},
-            "loser": {
-                "id": int(r["adversaryPersonId"]),
-                "name": people.at[r["adversaryPersonId"], "name"] if r["adversaryPersonId"] in people.index
-                else " ".join(str(x) for x in (r["adversaryFirstname"], r["adversaryLastname"]) if not pd.isna(x)),
-                "class": r["opp_class"],
-                "W": _num(r["opp_W"]),
-            },
+            "loser": _loser(r),
             "levels": int(r["levels"]),
             "score": r["score"],
             "C": _num(match_gain(int(r["personId"]), r["row"])),

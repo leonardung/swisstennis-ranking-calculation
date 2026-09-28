@@ -253,7 +253,7 @@ export interface PersonRef {
   name: string;
 }
 
-export type BoardKey = "tiebreaks" | "super_tiebreaks" | "longest_super_tiebreak" | "three_sets" | "comebacks" | "bagels" | "streak";
+export type BoardKey = "tiebreaks" | "super_tiebreaks" | "longest_super_tiebreak" | "biggest_upset" | "three_sets" | "comebacks" | "bagels" | "streak";
 
 export interface BoardRow {
   player: PersonRef & { class: string | null };
@@ -263,8 +263,9 @@ export interface BoardRow {
   start?: string;
   end?: string;
   ongoing?: boolean;
-  score?: string; // longest match tiebreak: the player's points first
+  score?: string; // longest match tiebreak: the player's points first; biggest upset: the match's
   date?: string;
+  opponent?: PersonRef & { class: string }; // biggest upset: the beaten player, category then
 }
 
 export interface Upset {

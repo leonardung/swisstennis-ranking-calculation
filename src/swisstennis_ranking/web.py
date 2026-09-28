@@ -582,10 +582,15 @@ class App:
         # a leaderboard player may have no matches in today's period: known is enough
         if pid not in s.people.index:
             raise HTTPException(404, f"unknown player {pid}")
-        if key not in ("streak", "longest_super_tiebreak") and key not in highlights.RATIOS:
+        if key not in ("streak", "longest_super_tiebreak", "biggest_upset") and key not in highlights.RATIOS:
             raise HTTPException(404, f"unknown leaderboard {key}")
         m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
-        m = stats.describe(highlights.board_matches(m, s.today, key))
+        if key == "biggest_upset":
+            since = s.today - pd.DateOffset(years=highlights.LEADERBOARD_YEARS)
+            m = m.loc[highlights.upsets(m, s.history, since, s.today)["row"].head(1)]
+        else:
+            m = highlights.board_matches(m, s.today, key)
+        m = stats.describe(m)
         return stats.match_list(stats.with_categories(m, s.history, pid))
 
     def highlights(self) -> dict:

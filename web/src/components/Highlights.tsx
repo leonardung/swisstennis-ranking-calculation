@@ -18,6 +18,7 @@ const BOARDS: [BoardKey, MsgKey, MsgKey][] = [
   ["tiebreaks", "hlTiebreaks", "hlMinTiebreaks"],
   ["super_tiebreaks", "hlSuperTiebreaks", "hlMinSuperTiebreaks"],
   ["longest_super_tiebreak", "hlLongestSuperTiebreak", "hlLongestSuperTiebreakHelp"],
+  ["biggest_upset", "hlBiggestUpset", "hlBiggestUpsetHelp"],
   ["three_sets", "hlThreeSets", "hlMinThreeSets"],
   ["comebacks", "hlComebacks", "hlMinComebacks"],
   ["bagels", "hlBagels", "hlMinBagels"],
@@ -155,6 +156,12 @@ function Movers({ data, filter, open, toggle }: { data: Data["movers"]; filter: 
 function BoardDetail({ k, r }: { k: BoardKey; r: BoardRow }) {
   const { t, locale } = useI18n();
   if (k === "longest_super_tiebreak") return <small className="muted">{fmtDate(r.date, locale)}</small>;
+  if (k === "biggest_upset" && r.opponent)
+    return (
+      <small className="muted hl-board-upset">
+        {t("hlBeat")} <CategoryBadge cls={r.opponent.class} size="sm" /> <PlayerLink p={r.opponent} /> · {fmtDate(r.date, locale)}
+      </small>
+    );
   if (k !== "streak") return <small className="muted">{t("hlWonOf", { won: r.won ?? 0, n: (r.won ?? 0) + (r.lost ?? 0) })}</small>;
   return (
     <small className="muted">
@@ -213,7 +220,15 @@ function Leaderboards({ data }: { data: Data["leaderboards"] }) {
                     <BoardDetail k={k} r={r} />
                   </span>
                   <strong className="hl-board-val">
-                    {k === "longest_super_tiebreak" ? <MtbScore score={r.score ?? ""} /> : k === "streak" ? r.value : pct(r.value)}
+                    {k === "longest_super_tiebreak" ? (
+                      <MtbScore score={r.score ?? ""} />
+                    ) : k === "biggest_upset" ? (
+                      <span className="tag tag-ok">{t("hlLevels", { n: r.value })}</span>
+                    ) : k === "streak" ? (
+                      r.value
+                    ) : (
+                      pct(r.value)
+                    )}
                   </strong>
                 </li>
               ))}

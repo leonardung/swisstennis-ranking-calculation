@@ -48,9 +48,11 @@ def test_upsets_are_wins_against_a_higher_category_on_the_list_in_force():
         (1, 2, "2026-09-22", "S", ((6, 4), (6, 4))),  # R6 beats R3
         (3, 2, "2026-09-23", "S", ((6, 4), (6, 4))),  # R2 beats R3: no upset
         (1, 2, "2026-09-01", "S", ((6, 4), (6, 4))),  # before the start
+        (4, 2, "2026-09-24", "S", ((6, 4), (6, 4))),  # R9 at the floor (no results yet) beats R3
     ])
-    history = pd.DataFrame({"personId": [1, 2, 3], "date": pd.to_datetime(["2026-04-01"] * 3),
-                            "classification": ["R6", "R3", "R2"], "W": [5.0, 8.0, 9.0]})
+    history = pd.DataFrame({"personId": [1, 2, 3, 4], "date": pd.to_datetime(["2026-04-01"] * 4),
+                            "classification": ["R6", "R3", "R2", "R9"], "W": [5.0, 8.0, 9.0, 0.729],
+                            "C": [5.2, 8.1, 9.3, 0.744]})
     u = highlights.upsets(m, history, pd.Timestamp("2026-09-21"), TODAY)
     assert u["personId"].tolist() == [1] and u["levels"].tolist() == [3] and u["score"].tolist() == ["6-4 6-4"]
 
@@ -98,7 +100,7 @@ def test_record_counts_played_matches_in_the_period():
 def test_board_matches_of_the_longest_match_tiebreak():
     m = _matches([
         (1, 2, "2026-01-01", "S", ((6, 4), (3, 6), (10, 8))),
-        (1, 2, "2026-02-01", "N", ((4, 6), (6, 3), (12, 14))),  # the longest
+        (1, 2, "2026-02-01", "N", ((4, 6), (6, 3), (12, 14))),  # longer, but lost: the opponent's
         (1, 2, "2026-03-01", "S", ((6, 4), (6, 4))),
     ])
-    assert list(highlights.board_matches(m, TODAY, "longest_super_tiebreak")["date"]) == [pd.Timestamp("2026-02-01")]
+    assert list(highlights.board_matches(m, TODAY, "longest_super_tiebreak")["date"]) == [pd.Timestamp("2026-01-01")]
