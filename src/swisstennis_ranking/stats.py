@@ -39,8 +39,11 @@ def describe(m: pd.DataFrame) -> pd.DataFrame:
 def with_categories(m: pd.DataFrame, history: pd.DataFrame, player_id: int) -> pd.DataFrame:
     """Add the player's and the opponent's category and the opponent's W (opp_class, opp_W) on
     the list in force at each match."""
-    h = history[["personId", "date", "classification", "W"]].dropna().sort_values("date")
     m = m.sort_values("date")
+    # only the rows of the player and the opponents: sorting the whole history costs seconds
+    ids = m["adversaryPersonId"].dropna().astype(int).tolist() + [player_id]
+    h = history.loc[history["personId"].isin(ids), ["personId", "date", "classification", "W"]]
+    h = h.dropna().sort_values("date")
     own = h[h["personId"] == player_id]
     m = pd.merge_asof(m, own[["date", "classification"]].rename(columns={"classification": "own_class"}), on="date")
     opp = h[h["personId"].isin(m["adversaryPersonId"].dropna())].rename(
