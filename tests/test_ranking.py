@@ -290,3 +290,17 @@ def test_placed_players_rank_in_the_middle_of_their_category():
     rank = evaluate.placed_ranks(p)
     # R9 ends at the last ranked player: only the third one is ranked here
     assert list(rank) == [1911, (30770 + 1) // 2 + 1, 5]
+
+
+def test_foreign_on_either_list():
+    # 1: foreigner before; 2: foreigner on the list itself; 3: Swiss on both; 4: flagged nowhere
+    history = pd.DataFrame(
+        {
+            "personId": [1, 1, 2, 2, 3, 3, 4],
+            "date": pd.to_datetime(["2025-10-01", "2026-04-01"] * 3 + ["2026-04-01"]),
+            "kontingent": [0, 1, 1, 0, 1, 1, np.nan],
+        }
+    )
+    ids = pd.Series([1, 2, 3, 4])
+    fallback = pd.Series([False, False, False, True])
+    assert list(evaluate.foreign(history, ids, pd.Timestamp("2026-04-01"), fallback)) == [True, True, False, True]

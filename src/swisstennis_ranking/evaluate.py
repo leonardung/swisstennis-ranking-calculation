@@ -192,16 +192,17 @@ def no_shows(matches: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> p
 
 def foreign(history: pd.DataFrame, ids: pd.Series, end: pd.Timestamp, fallback: pd.Series) -> pd.Series:
     """True for players outside the quota (kontingent 0: foreigners, Art. 9.2) on the latest
-    flagged list before the window end, else on the list itself (nationality, not a result of
-    the calculation). Players never flagged (the current list, or history without the kontingent
-    column) fall back to not holding a current licence."""
+    flagged list before the window end or on the list itself (nationality, not a result of the
+    calculation). Either flag counts: the current list's comes from the licence table, which
+    holds today's flag, not the one of its date. Players never flagged (history without the
+    kontingent column) fall back to not holding a current licence."""
     if "kontingent" not in history:
         return fallback
-    h = history[history["kontingent"].notna()]
-    before = h[h["date"] < end].sort_values("date")
-    latest = pd.concat([h[h["date"] >= end].sort_values("date"), before]).drop_duplicates("personId", keep="last")
-    flag = ids.map(latest.set_index("personId")["kontingent"].eq(0))
-    return flag.fillna(fallback).astype(bool)
+    h = history[history["kontingent"].notna()].sort_values("date")
+    before = h[h["date"] < end].drop_duplicates("personId", keep="last").set_index("personId")["kontingent"]
+    on_list = h[h["date"] >= end].drop_duplicates("personId").set_index("personId")["kontingent"]
+    prev, now = ids.map(before), ids.map(on_list)
+    return (prev.eq(0) | now.eq(0)).where(prev.notna() | now.notna(), fallback).astype(bool)
 
 
 def genders(players: pd.DataFrame, matches: pd.DataFrame) -> pd.Series:
@@ -383,13 +384,14 @@ def evaluated_players(p: pd.DataFrame) -> pd.Series:
     They are published with the (W, C) pair of their gender and category that new players get
     (Art. 6.2), whatever their W5 and results; far more of them on April lists (players returning
     for the summer season) than in October. A pair is a (W, C) published for at least two players
-    of a category, one of them new or a Swiss player without matches but with R != 0
-    (impossible when computed). Not in R8/R9, where many computed values coincide.
+    of a category, one of them a new Swiss player or a Swiss player without matches but with
+    R != 0 (impossible when computed). Not in R8/R9, where many computed values coincide.
+    Foreigners' values are fixed (Art. 9.2), not a pair.
     """
     key = ["gender", "class_pub", "W_pub", "C_pub"]
     listed = p[p["C_pub"].notna() & p["class_pub"].isin(EVALUATED_CATEGORIES)]
-    inactive_with_R = (listed["n_matches"] == 0) & (listed["W_pub"] != listed["C_pub"]) & ~listed["foreign"]
-    manual = listed["W5_prev"].isna() | inactive_with_R
+    inactive_with_R = (listed["n_matches"] == 0) & (listed["W_pub"] != listed["C_pub"])
+    manual = (listed["W5_prev"].isna() | inactive_with_R) & ~listed["foreign"]
     counts = listed.assign(manual=manual, n=1).groupby(key)[["manual", "n"]].sum()
     pairs = counts[(counts["manual"] >= 1) & (counts["n"] >= 2)]
     hit = pd.MultiIndex.from_frame(p[key]).isin(pairs.index)

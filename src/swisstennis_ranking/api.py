@@ -24,6 +24,7 @@ query PlayerList($offset: Int, $limit: Int, $where: lizenz_nehmer_bool_exp) {
     competitionValue
     ageCategoryRedundant
     ranking
+    kontingent
     person { id firstname lastname gender }
   }
 }"""

@@ -3,7 +3,7 @@
 Layout:
     data/raw/<personId>.json   one cached API response per player (makes scraping resumable)
     data/raw/season            the current official list when the cache was last completed
-    data/players.parquet       currently licensed players (both genders)
+    data/players.parquet       currently licensed players (both genders, kontingent 0: foreigners)
     data/history.parquet       published ranking values per player and publication date
     data/matches.parquet       single results, one row per (player, match) from the player's view
 """
@@ -44,7 +44,6 @@ def fetch_players(client: Client) -> pd.DataFrame:
                     "offset": offset,
                     "limit": PAGE_SIZE,
                     "where": {
-                        "kontingent": {"_eq": 1},
                         "currentLicenceStatusId": {"_lt": 3},
                         "person": {"gender": {"_eq": gender}},
                     },
@@ -171,14 +170,15 @@ def _with_current_list(client: Client, hist: pd.DataFrame, players: pd.DataFrame
     if (hist["date"] == date).any():
         return hist
     current = players.assign(date=date).rename(columns={"ranking": "rank"})
-    return pd.concat([hist, current[["personId", "firstname", "lastname", "date", "classification", "rank", "W", "C"]]])
+    columns = ["personId", "firstname", "lastname", "date", "classification", "rank", "W", "C", "kontingent"]
+    return pd.concat([hist, current[columns]])
 
 
 def add_list_flags(client: Client, hist: pd.DataFrame) -> pd.DataFrame:
     """Add the quota flag (kontingent: 1 inside, 0 foreigner) of every full list to the history.
 
-    One paged bulk query per list; rows of individual corrections on other dates and of the
-    current list (taken from the licence table, which holds only players inside the quota) stay NaN.
+    One paged bulk query per list; the current list keeps the flag of the licence table, rows of
+    individual corrections on other dates stay NaN.
     """
     day = hist["date"].dt.normalize()
     frames = []
@@ -194,8 +194,11 @@ def add_list_flags(client: Client, hist: pd.DataFrame) -> pd.DataFrame:
             offset += PAGE_SIZE
         frames.append(pd.DataFrame(rows, columns=["personId", "kontingent"]).assign(_day=date))
     flags = pd.concat(frames).drop_duplicates(["personId", "_day"])
-    out = hist.drop(columns="kontingent", errors="ignore").assign(_day=day)
-    return out.merge(flags, on=["personId", "_day"], how="left").drop(columns="_day")
+    out = hist.rename(columns={"kontingent": "_current"}).assign(_day=day)
+    out = out.merge(flags, on=["personId", "_day"], how="left")
+    if "_current" in out:
+        out["kontingent"] = out["kontingent"].fillna(out["_current"])
+    return out.drop(columns=["_day", "_current"], errors="ignore")
 
 
 def _write(table: pd.DataFrame, data_dir: Path, name: str) -> None:
