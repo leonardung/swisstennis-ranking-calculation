@@ -93,15 +93,9 @@ function Upsets({ data, filter, open, toggle }: { data: Data["upsets"]; filter: 
               <div className="hl-upset-side">
                 <Hint label={<span className="tag tag-ok">{t("hlLevels", { n: u.levels })}</span>} text={t("hlLevelsHelp")} align="end" />
                 <span className="mono small">{u.score}</span>
-                <Hint
-                  label={
-                    <span className="hl-upset-gain">
-                      <Delta value={u.C} /> <small className="muted">C</small>
-                    </span>
-                  }
-                  text={t("hlUpsetGainHelp")}
-                  align="end"
-                />
+                <span className="hl-upset-gain">
+                  <Delta value={u.C} /> <small className="muted">C</small>
+                </span>
               </div>
               <small className="muted hl-upset-meta">
                 {fmtDate(u.date, locale)}
