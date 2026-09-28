@@ -91,12 +91,17 @@ function Upsets({ data, filter, open, toggle }: { data: Data["upsets"]; filter: 
                   <PlayerLink p={u.loser} />
                 </span>
               </div>
+              {/* two lines, as the names and the date on the left */}
               <div className="hl-upset-side">
-                <span className="tag tag-ok">{t("hlLevels", { n: u.levels })}</span>
-                <span className="mono small">{u.score}</span>
-                {u.chance != null && <span className="small muted">{t("hlUpsetChance", { p: fmtChance(u.chance) })}</span>}
-                <span className="hl-upset-gain">
-                  <Delta value={u.C} /> <small className="muted">C</small>
+                <span className="hl-upset-line">
+                  <span className="tag tag-ok">{t("hlLevels", { n: u.levels })}</span>
+                  <span className="mono small">{u.score}</span>
+                </span>
+                <span className="hl-upset-line">
+                  {u.chance != null && <span className="small muted">{t("hlUpsetChance", { p: fmtChance(u.chance) })}</span>}
+                  <span className="hl-upset-gain">
+                    <Delta value={u.C} /> <small className="muted">C</small>
+                  </span>
                 </span>
               </div>
               <small className="muted hl-upset-meta">

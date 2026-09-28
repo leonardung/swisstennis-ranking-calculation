@@ -1650,6 +1650,13 @@ dialog.feedback::backdrop {
     flex-wrap: nowrap;
     min-width: 0;
   }
+  /* the fixed height holds two lines: the date under the names, beside the side's two */
+  .hl-pair .hl-upset-side {
+    grid-row: span 2;
+  }
+  .hl-pair .hl-upset-meta {
+    grid-column: 1;
+  }
   .hl-pair .hl-who,
   .hl-pair .hl-mover-name a {
     overflow: hidden;
@@ -1707,7 +1714,13 @@ dialog.feedback::backdrop {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 2px;
+  gap: 4px;
+}
+.hl-upset-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 .hl-upset-meta {
   grid-column: 1 / -1;
