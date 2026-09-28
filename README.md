@@ -14,7 +14,7 @@ cp .env.example .env   # fill in your mytennis.ch login (needs Google Chrome for
 ## Usage
 
 ```bash
-uv run swisstennis-ranking scrape --since 2018-04-01   # resumable: cached per player in data/raw/
+uv run swisstennis-ranking scrape --since 2004-01-01   # resumable: cached per player in data/raw/
 uv run swisstennis-ranking periods                     # published lists found in the history
 uv run swisstennis-ranking evaluate --date 2025-10-01  # reproduce a published list and compare
 uv run swisstennis-ranking evaluate --date 2025-10-01 --predict  # same, using only prior knowledge

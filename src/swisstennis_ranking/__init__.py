@@ -34,7 +34,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     s = sub.add_parser("scrape", help="download players, ranking history and matches")
-    s.add_argument("--since", default="2018-04-01", help="oldest history/match date to fetch")
+    s.add_argument("--since", default="2004-01-01", help="oldest history/match date to fetch")
     s.add_argument("--workers", type=int, default=8)
     s.add_argument(
         "--recent-days",
