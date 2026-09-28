@@ -11,7 +11,7 @@ import { typeLabel } from "./MatchesTab";
 
 export default function StatsTab({ playerId }: { playerId: number }) {
   const { t } = useI18n();
-  const [range, setRange] = useState("window");
+  const [range, setRange] = useState("all");
   const st = useAsync((s) => api.stats(playerId, range, s), [playerId, range]);
   const [years, setYears] = useState<number[]>([]);
   if (st.data && st.data.years.join() !== years.join()) setYears(st.data.years);
@@ -20,8 +20,8 @@ export default function StatsTab({ playerId }: { playerId: number }) {
     <label className="range-select">
       <span>{t("range")}</span>
       <select value={range} onChange={(e) => setRange(e.target.value)}>
-        <option value="window">{t("rangeWindow")}</option>
         <option value="all">{t("rangeAll")}</option>
+        <option value="window">{t("rangeWindow")}</option>
         {years.map((y) => (
           <option key={y} value={String(y)}>
             {y}
