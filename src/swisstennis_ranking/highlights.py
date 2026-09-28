@@ -3,6 +3,7 @@
 Computed once per data load (see web.load_state): each is a small list of rows.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,7 @@ TOP = 25
 RATIOS = {
     "tiebreaks": ("tb_won", "tb_lost", 10),  # tiebreak sets (7-6)
     "super_tiebreaks": ("mtb_won", "mtb_lost", 5),  # match tiebreaks
-    "three_sets": ("three_won", "three_lost", 10),  # three-set matches
+    "three_sets": ("three_won", "three_lost", 15),  # three-set matches
     "comebacks": ("back_won", "back_lost", 25),  # matches after losing the first set
     "bagels": ("bagels", "other_sets", 50),  # sets won 6-0 among the sets played
 }
@@ -38,7 +39,8 @@ def _board_rows(matches: pd.DataFrame, today: pd.Timestamp) -> tuple[pd.DataFram
     """The results counted by the leaderboards (last LEADERBOARD_YEARS, walkovers left out: no
     score and no streak), by player and date, and per result: tiebreak sets (7-6), match
     tiebreak, three-set match and match after losing the first set, won and lost; sets won 6-0
-    and the other sets (a match tiebreak is no set); the run of equal results it belongs to."""
+    and the other sets (a match tiebreak is no set); the points of a match tiebreak (mtb_mine,
+    mtb_theirs, 0 without one); the run of equal results it belongs to."""
     m = matches[(matches["date"] >= today - pd.DateOffset(years=LEADERBOARD_YEARS)) & (matches["date"] < today + pd.Timedelta(days=1))]
     m = dedupe(m[m["playerWinnerCode"].isin(WIN_CODES + LOSS_CODES)])
     m = m.sort_values(["personId", "date"], kind="stable")
@@ -70,6 +72,8 @@ def _board_rows(matches: pd.DataFrame, today: pd.Timestamp) -> tuple[pd.DataFram
         "back_lost": first_lost & ~win,
         "bagels": bagels,
         "other_sets": sets.sum(axis=1) - bagels,
+        "mtb_mine": np.where(mtb, mine[:, 2], 0),
+        "mtb_theirs": np.where(mtb, theirs[:, 2], 0),
     })
     return m, d
 
@@ -88,12 +92,21 @@ def _best_runs(d: pd.DataFrame) -> pd.DataFrame:
     return best.set_index("personId")
 
 
+def _longest_mtb(d: pd.DataFrame) -> pd.DataFrame:
+    """Per player (index) the match tiebreak of _board_rows() with the most points, the latest of
+    equal ones: its row, points, the player's and the opponent's points and date."""
+    t = d[d["mtb_mine"] + d["mtb_theirs"] > 0].assign(mtb_points=lambda t: t["mtb_mine"] + t["mtb_theirs"])
+    t = t.rename_axis("row").reset_index().sort_values(["mtb_points", "date"], kind="stable")
+    return t.drop_duplicates("personId", keep="last").set_index("personId")[["row", "mtb_points", "mtb_mine", "mtb_theirs", "date"]]
+
+
 def leaderboards(matches: pd.DataFrame, today: pd.Timestamp) -> pd.DataFrame:
-    """Per player, the counts of _board_rows() summed and the longest run of wins (streak, start,
-    end, ongoing)."""
+    """Per player, the counts of _board_rows() summed, the longest run of wins (streak, start,
+    end, ongoing) and the longest match tiebreak (mtb_points, mtb_mine, mtb_theirs, mtb_date)."""
     _, d = _board_rows(matches, today)
-    out = d.drop(columns=["date", "win", "run"]).groupby("personId").sum()
-    return out.join(_best_runs(d)[["streak", "start", "end", "ongoing"]])
+    out = d.drop(columns=["date", "win", "run", "mtb_mine", "mtb_theirs"]).groupby("personId").sum()
+    longest = _longest_mtb(d).drop(columns="row").rename(columns={"date": "mtb_date"})
+    return out.join(_best_runs(d)[["streak", "start", "end", "ongoing"]]).join(longest)
 
 
 def board_matches(matches: pd.DataFrame, today: pd.Timestamp, key: str) -> pd.DataFrame:
@@ -101,6 +114,8 @@ def board_matches(matches: pd.DataFrame, today: pd.Timestamp, key: str) -> pd.Da
     m, d = _board_rows(matches, today)
     if key == "streak":
         keep = d["run"].isin(_best_runs(d)["run"])
+    elif key == "longest_super_tiebreak":
+        keep = pd.Series(d.index.isin(_longest_mtb(d)["row"]), index=d.index)
     else:
         # bagels: the matches with a 6-0 set (the other sets are every match)
         cols = list(RATIOS[key][:1] if key == "bagels" else RATIOS[key][:2])
@@ -110,10 +125,11 @@ def board_matches(matches: pd.DataFrame, today: pd.Timestamp, key: str) -> pd.Da
 
 def upsets(matches: pd.DataFrame, history: pd.DataFrame, start: pd.Timestamp, today: pd.Timestamp) -> pd.DataFrame:
     """Wins (not walkovers or retirements) from `start` to today against a player of a higher
-    category, both on the list in force at the match; biggest category gap first, then W gap."""
+    category, both on the list in force at the match; biggest category gap first, then W gap.
+    `row`: the result's row in `matches`."""
     m = matches[(matches["date"] >= start) & (matches["date"] < today + pd.Timedelta(days=1))]
     m = describe(dedupe(m[(m["playerWinnerCode"] == "S") & m["adversaryPersonId"].notna()])).sort_values("date")
-    m = m.assign(adversaryPersonId=m["adversaryPersonId"].astype("int64"))
+    m = m.assign(adversaryPersonId=m["adversaryPersonId"].astype("int64"), row=m.index)
     ids = set(m["personId"]) | set(m["adversaryPersonId"])
     h = history.loc[history["personId"].isin(ids), ["personId", "date", "classification", "W"]].dropna()
     h = h[h["classification"].isin(CATEGORIES)].sort_values("date")
@@ -156,6 +172,15 @@ def movers(before: pd.DataFrame, after: pd.DataFrame) -> pd.DataFrame:
     return d.sort_values(["levels", "gain"], ascending=False)
 
 
+def record(matches: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
+    """Matches won and lost per player (index) from `start` to the day before `end`, walkovers
+    left out."""
+    m = matches[(matches["date"] >= start) & (matches["date"] < end)]
+    m = dedupe(m[m["playerWinnerCode"].isin(WIN_CODES + LOSS_CODES)])
+    win = m["playerWinnerCode"].isin(WIN_CODES)
+    return pd.DataFrame({"personId": m["personId"], "won": win, "lost": ~win}).groupby("personId").sum()
+
+
 def _num(v, digits: int = 3):
     return None if v is None or pd.isna(v) else round(float(v), digits)
 
@@ -186,10 +211,12 @@ def build(
     previous_date: pd.Timestamp | None,
     placed: pd.Index,
     today: pd.Timestamp,
+    match_gain: Callable[[int, int], float | None],
 ) -> dict:
     """The highlights as JSON. `today_list` is today's calculated list (index personId: class,
     rank, C); `people` has name and gender (index personId); `placed` are the players whose
-    category on the official list Swiss Tennis set (left out of last season's movers)."""
+    category on the official list Swiss Tennis set (left out of last season's movers);
+    `match_gain(personId, row)` is the C a result (its row in `matches`) brings today."""
     genders = [g for g in ("M", "F") if (people["gender"] == g).any()]
 
     official = list_at(history, official_date).rename(columns={"classification": "class"})
@@ -225,10 +252,23 @@ def build(
             for pid, r in g.iterrows()
         ]
 
+    def mtb_board(g: pd.DataFrame) -> list[dict]:
+        g = g.dropna(subset=["mtb_points"]).sort_values(["mtb_points", "mtb_date"], ascending=False).head(TOP)
+        return [
+            {
+                "player": ranked_person(pid),
+                "value": int(r["mtb_points"]),
+                "score": f"{int(r['mtb_mine'])}-{int(r['mtb_theirs'])}",
+                "date": r["mtb_date"].date().isoformat(),
+            }
+            for pid, r in g.iterrows()
+        ]
+
     boards = {
         g: {
             **{key: ratio_board(board[board["gender"] == g], *cols) for key, cols in RATIOS.items()},
             "streak": streak_board(board[board["gender"] == g]),
+            "longest_super_tiebreak": mtb_board(board[board["gender"] == g]),
         }
         for g in genders
     }
@@ -254,13 +294,15 @@ def build(
             },
             "levels": int(r["levels"]),
             "score": r["score"],
+            "C": _num(match_gain(int(r["personId"]), r["row"])),
         }
         for _, r in up.iterrows()
     ]
 
-    def mover_rows(before: pd.DataFrame, after: pd.DataFrame) -> list[dict]:
+    def mover_rows(before: pd.DataFrame, after: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:
         d = movers(before[["class", "rank", "C"]], after[["class", "rank", "C"]]).join(people[["name", "gender"]], how="inner")
         d = _top(d.assign(group=d["class_from"].map(group_of)))
+        d = d.join(record(matches, start, end)).fillna({"won": 0, "lost": 0})
         return [
             {
                 "gender": r["gender"],
@@ -270,15 +312,17 @@ def build(
                 "to": {"class": r["class_to"], "rank": _int(r["rank_to"]), "C": _num(r["C_to"])},
                 "levels": int(r["levels"]),
                 "gain": _num(r["gain"]),
+                "won": int(r["won"]),
+                "lost": int(r["lost"]),
             }
             for pid, r in d.iterrows()
         ]
 
-    movers_json = {"today": {"from": official_date.date().isoformat(), "to": today.date().isoformat(), "players": mover_rows(official, today_list)}}
+    movers_json = {"today": {"from": official_date.date().isoformat(), "to": today.date().isoformat(), "players": mover_rows(official, today_list, official_date, today + pd.Timedelta(days=1))}}
     if previous_date is not None:
         previous = list_at(history, previous_date).rename(columns={"classification": "class"})
         earned = official[~official.index.isin(placed)]
-        movers_json["season"] = {"from": previous_date.date().isoformat(), "to": official_date.date().isoformat(), "players": mover_rows(previous, earned)}
+        movers_json["season"] = {"from": previous_date.date().isoformat(), "to": official_date.date().isoformat(), "players": mover_rows(previous, earned, previous_date, official_date)}
 
     return {
         "leaderboards": {"since": (today - pd.DateOffset(years=LEADERBOARD_YEARS)).date().isoformat(), "min_played": {key: n for key, (_, _, n) in RATIOS.items()}, "players": boards},

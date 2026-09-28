@@ -100,6 +100,20 @@ def load_state(data_dir: Path) -> State:
     official_date = lists[-1]
     official = highlights.list_at(history, official_date)
     today_list = p[p["on_list"]].set_index("personId")[["class", "rank", "C"]]
+    number = pd.Series(p.index, index=p["personId"])
+    player_rows = rows.groupby("player").indices
+
+    def match_gain(pid: int, row: int) -> float | None:
+        """The C that the result in row `row` of `matches` brings to player `pid` today."""
+        if pid not in number.index:
+            return None
+        x = rows.iloc[player_rows.get(number[pid], np.array([], int))]
+        hit = np.flatnonzero(x["match"].to_numpy() == row)
+        if not len(hit):
+            return None
+        _, dC = match_deltas(p.at[number[pid], "w0"], x["opp_w"].to_numpy(), x["win"].to_numpy())
+        return dC[hit[0]]
+
     return State(
         today=today,
         updated=datetime.fromtimestamp((data_dir / "matches.parquet").stat().st_mtime),
@@ -109,8 +123,8 @@ def load_state(data_dir: Path) -> State:
         period=period,
         p=p,
         rows=rows,
-        player_rows=rows.groupby("player").indices,
-        number=pd.Series(p.index, index=p["personId"]),
+        player_rows=player_rows,
+        number=number,
         people=people,
         official_date=official_date,
         official_class=official["classification"],
@@ -125,6 +139,7 @@ def load_state(data_dir: Path) -> State:
                 history, matches, players, official_date, data_dir / f"placed_{official_date.date()}.parquet"
             ),
             today,
+            match_gain,
         ),
     )
 
@@ -567,7 +582,7 @@ class App:
         # a leaderboard player may have no matches in today's period: known is enough
         if pid not in s.people.index:
             raise HTTPException(404, f"unknown player {pid}")
-        if key != "streak" and key not in highlights.RATIOS:
+        if key not in ("streak", "longest_super_tiebreak") and key not in highlights.RATIOS:
             raise HTTPException(404, f"unknown leaderboard {key}")
         m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
         m = stats.describe(highlights.board_matches(m, s.today, key))

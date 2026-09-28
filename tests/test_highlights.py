@@ -38,6 +38,8 @@ def test_leaderboards_count_tiebreaks_three_sets_and_the_longest_streak():
     assert (r["mtb_won"], r["mtb_lost"], r["back_won"], r["back_lost"]) == (1, 0, 0, 1)
     assert (r["bagels"], r["other_sets"]) == (0, 2 + 2 + 3 + 2 + 2)  # no match tiebreak, no old match
     assert r["streak"] == 2 and r["start"] == pd.Timestamp("2026-02-01") and r["ongoing"]
+    assert (r["mtb_points"], r["mtb_mine"], r["mtb_theirs"]) == (18, 10, 8)
+    assert r["mtb_date"] == pd.Timestamp("2026-01-01") and pd.isna(b.loc[2, "mtb_points"])
     assert pd.isna(b.loc[2, "streak"])
 
 
@@ -80,3 +82,23 @@ def test_board_matches_are_the_counted_ones():
     assert dates("tiebreaks") == [1] and dates("super_tiebreaks") == [1]
     assert dates("three_sets") == [1, 2] and dates("comebacks") == [2]
     assert dates("bagels") == [2] and dates("streak") == [1, 2]  # 1 and 2 February
+
+
+def test_record_counts_played_matches_in_the_period():
+    won = ((6, 4), (6, 4))
+    m = _matches([
+        (1, 2, "2026-04-01", "S", won),
+        (1, 2, "2026-05-01", "N", won),
+        (1, 2, "2026-05-02", "1", ()),  # walkover: left out
+        (1, 2, "2026-10-01", "S", won),  # the end day is out
+    ])
+    assert highlights.record(m, pd.Timestamp("2026-04-01"), pd.Timestamp("2026-10-01")).loc[1].tolist() == [1, 1]
+
+
+def test_board_matches_of_the_longest_match_tiebreak():
+    m = _matches([
+        (1, 2, "2026-01-01", "S", ((6, 4), (3, 6), (10, 8))),
+        (1, 2, "2026-02-01", "N", ((4, 6), (6, 3), (12, 14))),  # the longest
+        (1, 2, "2026-03-01", "S", ((6, 4), (6, 4))),
+    ])
+    assert list(highlights.board_matches(m, TODAY, "longest_super_tiebreak")["date"]) == [pd.Timestamp("2026-02-01")]

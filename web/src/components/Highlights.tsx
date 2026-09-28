@@ -17,6 +17,7 @@ const GROUPS: HlGroup[] = ["N1-R3", "R4-R9"];
 const BOARDS: [BoardKey, MsgKey, MsgKey][] = [
   ["tiebreaks", "hlTiebreaks", "hlMinTiebreaks"],
   ["super_tiebreaks", "hlSuperTiebreaks", "hlMinSuperTiebreaks"],
+  ["longest_super_tiebreak", "hlLongestSuperTiebreak", "hlLongestSuperTiebreakHelp"],
   ["three_sets", "hlThreeSets", "hlMinThreeSets"],
   ["comebacks", "hlComebacks", "hlMinComebacks"],
   ["bagels", "hlBagels", "hlMinBagels"],
@@ -91,6 +92,15 @@ function Upsets({ data, filter, open, toggle }: { data: Data["upsets"]; filter: 
               <div className="hl-upset-side">
                 <Hint label={<span className="tag tag-ok">{t("hlLevels", { n: u.levels })}</span>} text={t("hlLevelsHelp")} align="end" />
                 <span className="mono small">{u.score}</span>
+                <Hint
+                  label={
+                    <span className="hl-upset-gain">
+                      <Delta value={u.C} /> <small className="muted">C</small>
+                    </span>
+                  }
+                  text={t("hlUpsetGainHelp")}
+                  align="end"
+                />
               </div>
               <small className="muted hl-upset-meta">
                 {fmtDate(u.date, locale)}
@@ -131,6 +141,7 @@ function Movers({ data, filter, open, toggle }: { data: Data["movers"]; filter: 
                 <small className="muted">
                   {fmt3(m.from.C)} → {fmt3(m.to.C)}
                 </small>
+                <small className="muted">{t("hlRecord", { won: m.won, lost: m.lost })}</small>
               </span>
             </li>
           ))}
@@ -143,12 +154,19 @@ function Movers({ data, filter, open, toggle }: { data: Data["movers"]; filter: 
 
 function BoardDetail({ k, r }: { k: BoardKey; r: BoardRow }) {
   const { t, locale } = useI18n();
+  if (k === "longest_super_tiebreak") return <small className="muted">{fmtDate(r.date, locale)}</small>;
   if (k !== "streak") return <small className="muted">{t("hlWonOf", { won: r.won ?? 0, n: (r.won ?? 0) + (r.lost ?? 0) })}</small>;
   return (
     <small className="muted">
       {fmtDate(r.start, locale)} → {r.ongoing ? <span className="pos">{t("hlOngoing")}</span> : fmtDate(r.end, locale)}
     </small>
   );
+}
+
+/** A match tiebreak score, the player's points first: green when won, red when lost. */
+function MtbScore({ score }: { score: string }) {
+  const [mine, theirs] = score.split("-").map(Number);
+  return <span className={mine > theirs ? "pos" : "neg"}>{score}</span>;
 }
 
 function Leaderboards({ data }: { data: Data["leaderboards"] }) {
@@ -194,7 +212,9 @@ function Leaderboards({ data }: { data: Data["leaderboards"] }) {
                     </span>
                     <BoardDetail k={k} r={r} />
                   </span>
-                  <strong className="hl-board-val">{k === "streak" ? r.value : pct(r.value)}</strong>
+                  <strong className="hl-board-val">
+                    {k === "longest_super_tiebreak" ? <MtbScore score={r.score ?? ""} /> : k === "streak" ? r.value : pct(r.value)}
+                  </strong>
                 </li>
               ))}
             </ol>

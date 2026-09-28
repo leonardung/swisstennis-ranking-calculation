@@ -111,17 +111,36 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
     <Card
       title={t(past ? "matchesTitlePast" : "matchesTitle")}
       actions={
-        <label className="range-select">
-          <span>{t("season")}</span>
-          <select value={season} onChange={(e) => setSeason(e.target.value)}>
+        <div className="range-select">
+          <span id="season-label">{t("season")}</span>
+          {/* seasons go from today's window (0) back in time */}
+          <button
+            className="btn btn-ghost season-step"
+            onClick={() => setSeason(String(season + 1))}
+            disabled={season >= seasons.length - 1}
+            aria-label={t("seasonBefore")}
+            title={t("seasonBefore")}
+          >
+            ‹
+          </button>
+          <select aria-labelledby="season-label" value={season} onChange={(e) => setSeason(e.target.value)}>
             {seasons.map((s, i) => (
               <option key={s.start} value={i}>
                 {i === 0 ? t("seasonCurrent", { months: seasonLabel(s, locale) }) : seasonLabel(s, locale)}
               </option>
             ))}
           </select>
+          <button
+            className="btn btn-ghost season-step"
+            onClick={() => setSeason(String(season - 1))}
+            disabled={season <= 0}
+            aria-label={t("seasonAfter")}
+            title={t("seasonAfter")}
+          >
+            ›
+          </button>
           {st.loading && <Spinner />}
-        </label>
+        </div>
       }
     >
       {st.data && st.data.season === season && (

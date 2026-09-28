@@ -217,6 +217,15 @@ main.container {
 .range-select select {
   max-width: 100%;
 }
+.season-step {
+  padding: 4px 10px;
+  font-size: 18px;
+  line-height: 1;
+}
+.season-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 
 /* ---------- Header ---------- */
 .app-header {

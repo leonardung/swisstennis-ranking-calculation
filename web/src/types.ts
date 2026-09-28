@@ -253,7 +253,7 @@ export interface PersonRef {
   name: string;
 }
 
-export type BoardKey = "tiebreaks" | "super_tiebreaks" | "three_sets" | "comebacks" | "bagels" | "streak";
+export type BoardKey = "tiebreaks" | "super_tiebreaks" | "longest_super_tiebreak" | "three_sets" | "comebacks" | "bagels" | "streak";
 
 export interface BoardRow {
   player: PersonRef & { class: string | null };
@@ -263,6 +263,8 @@ export interface BoardRow {
   start?: string;
   end?: string;
   ongoing?: boolean;
+  score?: string; // longest match tiebreak: the player's points first
+  date?: string;
 }
 
 export interface Upset {
@@ -274,6 +276,7 @@ export interface Upset {
   loser: PersonRef & { class: string; W: number | null };
   levels: number;
   score: string;
+  C: number | null; // what the win brings the winner today
 }
 
 export type HlGroup = "N1-R3" | "R4-R9";
@@ -292,6 +295,8 @@ export interface Mover {
   to: ListPoint;
   levels: number;
   gain: number | null;
+  won: number;
+  lost: number;
 }
 
 export interface MoverList {
