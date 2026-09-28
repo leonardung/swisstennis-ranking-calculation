@@ -1,11 +1,13 @@
 import type {
-  H2HMatch,
+  Career,
   ListedMatch,
   Highlights,
   MatchesResponse,
   Meta,
+  MoveUp,
   PlayerDetail,
   PlayerSummary,
+  SimState,
   SimulateResponse,
   Stats,
 } from "./types";
@@ -66,12 +68,16 @@ export const api = {
     ),
   player: (id: number, signal?: AbortSignal) =>
     get<PlayerDetail>(`/api/players/${id}`, signal),
-  matches: (id: number, signal?: AbortSignal) =>
-    get<MatchesResponse>(`/api/players/${id}/matches`, signal),
+  matches: (id: number, season: number, signal?: AbortSignal) =>
+    get<MatchesResponse>(`/api/players/${id}/matches?season=${season}`, signal),
+  career: (id: number, signal?: AbortSignal) => get<Career>(`/api/players/${id}/career`, signal),
+  predict: (id: number, results: string, signal?: AbortSignal) =>
+    get<{ before: SimState; after: SimState }>(`/api/players/${id}/predict?results=${encodeURIComponent(results)}`, signal),
+  moveUp: (id: number, signal?: AbortSignal) => get<MoveUp | null>(`/api/players/${id}/move-up`, signal),
   stats: (id: number, range: string, signal?: AbortSignal) =>
     get<Stats>(`/api/players/${id}/stats?range=${encodeURIComponent(range)}`, signal),
   h2h: (id: number, opponentId: number, signal?: AbortSignal) =>
-    get<H2HMatch[]>(`/api/players/${id}/h2h/${opponentId}`, signal),
+    get<ListedMatch[]>(`/api/players/${id}/h2h/${opponentId}`, signal),
   statMatches: (id: number, range: string, key: string, value: string | undefined, signal?: AbortSignal) =>
     get<ListedMatch[]>(
       `/api/players/${id}/stats/matches?range=${encodeURIComponent(range)}&key=${key}` +

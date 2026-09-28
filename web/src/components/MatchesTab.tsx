@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { playerHref, useAsync } from "../hooks";
+import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
-import { fmt3, fmtDate } from "../format";
-import type { Match } from "../types";
-import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, ResultPill } from "./common";
+import { fmt3, fmtDate, fmtDateShort } from "../format";
+import type { Match, Season } from "../types";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, ResultPill, Spinner, Standing } from "./common";
 
 type Filter = "all" | "wins" | "losses" | "not_counted" | "dropping";
 type SortKey = "date" | "delta";
 
+// the filters of a past season (nothing counts any more)
+const PAST_FILTERS: Filter[] = ["all", "wins", "losses"];
 const FILTERS: [Filter, MsgKey][] = [
   ["all", "filterAll"],
   ["wins", "filterWins"],
@@ -23,13 +25,31 @@ export function typeLabel(type: string, t: (k: MsgKey) => string): string {
   return s === key ? type : s;
 }
 
+/** "Oct 2024 – Sep 2025": the months of a season (its end is the day after). */
+function seasonLabel(s: Season, locale: string): string {
+  const last = new Date(Date.parse(s.end) - 86_400_000).toISOString().slice(0, 10);
+  return `${fmtDateShort(s.start, locale)} – ${fmtDateShort(last, locale)}`;
+}
+
 export default function MatchesTab({ playerId }: { playerId: number }) {
   const { t, locale } = useI18n();
-  const st = useAsync((s) => api.matches(playerId, s), [playerId]);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "date", desc: true });
+  const [seasonParam, setSeason] = useUrlState("season", "0");
+  const season = Number(seasonParam) || 0;
+  const st = useAsync((s) => api.matches(playerId, season, s), [playerId, season]);
+  const [seasons, setSeasons] = useState<Season[]>([]);
+  if (st.data && st.data.seasons.length !== seasons.length) setSeasons(st.data.seasons);
+  const [filterParam, setFilter] = useUrlState("filter", "all");
+  const [sortParam, setSortParam] = useUrlState("sort", "date-desc");
+  const past = season > 0;
+  const filter = (past && !PAST_FILTERS.includes(filterParam as Filter) ? "all" : filterParam) as Filter;
+  const [sortKey, sortDir] = sortParam.split("-");
+  const sort = { key: (sortKey === "delta" && !past ? "delta" : "date") as SortKey, desc: sortDir !== "asc" };
+  const setSort = (f: (s: { key: SortKey; desc: boolean }) => { key: SortKey; desc: boolean }) => {
+    const n = f(sort);
+    setSortParam(`${n.key}-${n.desc ? "desc" : "asc"}`);
+  };
 
-  const all = st.data?.matches ?? [];
+  const all = st.data?.season === season ? st.data.matches : [];
 
   const summary = useMemo(() => {
     let counted = 0,
@@ -79,9 +99,9 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
       }
       return a.date.localeCompare(b.date) * dir || (a.id - b.id) * dir;
     });
-  }, [all, filter, sort]);
+  }, [all, filter, sort.key, sort.desc]);
 
-  if (!st.data) return <AsyncStatus {...st} />;
+  if (!st.data && !seasons.length) return <AsyncStatus {...st} />;
 
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, desc: !s.desc } : { key, desc: true }));
@@ -89,13 +109,28 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
 
   return (
     <Card
-      title={t("matchesTitle")}
+      title={t(past ? "matchesTitlePast" : "matchesTitle")}
       actions={
-        <span className="muted small">
-          {t("windowFromTo", { start: fmtDate(st.data.window.start, locale), end: fmtDate(st.data.window.end, locale) })}
-        </span>
+        <label className="range-select">
+          <span>{t("season")}</span>
+          <select value={season} onChange={(e) => setSeason(e.target.value)}>
+            {seasons.map((s, i) => (
+              <option key={s.start} value={i}>
+                {i === 0 ? t("seasonCurrent", { months: seasonLabel(s, locale) }) : seasonLabel(s, locale)}
+              </option>
+            ))}
+          </select>
+          {st.loading && <Spinner />}
+        </label>
       }
     >
+      {st.data && st.data.season === season && (
+        <p className="muted small">
+          {t("windowFromTo", { start: fmtDate(st.data.window.start, locale), end: fmtDate(st.data.window.end, locale) })}
+        </p>
+      )}
+      {!st.data && <AsyncStatus {...st} />}
+      {!past && (
       <div className="summary-bar">
         <div className="summary-item">
           <strong>{summary.counted}</strong>
@@ -106,10 +141,11 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
           <span>{t("summaryDiscarded")}</span>
         </div>
       </div>
+      )}
 
       <div className="toolbar">
         <div className="seg seg-filters" role="group">
-          {FILTERS.map(([k, label]) => (
+          {FILTERS.filter(([k]) => !past || PAST_FILTERS.includes(k)).map(([k, label]) => (
             <button key={k} className={filter === k ? "active" : ""} onClick={() => setFilter(k)}>
               {t(label)} <span className="count">{counts[k]}</span>
             </button>
@@ -120,10 +156,12 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
             {t("sortDate")}
             {sortMark("date")}
           </button>
-          <button className={sort.key === "delta" ? "active" : ""} onClick={() => toggleSort("delta")}>
-            {t("sortDelta")}
-            {sortMark("delta")}
-          </button>
+          {!past && (
+            <button className={sort.key === "delta" ? "active" : ""} onClick={() => toggleSort("delta")}>
+              {t("sortDelta")}
+              {sortMark("delta")}
+            </button>
+          )}
         </div>
       </div>
 
@@ -136,85 +174,113 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
                 {sortMark("date")}
               </th>
               <th>{t("tournament")}</th>
-              <th>{t("opponent")}</th>
-              <th className="num">
-                <Hint label={t("oppValue")} text={t("oppValueHelp")} />
+              <th>
+                <Hint label={t("opponent")} text={t(past ? "opponentThenHelp" : "opponentNowHelp")} />
               </th>
+              {/* today's window: always the official list in force, not worth a column */}
+              {past && (
+                <th>
+                  <Hint label={t("youThen")} text={t("youThenHelp")} />
+                </th>
+              )}
+              {!past && (
+                <th className="num">
+                  <Hint label={t("oppValue")} text={t("oppValueHelp")} />
+                </th>
+              )}
               <th>{t("score")}</th>
               <th>{t("result")}</th>
-              <th className="num">
-                <Hint label="Δ W" text={t("deltaWHelp")} align="end" />
-              </th>
-              <th className="num sortable" onClick={() => toggleSort("delta")}>
-                <Hint label="Δ C" text={t("deltaCHelp")} align="end" />
-                {sortMark("delta")}
-              </th>
-              <th>{t("status")}</th>
+              {!past && (
+                <>
+                  <th className="num">
+                    <Hint label="Δ W" text={t("deltaWHelp")} align="end" />
+                  </th>
+                  <th className="num sortable" onClick={() => toggleSort("delta")}>
+                    <Hint label="Δ C" text={t("deltaCHelp")} align="end" />
+                    {sortMark("delta")}
+                  </th>
+                  <th>{t("status")}</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="empty">
+                <td colSpan={past ? 6 : 9} className="empty">
                   {t("noMatches")}
                 </td>
               </tr>
             )}
             {rows.map((m) => (
-              <MatchRow key={m.id} m={m} />
+              <MatchRow key={m.id} m={m} past={past} />
             ))}
           </tbody>
         </table>
       </div>
-      <p className="hint small">{t("deltaHelp")}</p>
+      {!past && <p className="hint small">{t("deltaHelp")}</p>}
     </Card>
   );
 }
 
-function MatchRow({ m }: { m: Match }) {
+function MatchRow({ m, past }: { m: Match; past: boolean }) {
   const { t, locale } = useI18n();
+  const o = m.opponent;
   return (
-    <tr className={`${m.counted ? "" : "not-counted"} ${m.result === "win" ? "row-win" : "row-loss"}`}>
+    <tr className={`${m.counted || past ? "" : "not-counted"} ${m.result === "win" ? "row-win" : "row-loss"}`}>
       <td className="m-date nowrap">{fmtDate(m.date, locale)}</td>
       <td className="m-tourn tourn">
-        <span>{m.tournament}</span>
+        <span title={m.tournament ?? undefined}>{m.tournament}</span>
         <small className="muted">{typeLabel(m.type, t)}</small>
       </td>
       <td className="m-opp">
         <span className="opp">
-          {m.opponent.class_official && m.opponent.class ? (
-            <ClassChange from={m.opponent.class_official} to={m.opponent.class} />
+          {/* today's window: the category on the official list and today; a past season: then */}
+          {past ? (
+            <CategoryBadge cls={o.class} size="sm" />
+          ) : o.class_official && o.class_today ? (
+            <ClassChange from={o.class_official} to={o.class_today} />
           ) : (
-            <CategoryBadge cls={m.opponent.class ?? m.opponent.class_official} size="sm" />
+            <CategoryBadge cls={o.class_today ?? o.class_official} size="sm" />
           )}
-          {m.opponent.id != null ? (
-            <a href={playerHref(m.opponent.id)} title={t("openPlayer")}>
-              {m.opponent.name}
+          {o.id != null ? (
+            <a href={playerHref(o.id)} title={t("openPlayer")}>
+              {o.name}
             </a>
           ) : (
-            <span>{m.opponent.name}</span>
+            <span>{o.name}</span>
           )}
+          {o.rank != null && <small className="muted" title={t("rankThen")}>#{o.rank.toLocaleString(locale)}</small>}
         </span>
       </td>
-      <td className="m-oval num">{fmt3(m.opponent.value)}</td>
+      {past && (
+        <td className="m-own" data-label={t("youThen")}>
+          <Standing cls={m.own.class} rank={m.own.rank} />
+        </td>
+      )}
+      {!past && <td className="m-oval num">{fmt3(o.value)}</td>}
       <td className="m-score mono nowrap">{m.score || "–"}</td>
       <td className="m-res">
         <ResultPill result={m.result} how={m.how} />
       </td>
-      <td className="m-dw num" data-label="W">{m.counted ? <Delta value={m.delta_W} /> : "–"}</td>
-      <td className="m-dc num strong" data-label="C">{m.counted ? <Delta value={m.delta_C} /> : "–"}</td>
-      <td className="m-tags tags">
-        {m.counted ? (
-          <span className="tag tag-ok">{t("counted")}</span>
-        ) : (
-          <span className={`tag tag-${m.reason ?? "no_value"}`}>{t(`reason_${m.reason ?? "no_value"}` as MsgKey)}</span>
-        )}
-        {m.drops_after_next_official && (
-          <span className="tag tag-drop" title={m.last_list ? t("dropsOut", { date: fmtDate(m.last_list, locale) }) : undefined}>
-            ⏏ {t("dropsOut", { date: fmtDate(m.last_list, locale) })}
-          </span>
-        )}
-      </td>
+      {!past && (
+        <>
+          <td className="m-dw num" data-label="W">{m.counted ? <Delta value={m.delta_W} /> : "–"}</td>
+          <td className="m-dc num strong" data-label="C">{m.counted ? <Delta value={m.delta_C} /> : "–"}</td>
+          <td className="m-tags tags">
+            {m.counted ? (
+              <span className="tag tag-ok">{t("counted")}</span>
+            ) : (
+              <span className={`tag tag-${m.reason ?? "no_value"}`}>{t(`reason_${m.reason ?? "no_value"}` as MsgKey)}</span>
+            )}
+            {m.drops_after_next_official && (
+              <span className="tag tag-drop" title={m.last_list ? t("dropsOut", { date: fmtDate(m.last_list, locale) }) : undefined}>
+                ⏏ {t("dropsOut", { date: fmtDate(m.last_list, locale) })}
+              </span>
+            )}
+          </td>
+        </>
+      )}
     </tr>
   );
 }

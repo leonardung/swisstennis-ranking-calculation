@@ -2,17 +2,17 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { useChartColors } from "../chartTheme";
-import { playerHref, useAsync } from "../hooks";
+import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate, fmtMonth, fmtPct, pctValue } from "../format";
 import type { NotableMatch, Stats, WL } from "../types";
-import { AsyncStatus, Card, CategoryBadge, ResultPill, Spinner } from "./common";
-import MatchListDialog, { opens, type MatchQuery } from "./MatchListDialog";
+import { AsyncStatus, Card, CategoryBadge, Spinner } from "./common";
+import MatchListDialog, { MatchTable, opens, type MatchQuery } from "./MatchListDialog";
 import { typeLabel } from "./MatchesTab";
 
 export default function StatsTab({ playerId }: { playerId: number }) {
   const { t } = useI18n();
-  const [range, setRange] = useState("all");
+  const [range, setRange] = useUrlState("range", "all");
   const st = useAsync((s) => api.stats(playerId, range, s), [playerId, range]);
   const [years, setYears] = useState<number[]>([]);
   if (st.data && st.data.years.join() !== years.join()) setYears(st.data.years);
@@ -234,7 +234,8 @@ function WLTable({ rows, onOpen }: { rows: (WL & { key: string; label: ReactNode
 function TimeChart({ s, show }: { s: Stats; show: Show }) {
   const { t, locale } = useI18n();
   const colors = useChartColors();
-  const [mode, setMode] = useState<"month" | "year">(s.by_month.length > 1 ? "month" : "year");
+  const [modeParam, setMode] = useUrlState("period", "");
+  const mode = modeParam === "month" || modeParam === "year" ? modeParam : s.by_month.length > 1 ? "month" : "year";
   const data = useMemo(
     () =>
       mode === "month"
@@ -320,10 +321,18 @@ type OppSort = "total" | "won" | "lost" | "pct" | "last" | "name";
 
 function OpponentsTable({ s, playerId }: { s: Stats; playerId: number }) {
   const { t, locale } = useI18n();
-  const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<{ key: OppSort; desc: boolean }>({ key: "total", desc: true });
+  const [filter, setFilter] = useUrlState("opp", "");
+  const [sortParam, setSortParam] = useUrlState("oppsort", "total-desc");
+  const [sortKey, sortDir] = sortParam.split("-");
+  const sort = { key: sortKey as OppSort, desc: sortDir !== "asc" };
+  const setSort = (f: (p: { key: OppSort; desc: boolean }) => { key: OppSort; desc: boolean }) => {
+    const n = f(sort);
+    setSortParam(`${n.key}-${n.desc ? "desc" : "asc"}`);
+  };
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  const [showAllParam, setShowAllParam] = useUrlState("oppall", "");
+  const showAll = showAllParam === "1";
+  const setShowAll = (f: (v: boolean) => boolean) => setShowAllParam(f(showAll) ? "1" : "");
   const LIMIT = 25;
 
   const rows = useMemo(() => {
@@ -440,26 +449,9 @@ function OpponentsTable({ s, playerId }: { s: Stats; playerId: number }) {
 }
 
 function H2H({ playerId, opponentId }: { playerId: number; opponentId: number }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const st = useAsync((sig) => api.h2h(playerId, opponentId, sig), [playerId, opponentId]);
   if (!st.data) return <AsyncStatus {...st} />;
   if (st.data.length === 0) return <p className="muted">{t("noMatches")}</p>;
-  return (
-    <table className="data h2h-table">
-      <tbody>
-        {[...st.data]
-          .sort((a, b) => b.date.localeCompare(a.date))
-          .map((m, i) => (
-            <tr key={i}>
-              <td className="nowrap">{fmtDate(m.date, locale)}</td>
-              <td>{m.tournament}</td>
-              <td className="mono nowrap">{m.score || "–"}</td>
-              <td>
-                <ResultPill result={m.result} how={m.how} />
-              </td>
-            </tr>
-          ))}
-      </tbody>
-    </table>
-  );
+  return <MatchTable matches={st.data} h2h />;
 }

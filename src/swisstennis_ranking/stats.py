@@ -11,6 +11,8 @@ RETIRED = ["W", "Z"]
 TYPES = {1: "interclub", 2: "interclub", 3: "interclub", 4: "tournament", 6: "abroad", 7: "club"}
 # a third set won with 10 or more points is a match tiebreak
 MATCH_TIEBREAK_MIN = 10
+# wins against the strongest opponents shown in a career
+CAREER_BEST_WINS = 3
 
 
 def _sets(m: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
@@ -37,17 +39,18 @@ def describe(m: pd.DataFrame) -> pd.DataFrame:
 
 
 def with_categories(m: pd.DataFrame, history: pd.DataFrame, player_id: int) -> pd.DataFrame:
-    """Add the player's and the opponent's category and the opponent's W (opp_class, opp_W) on
-    the list in force at each match."""
+    """Add the player's and the opponent's category and rank and the opponent's W (own_class,
+    own_rank, opp_class, opp_rank, opp_W) on the list in force at each match."""
     m = m.sort_values("date")
     # only the rows of the player and the opponents: sorting the whole history costs seconds
     ids = m["adversaryPersonId"].dropna().astype(int).tolist() + [player_id]
-    h = history.loc[history["personId"].isin(ids), ["personId", "date", "classification", "W"]]
-    h = h.dropna().sort_values("date")
+    h = history.loc[history["personId"].isin(ids), ["personId", "date", "classification", "rank", "W"]]
+    h = h.dropna(subset=["classification", "W"]).sort_values("date")
     own = h[h["personId"] == player_id]
-    m = pd.merge_asof(m, own[["date", "classification"]].rename(columns={"classification": "own_class"}), on="date")
+    own = own[["date", "classification", "rank"]].rename(columns={"classification": "own_class", "rank": "own_rank"})
+    m = pd.merge_asof(m, own, on="date")
     opp = h[h["personId"].isin(m["adversaryPersonId"].dropna())].rename(
-        columns={"personId": "adversaryPersonId", "classification": "opp_class", "W": "opp_W"}
+        columns={"personId": "adversaryPersonId", "classification": "opp_class", "rank": "opp_rank", "W": "opp_W"}
     )
     m = m.assign(adversaryPersonId=m["adversaryPersonId"].astype("Int64"))
     opp = opp.assign(adversaryPersonId=opp["adversaryPersonId"].astype("Int64"))
@@ -169,19 +172,68 @@ def matches_of(m: pd.DataFrame, key: str, value: str | None = None) -> pd.DataFr
     return m[((c[f"{key}_won"] + c[f"{key}_lost"]) > 0).to_numpy()]
 
 
+def at_the_time(r) -> tuple[dict, dict]:
+    """The opponent (id, name) and both players' category and rank on the list in force at the
+    match of a with_categories()d row."""
+    opponent = {"id": _id(r["adversaryPersonId"]), "name": _name(r), "class": _str(r["opp_class"]), "rank": _id(r["opp_rank"])}
+    return opponent, {"class": _str(r["own_class"]), "rank": _id(r["own_rank"])}
+
+
 def match_list(m: pd.DataFrame) -> list[dict]:
     """Matches (describe()d, with_categories()d) for a list, the latest first."""
-    return [
-        {
+    out = []
+    for _, r in m.sort_values("date", ascending=False, kind="stable").iterrows():
+        opponent, own = at_the_time(r)
+        out.append(
+            {
+                "date": r["date"].date().isoformat(),
+                "tournament": _str(r["tournamentName"]),
+                "opponent": opponent,
+                "own": own,
+                "score": r["score"],
+                "result": r["result"],
+                "how": r["how"],
+            }
+        )
+    return out
+
+
+def _valued(m: pd.DataFrame) -> pd.DataFrame:
+    """The rows with a known opponent strength (value): W on the list in force, else the value
+    stored with the result."""
+    value = m["opp_W"].where(m["opp_W"].notna(), m["adversaryValue"].where(m["adversaryValue"] > 0))
+    return m.assign(value=value).dropna(subset=["value"])
+
+
+def career(m: pd.DataFrame) -> dict:
+    """A player's whole career (describe()d and with_categories()d matches, in date order):
+    matches, first and last year, the best wins and the first win against each category."""
+    wins = m[(m["result"] == "win") & (m["how"] != "walkover")]
+    best = _valued(wins).nlargest(CAREER_BEST_WINS, "value")
+
+    def row(r) -> dict:
+        opponent, own = at_the_time(r)
+        return {
             "date": r["date"].date().isoformat(),
             "tournament": _str(r["tournamentName"]),
-            "opponent": {"id": _id(r["adversaryPersonId"]), "name": _name(r), "class": _str(r["opp_class"])},
+            "opponent": opponent,
+            "own": own,
             "score": r["score"],
-            "result": r["result"],
-            "how": r["how"],
         }
-        for _, r in m.sort_values("date", ascending=False, kind="stable").iterrows()
-    ]
+
+    firsts = wins[wins["opp_class"].isin(CATEGORIES[:-1])].drop_duplicates("opp_class")
+    firsts = firsts.sort_values("opp_class", key=lambda c: c.map(CATEGORIES.index))
+    years = m["date"].dt.year
+    return {
+        "matches": len(m),
+        "won": int((m["result"] == "win").sum()),
+        "lost": int((m["result"] == "loss").sum()),
+        "first_year": None if m.empty else int(years.min()),
+        "last_year": None if m.empty else int(years.max()),
+        "seasons": int(years.nunique()),
+        "best_wins": [{**row(r), "opponent_value": _num(r["value"])} for _, r in best.iterrows()],
+        "first_wins": [row(r) for _, r in firsts.iterrows()],
+    }
 
 
 def player_stats(m: pd.DataFrame) -> dict:
@@ -208,9 +260,7 @@ def player_stats(m: pd.DataFrame) -> dict:
             "score": r["score"],
         }
 
-    # opponent strength: W on the list in force, else the value stored with the result
-    value = played["opp_W"].where(played["opp_W"].notna(), played["adversaryValue"].where(played["adversaryValue"] > 0))
-    valued = played.assign(value=value).dropna(subset=["value"])
+    valued = _valued(played)
     best = valued[valued["result"] == "win"].nlargest(5, "value")
     worst = valued[valued["result"] == "loss"].nsmallest(5, "value")
 

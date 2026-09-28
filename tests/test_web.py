@@ -42,7 +42,7 @@ def test_player_stats_sets_tiebreaks_and_walkovers():
         ["S", "N", "1", "S"],
     )
     history = pd.DataFrame({"personId": [1, 2], "date": pd.to_datetime(["2026-04-01"] * 2),
-                            "classification": ["R3", "R2"], "W": [6.5, 7.5]})
+                            "classification": ["R3", "R2"], "rank": [300, 150], "W": [6.5, 7.5]})
     d = stats.player_stats(stats.with_categories(stats.describe(m), history, 1))
     assert d["matches"] == {"played": 4, "won": 3, "lost": 1, "walkovers_won": 1, "walkovers_lost": 0,
                             "retired_won": 0, "retired_lost": 0}
@@ -58,7 +58,7 @@ def test_player_stats_without_tournament_name_is_valid_json():
     # foreign results often come without a tournament name
     m = _results([((6, 4), (6, 4), (-1, -1))], ["S"]).assign(tournamentName=np.nan)
     history = pd.DataFrame({"personId": [1, 2], "date": pd.to_datetime(["2026-04-01"] * 2),
-                            "classification": ["R3", "R2"], "W": [6.5, 7.5]})
+                            "classification": ["R3", "R2"], "rank": [300, 150], "W": [6.5, 7.5]})
     d = stats.player_stats(stats.with_categories(stats.describe(m), history, 1))
     json.dumps(d, allow_nan=False)
 
@@ -110,7 +110,7 @@ def test_matches_of_a_statistic():
         ["S", "N", "1", "S"],
     ).assign(date=pd.to_datetime(["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04"]))
     history = pd.DataFrame({"personId": [1, 2], "date": pd.to_datetime(["2026-04-01"] * 2),
-                            "classification": ["R3", "R2"], "W": [6.5, 7.5]})
+                            "classification": ["R3", "R2"], "rank": [300, 150], "W": [6.5, 7.5]})
     m = stats.with_categories(stats.describe(m), history, 1)
     dates = lambda key, value=None: [r["date"] for r in stats.match_list(stats.matches_of(m, key, value))]  # noqa: E731
     assert dates("tiebreaks") == ["2026-05-02", "2026-05-01"]
@@ -119,3 +119,21 @@ def test_matches_of_a_statistic():
     assert dates("by_relation", "higher") == dates("matches")
     with pytest.raises(KeyError):
         stats.matches_of(m, "nothing")
+
+
+def test_career_and_ranks_at_the_time():
+    m = _results(
+        [((6, 4), (6, 4), (-1, -1)), ((6, 0), (6, 7), (4, 6)), ((6, 1), (6, 1), (-1, -1)), ((-1, -1), (-1, -1), (-1, -1))],
+        ["S", "N", "S", "1"],
+    ).assign(date=pd.to_datetime(["2025-05-01", "2025-06-01", "2026-05-01", "2026-06-01"]))
+    history = pd.DataFrame({"personId": [1, 2, 1, 2], "date": pd.to_datetime(["2025-04-01"] * 2 + ["2026-04-01"] * 2),
+                            "classification": ["R5", "R4", "R3", "R2"], "rank": [900, 700, 300, 150],
+                            "W": [4.5, 5.5, 6.5, 7.5]})
+    m = stats.with_categories(stats.describe(m), history, 1)
+    c = stats.career(m)
+    assert (c["matches"], c["won"], c["lost"], c["first_year"], c["last_year"], c["seasons"]) == (4, 3, 1, 2025, 2026, 2)
+    # the walkover does not count as a win
+    assert [(w["date"], w["opponent"]["rank"]) for w in c["best_wins"]] == [("2026-05-01", 150), ("2025-05-01", 700)]
+    assert [(w["opponent"]["class"], w["date"]) for w in c["first_wins"]] == [("R2", "2026-05-01"), ("R4", "2025-05-01")]
+    first = stats.match_list(m)[-1]
+    assert first["own"] == {"class": "R5", "rank": 900} and first["opponent"]["rank"] == 700

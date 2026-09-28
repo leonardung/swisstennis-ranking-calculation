@@ -1,7 +1,7 @@
 import { useId, type ReactNode } from "react";
 import { ApiError } from "../api";
 import { useI18n } from "../i18n";
-import { categoryIndex, categoryMove, fmtDelta, signClass } from "../format";
+import { categoryIndex, categoryMove, fmtDelta, fmtInt, signClass } from "../format";
 import type { How, Result } from "../types";
 
 export function CategoryBadge({ cls, size = "md" }: { cls: string | null | undefined; size?: "sm" | "md" | "lg" }) {
@@ -122,5 +122,16 @@ export function Card({ title, children, className = "", actions }: { title?: Rea
       )}
       {children}
     </section>
+  );
+}
+
+/** Category and rank on the list in force at a match ("R2 #412"). */
+export function Standing({ cls, rank }: { cls: string | null | undefined; rank?: number | null }) {
+  const { locale } = useI18n();
+  return (
+    <span className="standing">
+      <CategoryBadge cls={cls} size="sm" />
+      {rank != null && <small className="muted">#{fmtInt(rank, locale)}</small>}
+    </span>
   );
 }

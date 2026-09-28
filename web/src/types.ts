@@ -2,7 +2,7 @@ export type Gender = "M" | "F";
 export type Result = "win" | "loss";
 export type How = "normal" | "walkover" | "retired";
 export type MatchType = "interclub" | "tournament" | "abroad" | "club" | "other";
-export type Reason = "walkover" | "discarded_loss" | "no_value";
+export type Reason = "walkover" | "discarded_loss" | "no_value" | "past";
 
 export interface ScrapeInfo {
   running: boolean;
@@ -77,12 +77,21 @@ export interface PlayerDetail {
   history: HistoryPoint[];
 }
 
+/** Category and rank on the list in force at a match. */
+export interface Standing {
+  class: string | null;
+  rank: number | null;
+}
+
 export interface OpponentRef {
   id: number | null;
   name: string;
+  /** category on the list in force at the match */
   class: string | null;
-  /** category on the official list in force (matches only) */
+  rank?: number | null;
+  /** category on the official list in force, and today's (matches only) */
   class_official?: string | null;
+  class_today?: string | null;
   value?: number | null;
 }
 
@@ -92,6 +101,8 @@ export interface Match {
   tournament: string | null;
   type: MatchType | string;
   opponent: OpponentRef;
+  /** the player at the match */
+  own: Standing;
   score: string;
   result: Result;
   how: How;
@@ -103,7 +114,15 @@ export interface Match {
   drops_after_next_official: boolean;
 }
 
+export interface Season {
+  start: string;
+  end: string;
+}
+
 export interface MatchesResponse {
+  /** 0: today's window (what each match counts); 1, 2...: the year windows before it */
+  season: number;
+  seasons: Season[];
   window: { start: string; end: string; next_official: string };
   matches: Match[];
 }
@@ -186,17 +205,47 @@ export interface ListedMatch {
   date: string;
   tournament: string | null;
   opponent: OpponentRef;
+  own: Standing;
   score: string;
   result: Result;
   how: How;
 }
 
-export interface H2HMatch {
+export interface CareerWin {
   date: string;
   tournament: string | null;
+  opponent: OpponentRef;
+  own: Standing;
   score: string;
-  result: Result;
-  how: How;
+  opponent_value?: number | null;
+}
+
+export interface Career {
+  matches: number;
+  won: number;
+  lost: number;
+  first_year: number | null;
+  last_year: number | null;
+  /** years with matches */
+  seasons: number;
+  /** the wins against the strongest opponents (W then), the strongest first */
+  best_wins: CareerWin[];
+  /** the first win against each category (N1 to R8) */
+  first_wins: CareerWin[];
+}
+
+export interface MoveUp {
+  class: string;
+  target: string;
+  C: number;
+  /** the lowest C in the target category */
+  need: number;
+  max_wins: number;
+  levels: {
+    class: string;
+    /** wins needed against a player at that percentile of W (null: more than max_wins) */
+    opponents: { percentile: number; W: number; wins: number | null }[];
+  }[];
 }
 
 export interface PersonRef {

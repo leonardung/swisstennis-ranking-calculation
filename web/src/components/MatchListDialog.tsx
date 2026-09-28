@@ -3,7 +3,7 @@ import { playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmtDate } from "../format";
 import type { ListedMatch } from "../types";
-import { AsyncStatus, CategoryBadge, ResultPill } from "./common";
+import { AsyncStatus, ResultPill, Standing } from "./common";
 
 /** What a popup lists: `key` identifies the list (a new key loads again). */
 export interface MatchQuery {
@@ -30,7 +30,7 @@ export function opens(open: () => void, title: string) {
 
 /** Popup (native modal dialog) listing the matches of `query`, the latest first. */
 export default function MatchListDialog({ query, onClose }: { query: MatchQuery; onClose: () => void }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   const st = useAsync(query.load, [query.key]);
   // released on close, or when the list goes away (a click on a player: another page)
@@ -59,28 +59,63 @@ export default function MatchListDialog({ query, onClose }: { query: MatchQuery;
         ) : st.data.length === 0 ? (
           <p className="muted">{t("noMatches")}</p>
         ) : (
-          <table className="data match-dialog-table">
-            <tbody>
-              {st.data.map((m, i) => (
-                <tr key={i}>
-                  <td className="nowrap">{fmtDate(m.date, locale)}</td>
-                  <td>
-                    <span className="hl-who">
-                      <CategoryBadge cls={m.opponent.class} size="sm" />
-                      {m.opponent.id != null ? <a href={playerHref(m.opponent.id)}>{m.opponent.name}</a> : m.opponent.name}
-                    </span>
-                    {m.tournament && <small className="muted match-dialog-tournament">{m.tournament}</small>}
-                  </td>
-                  <td className="mono nowrap">{m.score || "–"}</td>
-                  <td>
-                    <ResultPill result={m.result} how={m.how} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <MatchTable matches={st.data} />
         )}
       </div>
     </dialog>
+  );
+}
+
+/** Matches, the latest first: date, opponent (category and rank then) and tournament, score,
+ * result. `h2h`: all against one opponent, so both players' category and rank then instead. */
+export function MatchTable({ matches, h2h = false }: { matches: ListedMatch[]; h2h?: boolean }) {
+  const { t, locale } = useI18n();
+  return (
+    <table className={`data match-table ${h2h ? "match-table-h2h" : ""}`}>
+      {h2h && (
+        <thead>
+          <tr>
+            <th>{t("date")}</th>
+            <th>{t("tournament")}</th>
+            <th>{t("youThen")}</th>
+            <th>{t("opponentThen")}</th>
+            <th>{t("score")}</th>
+            <th />
+          </tr>
+        </thead>
+      )}
+      <tbody>
+        {matches.map((m, i) => (
+          <tr key={i}>
+            <td className="nowrap">{fmtDate(m.date, locale)}</td>
+            {h2h ? (
+              <>
+                <td className="match-table-tournament">
+                  <span title={m.tournament ?? undefined}>{m.tournament}</span>
+                </td>
+                <td data-label={t("youThen")}>
+                  <Standing cls={m.own.class} rank={m.own.rank} />
+                </td>
+                <td data-label={t("opponentThen")}>
+                  <Standing cls={m.opponent.class} rank={m.opponent.rank} />
+                </td>
+              </>
+            ) : (
+              <td>
+                <span className="hl-who">
+                  <Standing cls={m.opponent.class} rank={m.opponent.rank} />
+                  {m.opponent.id != null ? <a href={playerHref(m.opponent.id)}>{m.opponent.name}</a> : m.opponent.name}
+                </span>
+                {m.tournament && <small className="muted match-dialog-tournament" title={m.tournament}>{m.tournament}</small>}
+              </td>
+            )}
+            <td className="mono nowrap">{m.score || "–"}</td>
+            <td>
+              <ResultPill result={m.result} how={m.how} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

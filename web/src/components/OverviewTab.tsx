@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { api } from "../api";
 import { useChartColors } from "../chartTheme";
+import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
-import type { PlayerDetail } from "../types";
-import { Card, CategoryBadge, ClassChange, Delta } from "./common";
+import type { CareerWin, PlayerDetail } from "../types";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Standing } from "./common";
 
 interface Point {
   date: string;
@@ -42,7 +44,9 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
     return pts;
   }, [player.history, today]);
 
-  const [showRank, setShowRank] = useState(true);
+  const [chart, setChart] = useUrlState("chart", "rank");
+  const showRank = chart === "rank";
+  const setShowRank = (rank: boolean) => setChart(rank ? "rank" : "values");
 
   return (
     <div className="overview">
@@ -205,6 +209,83 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
         )}
         {points.length > 0 && <p className="hint small">{t(showRank ? "historyHelpRank" : "historyHelpValues")}</p>}
       </Card>
+
+      <CareerCard playerId={player.id} />
+    </div>
+  );
+}
+
+function CareerCard({ playerId }: { playerId: number }) {
+  const { t, locale } = useI18n();
+  const st = useAsync((s) => api.career(playerId, s), [playerId]);
+  const c = st.data;
+  return (
+    <Card title={t("career")} className="career-card">
+      {!c ? (
+        <AsyncStatus {...st} />
+      ) : c.matches === 0 ? (
+        <p className="muted">{t("noMatches")}</p>
+      ) : (
+        <>
+          <div className="summary-bar career-bar">
+            <div className="summary-item">
+              <strong>{fmtInt(c.matches, locale)}</strong>
+              <span>
+                {t("careerMatches")} · <span className="pos">{c.won}</span>–<span className="neg">{c.lost}</span>
+              </span>
+            </div>
+            <div className="summary-item">
+              <strong>{c.last_year! - c.first_year! + 1}</strong>
+              <span>{t("careerYears", { from: c.first_year!, to: c.last_year!, n: c.seasons })}</span>
+            </div>
+          </div>
+          <CareerWins title={t("bestWins")} wins={c.best_wins} />
+          <CareerWins title={t("firstWins")} wins={c.first_wins} />
+        </>
+      )}
+    </Card>
+  );
+}
+
+/** Wins, each with the opponent's category then beside it. */
+function CareerWins({ title, wins }: { title: string; wins: CareerWin[] }) {
+  if (wins.length === 0) return null;
+  return (
+    <div className="career-wins">
+      <h4>{title}</h4>
+      <ul className="career-list">
+        {wins.map((w) => (
+          <li key={`${w.date}-${w.opponent.id ?? w.opponent.name}`}>
+            <CategoryBadge cls={w.opponent.class} />
+            <CareerWinLine w={w} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** A win (its category is shown beside): the opponent's rank then, score, date, tournament and the player then. */
+function CareerWinLine({ w }: { w: CareerWin }) {
+  const { t, locale } = useI18n();
+  return (
+    <div className="career-win">
+      <span className="hl-who">
+        {w.opponent.rank != null && <small className="muted">#{fmtInt(w.opponent.rank, locale)}</small>}
+        {w.opponent.id != null ? <a href={playerHref(w.opponent.id)}>{w.opponent.name}</a> : w.opponent.name}
+        <span className="mono small">{w.score}</span>
+      </span>
+      {/* one line: the tournament gives way ("…", full name on hover) */}
+      <small className="muted career-win-meta">
+        <span className="nowrap">{fmtDate(w.date, locale)}</span>
+        {w.tournament && (
+          <span className="career-win-tournament" title={w.tournament}>
+            · {w.tournament}
+          </span>
+        )}
+        <span className="nowrap">· {t("youThen")}</span>
+        <Standing cls={w.own.class} rank={w.own.rank} />
+      </small>
     </div>
   );
 }

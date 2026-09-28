@@ -52,10 +52,6 @@ export default function App() {
   const route = useRoute();
 
   useEffect(() => {
-    window.scrollTo({ top: 0 });
-  }, [route.page, route.page === "player" ? route.id : 0]);
-
-  useEffect(() => {
     if (route.page === "home") {
       document.title = i18n.t("appName");
       trackView();

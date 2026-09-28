@@ -108,8 +108,101 @@ const ROUTE_CHANGE = "routechange";
 
 export function navigate(href: string): void {
   if (window.location.pathname === href) return;
-  window.history.pushState(null, "", href);
+  window.history.pushState({ entry: newEntry() }, "", href);
   window.dispatchEvent(new Event(ROUTE_CHANGE));
+  window.scrollTo({ top: 0 });
+}
+
+/** A value kept in the query of the URL (?key=value): a refresh or going back finds it again.
+ * A change replaces the history entry (going back does not step through the filters). */
+export function useUrlState(key: string, initial: string): [string, (v: string) => void] {
+  const [value, setValue] = useState(() => new URLSearchParams(window.location.search).get(key) ?? initial);
+  const set = useCallback(
+    (v: string) => {
+      setValue(v);
+      const url = new URL(window.location.href);
+      if (v === initial) url.searchParams.delete(key);
+      else url.searchParams.set(key, v);
+      window.history.replaceState(window.history.state, "", url);
+    },
+    [key, initial],
+  );
+  return [value, set];
+}
+
+// Scroll position per history entry (session storage), set again after a refresh or going back
+// once the page is tall enough: the content arrives asynchronously, which the browser's own
+// restoration does not wait for.
+const SCROLL_KEY = "scroll:";
+const RESTORE_MS = 5000;
+let restoring = false;
+
+function newEntry(): string {
+  return Math.random().toString(36).slice(2);
+}
+
+function entryId(): string {
+  let id = window.history.state?.entry as string | undefined;
+  if (!id) {
+    id = newEntry();
+    window.history.replaceState({ ...window.history.state, entry: id }, "");
+  }
+  return id;
+}
+
+function saveScroll(): void {
+  // a modal pins the page (see showModal): its offset is not a scroll position
+  if (restoring || document.body.style.position === "fixed") return;
+  try {
+    sessionStorage.setItem(SCROLL_KEY + entryId(), String(Math.round(window.scrollY)));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function restoreScroll(): void {
+  let target = 0;
+  try {
+    target = Number(sessionStorage.getItem(SCROLL_KEY + entryId())) || 0;
+  } catch {
+    /* storage unavailable */
+  }
+  if (target <= 0) return;
+  restoring = true;
+  const until = performance.now() + RESTORE_MS;
+  const inputs = ["wheel", "touchstart", "keydown", "mousedown"];
+  const stop = () => {
+    restoring = false;
+    inputs.forEach((e) => window.removeEventListener(e, stop));
+  };
+  inputs.forEach((e) => window.addEventListener(e, stop, { passive: true }));
+  const step = () => {
+    if (!restoring) return;
+    const reachable = document.documentElement.scrollHeight - window.innerHeight >= target;
+    window.scrollTo({ top: target, behavior: "instant" });
+    if (reachable || performance.now() > until) stop();
+    else requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function keepScroll(): void {
+  window.history.scrollRestoration = "manual";
+  let queued = false;
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        saveScroll();
+      });
+    },
+    { passive: true },
+  );
+  window.addEventListener("popstate", restoreScroll);
+  restoreScroll();
 }
 
 /** Links shared before the switch from hash routes (#/player/1) keep working. */
@@ -119,6 +212,7 @@ function redirectHashRoute(): void {
   }
 }
 redirectHashRoute();
+keepScroll();
 
 /** The current route; plain same-site links navigate without reloading the page. */
 export function useRoute(): Route {
@@ -126,6 +220,7 @@ export function useRoute(): Route {
   useEffect(() => {
     const on = () => {
       redirectHashRoute();
+keepScroll();
       setRoute(parsePath(window.location.pathname));
     };
     const click = (e: MouseEvent) => {

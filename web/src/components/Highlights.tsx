@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { playerHref, useAsync } from "../hooks";
+import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtDate } from "../format";
 import type { BoardKey, BoardRow, Highlights as Data, HlGroup, PersonRef } from "../types";
@@ -107,7 +107,8 @@ function Upsets({ data, filter, open, toggle }: { data: Data["upsets"]; filter: 
 
 function Movers({ data, filter, open, toggle }: { data: Data["movers"]; filter: Filter; open: boolean; toggle: () => void }) {
   const { t, locale } = useI18n();
-  const [period, setPeriod] = useState<"today" | "season">("today");
+  const [periodParam, setPeriod] = useUrlState("movers", "today");
+  const period = periodParam === "season" ? "season" : "today";
   const list = (period === "season" && data.season) || data.today;
   const rows = list.players.filter((m) => m.gender === filter.gender && m.group === filter.group);
   const periods: ["today" | "season", string][] = [["today", t("hlMoversToday")]];
@@ -152,8 +153,10 @@ function BoardDetail({ k, r }: { k: BoardKey; r: BoardRow }) {
 
 function Leaderboards({ data }: { data: Data["leaderboards"] }) {
   const { t, locale } = useI18n();
-  const [gender, setGender] = useState("M");
-  const [open, setOpen] = useState(false);
+  const [gender, setGender] = useUrlState("lb", "M");
+  const [openParam, setOpenParam] = useUrlState("lbmore", "");
+  const open = openParam === "1";
+  const setOpen = (v: boolean) => setOpenParam(v ? "1" : "");
   const [query, setQuery] = useState<MatchQuery | null>(null);
   const boards = data.players[gender];
   const pct = (v: number) => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(v);
@@ -206,10 +209,17 @@ function Leaderboards({ data }: { data: Data["leaderboards"] }) {
 export default function Highlights() {
   const { t } = useI18n();
   const st = useAsync((s) => api.highlights(s), []);
-  const [filter, setFilter] = useState<Filter>({ gender: "M", group: "N1-R3" });
+  const [gender, setGender] = useUrlState("g", "M");
+  const [group, setGroup] = useUrlState("group", GROUPS[0]);
+  const filter: Filter = { gender, group: (GROUPS as string[]).includes(group) ? (group as HlGroup) : GROUPS[0] };
+  const setFilter = (f: Filter) => {
+    setGender(f.gender);
+    setGroup(f.group);
+  };
   // "show more" opens the upsets and the movers together (side by side)
-  const [open, setOpen] = useState(false);
-  const toggle = () => setOpen(!open);
+  const [openParam, setOpenParam] = useUrlState("more", "");
+  const open = openParam === "1";
+  const toggle = () => setOpenParam(open ? "" : "1");
   if (!st.data) return <AsyncStatus {...st} />;
   return (
     <>

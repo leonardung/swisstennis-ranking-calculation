@@ -30,6 +30,12 @@ from . import evaluate, highlights, ranking, stats
 RECENT_DAYS = 45
 # feedback messages accepted per visitor (IP) per hour
 FEEDBACK_PER_HOUR = 5
+# "what do I need to move up": wins counted up to this many, against these percentiles of W
+MOVE_UP_MAX_WINS = 15
+MOVE_UP_PERCENTILES = (25, 50, 75)
+# custom prediction: at most this many results of a kind, and in all
+PREDICT_MAX_PER_ROW = 30
+PREDICT_MAX_RESULTS = 60
 
 
 class Feedback(BaseModel):
@@ -349,15 +355,34 @@ class App:
         cls = others["class"].iloc[min(rank, len(others)) - 1] if len(others) else None
         return {"W": _num(W[0]), "R": _num(R[0]), "C": _num(C), "rank": rank, "class": _str(cls)}
 
-    def player_matches(self, pid: int) -> dict:
+    def _seasons(self, s: State, m: pd.DataFrame) -> list[tuple[pd.Timestamp, pd.Timestamp]]:
+        """Today's window, then the year windows before it back to the first of the matches `m`
+        (each the window of an official list); the later ones first."""
+        out = [(s.period.start, s.period.end)]
+        first = m["date"].min()
+        while not pd.isna(first) and out[-1][0] > first:
+            start = out[-1][0]
+            out.append((start - pd.DateOffset(years=1), start))
+        return out
+
+    def player_matches(self, pid: int, season: int = 0) -> dict:
+        """The player's matches in a season: 0 is today's window, with what each match counts;
+        1, 2... the year windows before it. Both players' category and rank at each match."""
         s = self.s()
         r = self._player(s, pid)
         i = s.number[pid]
         pos = s.match_rows.get(pid, np.array([], int))
-        m = s.matches.iloc[pos]
-        m = m[(m["date"] >= s.period.start) & (m["date"] < s.period.end)]
-        m = stats.describe(evaluate.dedupe(m)).sort_values("date", ascending=False)
+        m = stats.describe(evaluate.dedupe(s.matches.iloc[pos]))
+        seasons = self._seasons(s, m)
+        if not 0 <= season < len(seasons):
+            raise HTTPException(404, f"no season {season}")
+        start, end = seasons[season]
+        m = m[(m["date"] >= start) & (m["date"] < end)]
+        # with_categories() renumbers the rows: keep the row of each result in `matches`
+        m = stats.with_categories(m.assign(row=m.index), s.history, pid).set_index("row")
+        m = m.sort_values("date", ascending=False, kind="stable")
 
+        current = season == 0
         rows = s.rows.iloc[s.player_rows.get(i, np.array([], int))]
         dW, dC = match_deltas(r["w0"], rows["opp_w"].to_numpy(), rows["win"].to_numpy())
         calc = rows.assign(dW=dW, dC=dC).set_index("match")
@@ -365,10 +390,13 @@ class App:
 
         out = []
         for idx, x in m.iterrows():
-            opp_id = _int(x["adversaryPersonId"])
+            opponent, own = stats.at_the_time(x)
+            opp_id = opponent["id"]
             opp = s.p.loc[s.number[opp_id]] if opp_id in s.number.index else None
-            c = calc.loc[idx] if idx in calc.index else None
-            if c is not None:
+            c = calc.loc[idx] if current and idx in calc.index else None
+            if not current:
+                reason = "past"
+            elif c is not None:
                 reason = None if c["counted"] else "discarded_loss"
             else:
                 reason = "walkover" if x["how"] == "walkover" else "no_value"
@@ -380,12 +408,12 @@ class App:
                     "tournament": _str(x["tournamentName"]),
                     "type": x["type"],
                     "opponent": {
-                        "id": opp_id,
-                        "name": stats._name(x),
-                        "class": None if opp is None or not opp["on_list"] else _str(opp["class"]),
+                        **opponent,
+                        "class_today": None if opp is None or not opp["on_list"] else _str(opp["class"]),
                         "class_official": _str(s.official_class.get(opp_id)),
                         "value": None if c is None else _num(c["opp_w"]),
                     },
+                    "own": own,
                     "score": x["score"],
                     "result": x["result"],
                     "how": x["how"],
@@ -393,14 +421,16 @@ class App:
                     "reason": reason,
                     "delta_W": None if reason else _num(c["dW"]),
                     "delta_C": None if reason else _num(c["dC"]),
-                    "last_list": last.date().isoformat(),
-                    "drops_after_next_official": bool(last <= next_official),
+                    "last_list": last.date().isoformat() if current else None,
+                    "drops_after_next_official": bool(current and last <= next_official),
                 }
             )
         return {
+            "season": season,
+            "seasons": [{"start": a.date().isoformat(), "end": b.date().isoformat()} for a, b in seasons],
             "window": {
-                "start": s.period.start.date().isoformat(),
-                "end": s.period.end.date().isoformat(),
+                "start": start.date().isoformat(),
+                "end": end.date().isoformat(),
                 "next_official": next_official.date().isoformat(),
             },
             "matches": out,
@@ -424,6 +454,86 @@ class App:
             out["player"][outcome] = values(p.loc[a])
             out["opponent"][outcome] = values(p.loc[b])
         return out
+
+    def _strengths(self, s: State, gender: str) -> dict[str, dict[int, float]]:
+        """Per category, the W of a weak, a middle and a strong player (MOVE_UP_PERCENTILES of W
+        among its ranked players of `gender`)."""
+        g = s.p[evaluate.ranked(s.p) & (s.p["gender"] == gender)]
+        out = {}
+        for cls in evaluate.CATEGORIES:
+            w = g.loc[g["class"] == cls, "W"]
+            if not w.empty:
+                out[cls] = {q: float(w.quantile(q / 100)) for q in MOVE_UP_PERCENTILES}
+        return out
+
+    def predict(self, pid: int, results: str) -> dict:
+        """The player's values after hypothetical results: `results` is a comma-separated list of
+        outcome:count:category:percentile (e.g. win:3:R2:75), each against an opponent of that
+        category at that percentile of W (see _strengths). The full calculation, as simulate()."""
+        s = self.s()
+        r = self._player(s, pid)
+        strengths = self._strengths(s, r["gender"])
+        wins, opp_w = [], []
+        for item in filter(None, results.split(",")):
+            try:
+                outcome, count, cls, q = item.split(":")
+                count, q = int(count), int(q)
+                value = strengths[cls][q]
+            except (ValueError, KeyError):
+                raise HTTPException(400, f"bad result {item!r}: outcome:count:category:percentile") from None
+            if outcome not in ("win", "loss") or not 1 <= count <= PREDICT_MAX_PER_ROW:
+                raise HTTPException(400, f"bad result {item!r}")
+            wins += [outcome == "win"] * count
+            opp_w += [value] * count
+        if not wins or len(wins) > PREDICT_MAX_RESULTS:
+            raise HTTPException(400, f"between 1 and {PREDICT_MAX_RESULTS} results")
+        a = s.number[pid]
+        extra = pd.DataFrame(
+            {"player": a, "opp": -1, "opp_fixed": opp_w, "win": wins, "match": -1}, index=range(len(wins))
+        )
+        players = s.period.players.copy()
+        players.loc[a, "n_matches"] += len(wins)
+        period = replace(s.period, players=players, matches=pd.concat([s.period.matches, extra], ignore_index=True))
+        p = evaluate.evaluate(period, predict=True)
+        return {"before": values(r), "after": values(p.loc[a])}
+
+    def move_up(self, pid: int) -> dict | None:
+        """What the player needs to reach the next category: the wins (up to MOVE_UP_MAX_WINS)
+        against a weak, a middle and a strong opponent of each category (the 25th, 50th and 75th
+        percentile of W among its ranked players of the player's gender). An estimate: one pass
+        of the formula with today's opponent values, the others' values unchanged. None when the
+        player has no category to reach."""
+        s = self.s()
+        r = self._player(s, pid)
+        if not r["on_list"] or r["class"] not in evaluate.CATEGORIES[1:]:
+            return None
+        g = s.p[evaluate.ranked(s.p) & (s.p["gender"] == r["gender"])]
+        target = evaluate.CATEGORIES[evaluate.CATEGORIES.index(r["class"]) - 1]
+        need = g.loc[g["class"] == target, "C"].min()
+        if pd.isna(need):
+            return None
+        rows = s.rows.iloc[s.player_rows.get(r.name, np.array([], int))]
+        opp_w, win = rows["opp_w"].to_numpy(), rows["win"].to_numpy()
+        extra = np.arange(MOVE_UP_MAX_WINS + 1)
+
+        def gain(value: float) -> np.ndarray:
+            """C gained with 0, 1, 2... more wins against an opponent of W `value`."""
+            C = []
+            for k in extra:
+                W, R = ranking.single_pass(
+                    np.array([r["w0"]]), np.zeros(len(win) + k, int), np.r_[opp_w, np.full(k, value)], np.r_[win, np.ones(k, bool)]
+                )
+                C.append(W[0] + R[0])
+            return np.array(C) - C[0]
+
+        levels = []
+        for cls, values_ in self._strengths(s, r["gender"]).items():
+            opponents = []
+            for q, value in values_.items():
+                enough = np.flatnonzero(r["C"] + gain(value) >= need)
+                opponents.append({"percentile": q, "W": _num(value), "wins": int(enough[0]) if len(enough) else None})
+            levels.append({"class": cls, "opponents": opponents})
+        return {"class": _str(r["class"]), "target": target, "C": _num(r["C"]), "need": _num(need), "max_wins": MOVE_UP_MAX_WINS, "levels": levels}
 
     def _stats_matches(self, pid: int, range_: str) -> tuple[pd.DataFrame, list[int]]:
         """The player's matches in `range_` (window, all or a year), describe()d and
@@ -470,17 +580,12 @@ class App:
         s = self.s()
         self._player(s, pid)
         m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
-        m = stats.describe(evaluate.dedupe(m[m["adversaryPersonId"] == oid])).sort_values("date", ascending=False)
-        return [
-            {
-                "date": x["date"].date().isoformat(),
-                "tournament": _str(x["tournamentName"]),
-                "score": x["score"],
-                "result": x["result"],
-                "how": x["how"],
-            }
-            for _, x in m.iterrows()
-        ]
+        m = stats.describe(evaluate.dedupe(m[m["adversaryPersonId"] == oid]))
+        return stats.match_list(stats.with_categories(m, s.history, pid))
+
+    def career(self, pid: int) -> dict:
+        m, _ = self._stats_matches(pid, "all")
+        return stats.career(m)
 
 
 class SinglePageApp(StaticFiles):
@@ -531,12 +636,24 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
         return app.player(pid)
 
     @api.get("/api/players/{pid}/matches")
-    def matches(pid: int):
-        return app.player_matches(pid)
+    def matches(pid: int, season: int = 0):
+        return app.player_matches(pid, season)
 
     @api.get("/api/players/{pid}/stats")
     def player_stats(pid: int, range: str = "window"):
         return app.player_stats(pid, range)
+
+    @api.get("/api/players/{pid}/predict")
+    def predict(pid: int, results: str):
+        return app.predict(pid, results)
+
+    @api.get("/api/players/{pid}/move-up")
+    def move_up(pid: int):
+        return app.move_up(pid)
+
+    @api.get("/api/players/{pid}/career")
+    def career(pid: int):
+        return app.career(pid)
 
     @api.get("/api/players/{pid}/h2h/{oid}")
     def h2h(pid: int, oid: int):
