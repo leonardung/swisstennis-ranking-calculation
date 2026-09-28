@@ -23,6 +23,9 @@ const BOARDS: [BoardKey, MsgKey, MsgKey][] = [
   ["streak", "hlStreak", "hlStreakHelp"],
 ];
 
+// shown side by side on wide screens, each row with its own "show more"
+const BOARD_ROWS = [BOARDS.slice(0, 3), BOARDS.slice(3)];
+
 interface Filter {
   gender: string;
   group: HlGroup;
@@ -175,64 +178,72 @@ function MtbScore({ score }: { score: string }) {
 function Leaderboards({ data }: { data: Data["leaderboards"] }) {
   const { t, locale } = useI18n();
   const [gender, setGender] = useUrlState("lb", "M");
+  // the rows of boards shown in full: their indexes, e.g. "01"
   const [openParam, setOpenParam] = useUrlState("lbmore", "");
-  const open = openParam === "1";
-  const setOpen = (v: boolean) => setOpenParam(v ? "1" : "");
+  const isOpen = (row: number) => openParam.includes(String(row));
+  const toggle = (row: number) =>
+    setOpenParam(isOpen(row) ? openParam.replace(String(row), "") : [...openParam, String(row)].sort().join(""));
   const [query, setQuery] = useState<MatchQuery | null>(null);
   const boards = data.players[gender];
   const pct = (v: number) => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(v);
-  const longest = Math.max(0, ...BOARDS.map(([k]) => boards?.[k]?.length ?? 0));
   return (
     <Card title={t("hlBoardsTitle")} className="hl-card" actions={<GenderSeg value={gender} onChange={setGender} />}>
       {query && <MatchListDialog key={query.key} query={query} onClose={() => setQuery(null)} />}
       <p className="hint small">{t("hlBoardsIntro", { since: fmtDate(data.since, locale) })}</p>
-      <div className="hl-boards">
-        {BOARDS.map(([k, label, help]) => (
-          <div key={k} className="hl-board">
-            <h4>
-              <Hint label={t(label)} text={t(help, { n: data.min_played[k] ?? 0 })} />
-            </h4>
-            <ol className="hl-list">
-              {(boards?.[k] ?? []).slice(0, open ? undefined : SHOWN).map((r, i) => (
-                <li
-                  key={r.player.id}
-                  className="hl-board-row opens"
-                  {...opens(
-                    () =>
-                      setQuery({
-                        key: `${k}:${r.player.id}`,
-                        title: `${r.player.name} · ${t(label)}`,
-                        load: (sig) => api.boardMatches(k, r.player.id, sig),
-                      }),
-                    t("showMatches"),
-                  )}
-                >
-                  <span className="hl-pos">{i + 1}</span>
-                  <span className="hl-board-name">
-                    <span className="hl-who">
-                      <CategoryBadge cls={r.player.class} size="sm" />
-                      <PlayerLink p={r.player} />
-                    </span>
-                    <BoardDetail k={k} r={r} />
-                  </span>
-                  <strong className="hl-board-val">
-                    {k === "longest_super_tiebreak" ? (
-                      <MtbScore score={r.score ?? ""} />
-                    ) : k === "biggest_upset" ? (
-                      <span className="tag tag-ok">{t("hlLevels", { n: r.value })}</span>
-                    ) : k === "streak" ? (
-                      r.value
-                    ) : (
-                      pct(r.value)
-                    )}
-                  </strong>
-                </li>
-              ))}
-            </ol>
+      {BOARD_ROWS.map((row, ri) => {
+        const open = isOpen(ri);
+        return (
+          <div key={ri} className="hl-board-group">
+          <div className="hl-boards">
+            {row.map(([k, label, help]) => (
+              <div key={k} className="hl-board">
+                <h4>
+                  <Hint label={t(label)} text={t(help, { n: data.min_played[k] ?? 0 })} />
+                </h4>
+                <ol className="hl-list">
+                  {(boards?.[k] ?? []).slice(0, open ? undefined : SHOWN).map((r, i) => (
+                    <li
+                      key={r.player.id}
+                      className="hl-board-row opens"
+                      {...opens(
+                        () =>
+                          setQuery({
+                            key: `${k}:${r.player.id}`,
+                            title: `${r.player.name} · ${t(label)}`,
+                            load: (sig) => api.boardMatches(k, r.player.id, sig),
+                          }),
+                        t("showMatches"),
+                      )}
+                    >
+                      <span className="hl-pos">{i + 1}</span>
+                      <span className="hl-board-name">
+                        <span className="hl-who">
+                          <CategoryBadge cls={r.player.class} size="sm" />
+                          <PlayerLink p={r.player} />
+                        </span>
+                        <BoardDetail k={k} r={r} />
+                      </span>
+                      <strong className="hl-board-val">
+                        {k === "longest_super_tiebreak" ? (
+                          <MtbScore score={r.score ?? ""} />
+                        ) : k === "biggest_upset" ? (
+                          <span className="tag tag-ok">{t("hlLevels", { n: r.value })}</span>
+                        ) : k === "streak" ? (
+                          r.value
+                        ) : (
+                          pct(r.value)
+                        )}
+                      </strong>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <More total={longest} open={open} toggle={() => setOpen(!open)} />
+            <More total={Math.max(0, ...row.map(([k]) => boards?.[k]?.length ?? 0))} open={open} toggle={() => toggle(ri)} />
+          </div>
+        );
+      })}
     </Card>
   );
 }

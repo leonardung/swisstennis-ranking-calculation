@@ -1697,6 +1697,9 @@ dialog.feedback::backdrop {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 24px;
 }
+.hl-board-group + .hl-board-group {
+  margin-top: 24px;
+}
 .hl-board h4 {
   font-size: 14px;
   font-weight: 650;
