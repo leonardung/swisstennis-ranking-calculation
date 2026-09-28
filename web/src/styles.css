@@ -1814,11 +1814,12 @@ dialog.feedback::backdrop {
 }
 /* on its own line above the title, so it does not widen the column */
 .free-flag {
-  display: table;
+  display: block;
+  width: fit-content;
   margin: 0 0 4px auto;
   font-weight: 400;
   font-size: 11px;
-  padding: 0 6px;
+  padding: 0 8px 0 6px;
 }
 
 /* elements that open a match list (see MatchListDialog) */
