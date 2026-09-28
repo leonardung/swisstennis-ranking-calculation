@@ -61,11 +61,9 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
                   <small>{o ? fmtDate(o.date, locale) : "–"}</small>
                 </th>
                 <th>
+                  {today?.free && <span className="tag tag-drop free-flag">🔒 {t("freeFlag")}</span>}
                   {t("calculatedToday")}
-                  <small>
-                    {d ? fmtDate(d.date, locale) : "–"}
-                    {today?.free && <span className="tag tag-drop free-flag">🔒 {t("freeFlag")}</span>}
-                  </small>
+                  <small>{d ? fmtDate(d.date, locale) : "–"}</small>
                 </th>
                 <th>{t("change")}</th>
               </tr>

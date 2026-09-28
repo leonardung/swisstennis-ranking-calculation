@@ -1811,9 +1811,11 @@ dialog.feedback::backdrop {
   justify-content: center;
   text-align: center;
 }
+/* on its own line above the title, so it does not widen the column */
 .free-flag {
-  display: inline-block;
-  margin-left: 6px;
+  display: table;
+  margin: 0 0 4px auto;
+  font-weight: 400;
   font-size: 11px;
   padding: 0 6px;
 }
