@@ -129,14 +129,18 @@ function Movers({ data, filter, open, toggle }: { data: Data["movers"]; filter: 
           {rows.slice(0, open ? undefined : SHOWN).map((m, i) => (
             <li key={m.player.id} className="hl-mover">
               <span className="hl-pos">{i + 1}</span>
-              <PlayerLink p={m.player} />
+              <span className="hl-mover-name">
+                <PlayerLink p={m.player} />
+                <small>
+                  <span className="pos">{t("hlWon", { n: m.won })}</span> · <span className="neg">{t("hlLost", { n: m.lost })}</span>
+                </small>
+              </span>
               <ClassChange from={m.from.class} to={m.to.class} />
               <span className="hl-mover-val">
                 <Delta value={m.gain} />
                 <small className="muted">
                   {fmt3(m.from.C)} → {fmt3(m.to.C)}
                 </small>
-                <small className="muted">{t("hlRecord", { won: m.won, lost: m.lost })}</small>
               </span>
             </li>
           ))}

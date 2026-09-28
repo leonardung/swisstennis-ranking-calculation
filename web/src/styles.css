@@ -1614,11 +1614,11 @@ dialog.feedback::backdrop {
     min-width: 0;
   }
   .hl-pair .hl-who,
-  .hl-pair .hl-mover > a {
+  .hl-pair .hl-mover-name a {
     overflow: hidden;
   }
   .hl-pair .hl-who a,
-  .hl-pair .hl-mover > a,
+  .hl-pair .hl-mover-name a,
   .hl-pair .hl-upset-meta {
     white-space: nowrap;
     overflow: hidden;
@@ -1680,6 +1680,11 @@ dialog.feedback::backdrop {
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 10px;
+}
+.hl-mover-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 .hl-mover-val {
   display: flex;
