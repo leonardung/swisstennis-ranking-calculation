@@ -29,6 +29,7 @@ from .api import (
 
 PAGE_SIZE = 5000
 RESULTS_LIMIT = 5000
+BUILD_BATCH = 2000  # raw files per batch when building the tables
 GENDERS = {1: "M", 2: "F"}
 
 
@@ -95,20 +96,30 @@ def _fetch_all(client: Client, ids: set[int], since: str, raw_dir: Path, workers
 
 
 def build_tables(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Turn the raw cache into (history, matches) tables."""
-    history, matches = [], []
-    for path in tqdm(sorted(raw_dir.glob("*.json")), desc="building tables"):
-        person_id = int(path.stem)
-        raw = json.loads(path.read_text())
-        history += raw["history"]
-        matches += [{"personId": person_id, **r} for r in raw["results"]]
+    """Turn the raw cache into (history, matches) tables.
 
-    hist = pd.DataFrame(history)
-    hist["date"] = pd.to_datetime(hist["date"], format="mixed")
+    Built in batches of files: millions of results as Python dicts do not fit in memory.
+    """
+    paths = sorted(raw_dir.glob("*.json"))
+    hist_parts, match_parts = [], []
+    for start in tqdm(range(0, len(paths), BUILD_BATCH), desc="building tables", unit_scale=BUILD_BATCH):
+        history, matches = [], []
+        for path in paths[start : start + BUILD_BATCH]:
+            person_id = int(path.stem)
+            raw = json.loads(path.read_text())
+            history += raw["history"]
+            matches += [{"personId": person_id, **r} for r in raw["results"]]
+        h, m = pd.DataFrame(history), pd.DataFrame(matches)
+        h["date"] = pd.to_datetime(h["date"], format="mixed")
+        if len(m):
+            m["date"] = pd.to_datetime(m["date"], format="mixed")
+            m["adversaryPersonId"] = m["adversaryPersonId"].astype("Int64")
+        hist_parts.append(h)
+        match_parts.append(m)
+
+    hist = pd.concat(hist_parts, ignore_index=True)
     hist = hist.rename(columns={"competitionValue": "W", "classificationValue": "C"})
-
-    m = pd.DataFrame(matches)
-    m["date"] = pd.to_datetime(m["date"], format="mixed")
+    m = pd.concat(match_parts, ignore_index=True)
     m["adversaryPersonId"] = m["adversaryPersonId"].astype("Int64")
     return hist, m
 
