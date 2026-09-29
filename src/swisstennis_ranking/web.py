@@ -983,7 +983,8 @@ class App:
 
     def _person(self, pid: int | None, name: str | None, live: pd.DataFrame) -> dict:
         s = self.state
-        if not name and pid is not None and s is not None and pid in s.people.index:
+        # the ranking's name when the player is on it: upstream names come in either order
+        if pid is not None and s is not None and pid in s.people.index:
             name = s.people.at[pid, "name"]
         return {"personId": pid, "name": _str(name) or None, "class": None if pid is None else _str(live["class"].get(pid))}
 

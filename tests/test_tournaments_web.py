@@ -185,13 +185,13 @@ def test_detail_players_and_draw(client):
     assert client.get("/api/tournaments/300").json()["events"][0]["pdfUrl"] == "pdf3001"
     # strongest first (today's C), unknown players last
     assert [p["personId"] for p in ev["players"]] == [2, 5, 3, None]
-    assert ev["players"][0] == {"personId": 2, "name": "B Two", "class": "R2", "licence": "2", "officialClass": "R2", "C": 7.5}
+    assert ev["players"][0] == {"personId": 2, "name": "P2", "class": "R2", "licence": "2", "officialClass": "R2", "C": 7.5}  # the ranking's name
     assert ev["players"][-1] == {"personId": None, "name": "Un Known", "class": None, "licence": "9.9", "officialClass": None, "C": None}
     draw = client.get("/api/tournaments/300").json()["events"][0]["draw"]
     assert [x["round"] for x in draw["rounds"]] == [2, 1]  # first round first
     assert [m["slot"] for m in draw["rounds"][0]["matches"]] == [0, 2]
     final = draw["rounds"][1]["matches"][0]
-    assert final["a"] == [{"personId": 2, "name": "P 2", "class": "R2"}] and final["winner"] == 1 and final["walkover"] is False
+    assert final["a"] == [{"personId": 2, "name": "P2", "class": "R2"}] and final["winner"] == 1 and final["walkover"] is False
     assert client.get("/api/tournaments/999").status_code == 404
 
 
@@ -205,7 +205,7 @@ def test_player_registered_suggested_past(client):
     past = r["past"][0]
     assert past["reached"] == 1  # lost the final
     assert [(x["round"], x["win"], x["score"]) for x in past["results"]] == [(2, True, "6-3 6-4"), (1, False, "2-6 6-3 8-10")]
-    assert past["results"][1]["opponent"] == [{"personId": 2, "name": "P 2", "class": "R2"}]
+    assert past["results"][1]["opponent"] == [{"personId": 2, "name": "P2", "class": "R2"}]
     # the woman: no men's events suggested; 1002 (WS R5/R1) is her registration
     r = client.get("/api/players/6/tournaments").json()
     assert r["suggested"] == [] and [x["event"]["id"] for x in r["registered"]] == [1002]

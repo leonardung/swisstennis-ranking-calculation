@@ -359,11 +359,12 @@ def parse_draw_date(text) -> pd.Timestamp | None:
 
 
 def json_draw_rows(event_id: int, draw: dict, people: dict[int, str] | None = None) -> list[dict] | None:
-    """Rows of draws.parquet from a draw (fetch_draw): the matches whose two sides are known,
+    """Rows of draws.parquet from a draw (fetch_draw): every match of the bracket,
     played (winner, score from side a's view, walkover) or to play (no winner, the scheduled
-    date when given); byes give no row. Side a comes from the upper feeder. A cell of column
-    c + 1 sits between its two feeders of column c: it is matched to the nearest place, and its
-    player to the entries of its block by personId, else by the abbreviated name ("Rizzo S.").
+    date when given); a side not known yet is empty, and so is a bye (first round only). Side a
+    comes from the upper feeder. A cell of column c + 1 sits between its two feeders of column c:
+    it is matched to the nearest place, and its player to the entries of its block by personId,
+    else by the abbreviated name ("Rizzo S.").
     `people`: personId -> name of the registered players (else the name of the draw). None when
     the first column is not a power of 2 (not a knockout draw)."""
     people = people or {}
@@ -390,9 +391,8 @@ def json_draw_rows(event_id: int, draw: dict, people: dict[int, str] | None = No
     for c in first:
         players = [(p, DRAW_ENTRY.fullmatch(x)[1]) for p, x in _players(c)]
         entries.append(None if not players or players[0][1].upper() == "BYE" else players)
-    sides = [
-        e and _team(*((p, people.get(p) or x) for p, x in e)) for e in entries
-    ]
+    # (personIds, names) of each position, partners in the draw's order
+    sides = [e and tuple(zip(*((p, people.get(p) or x) for p, x in e))) for e in entries]
 
     def who(cell, lo, hi):
         """The position in [lo, hi) of the side in the cell, None when unknown."""
@@ -414,12 +414,14 @@ def json_draw_rows(event_id: int, draw: dict, people: dict[int, str] | None = No
             won = who(cell, j << k, (j + 1) << k) if cell and _players(cell) else None
             if x is None or y is None:  # a bye moves the other side on
                 nxt.append(y if x is None else x)
-                continue
-            nxt.append(won if won is not None else -1)
-            if x < 0 or y < 0:
-                continue
-            (a, a_names), (b, b_names) = sides[x], sides[y]
-            winner = 1 if won == x else 2 if won == y else None
+                if k > 1 or x is y:  # a bye only shows in the first round
+                    continue
+                winner = None
+            else:
+                nxt.append(won if won is not None else -1)
+                winner = 1 if won == x else 2 if won == y else None
+            # a side not known yet (winner of a match still to play) or a bye is empty
+            (a, a_names), (b, b_names) = (sides[i] if i is not None and i >= 0 else ((), ()) for i in (x, y))
             score, walkover = parse_score(cell.get("score")) if winner else (None, False)
             if score and winner == 2:
                 score = " ".join("-".join(s.split("-")[::-1]) for s in score.split())
@@ -427,7 +429,8 @@ def json_draw_rows(event_id: int, draw: dict, people: dict[int, str] | None = No
             rows.append({
                 "eventId": event_id, "round": rounds - k + 1, "slot": 2 * j,
                 "a1": pad(a)[0], "a2": pad(a)[1], "b1": pad(b)[0], "b2": pad(b)[1],
-                "aName": " / ".join(x or "?" for x in a_names), "bName": " / ".join(x or "?" for x in b_names),
+                "aName": " / ".join(x or "?" for x in a_names) or None,
+                "bName": " / ".join(x or "?" for x in b_names) or None,
                 "winner": winner, "walkover": walkover, "score": score,
                 "date": None if winner or cell is None else parse_draw_date(cell.get("court")),
             })  # fmt: skip

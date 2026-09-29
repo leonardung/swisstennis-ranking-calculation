@@ -4,7 +4,7 @@ import { trackView } from "../analytics";
 import { playerHref, tournamentHref, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateTime, fmtInt } from "../format";
-import type { DrawMatch, DrawRound, TournamentDetail, TournamentEventDetail } from "../types";
+import type { DrawMatch, DrawPlayer, DrawRound, TournamentDetail, TournamentEventDetail } from "../types";
 import { AsyncStatus, Card, CategoryBadge, Hint } from "./common";
 import { DrawNames, dateRange, eventKind, eventTitle, roundLabel, surfaceLabel } from "./tournamentUtil";
 
@@ -252,7 +252,7 @@ function Bracket({ rounds, showDate }: { rounds: DrawRound[]; showDate: boolean 
                           gridRow: `${start + 2} / span ${span}`,
                         }}
                       >
-                        <DrawMatchBox m={m} showDate={showDate} />
+                        <DrawMatchBox m={m} showDate={showDate} first={r.round === first.round} />
                       </li>
                     );
                   })}
@@ -279,18 +279,21 @@ function PoolMatches({ matches, showDate }: { matches: DrawMatch[]; showDate: bo
   );
 }
 
-function DrawMatchBox({ m, showDate }: { m: DrawMatch; showDate: boolean }) {
+/** first: a match of the first round of a bracket, where an empty side is a bye (later: not known yet). */
+function DrawMatchBox({ m, showDate, first = false }: { m: DrawMatch; showDate: boolean; first?: boolean }) {
   const { t, locale } = useI18n();
+  const names = (side: DrawPlayer[]) =>
+    !side.length && first ? <span className="muted">{t("bye")}</span> : <DrawNames side={side} />;
   // a match still to play always shows the day it is scheduled for (from the draw)
   const day = m.date && (showDate || m.winner == null) ? m.date.slice(0, 10) : null;
   return (
     <div className="draw-match">
       <div className={`draw-side${m.winner === 1 ? " won" : ""}`}>
-        <DrawNames side={m.a} />
+        {names(m.a)}
         {m.winner === 1 && <span className="sr-only"> ({t("winner")})</span>}
       </div>
       <div className={`draw-side${m.winner === 2 ? " won" : ""}`}>
-        <DrawNames side={m.b} />
+        {names(m.b)}
         {m.winner === 2 && <span className="sr-only"> ({t("winner")})</span>}
       </div>
       {(m.score || m.walkover || day) && (

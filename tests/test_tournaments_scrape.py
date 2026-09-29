@@ -101,10 +101,14 @@ def test_draw_of_a_singles_event_in_progress():
     got = {(r["round"], r["slot"]): (r["a1"], r["b1"], r["aName"], r["bName"], r["winner"], r["score"], r["walkover"])
            for r in rows}  # fmt: skip
     assert got == {
+        (3, 0): (1, None, "Stefano Rizzo", None, None, None, False),  # bye: an empty side
         (3, 2): (2, None, "Ricci Renzo", "Varini Luca", 2, "4-6 0-3", False),  # side a's view
         (3, 4): (4, 5, "Adamo Mario", "Cavadini Luigi", None, None, False),  # to play
+        (3, 6): (6, None, "Nazzari Paolo", None, None, None, False),
         (2, 0): (1, None, "Stefano Rizzo", "Varini Luca", 1, "6-1 6-0", False),
-    }  # byes give no row, nor (2, 2): one side unknown yet
+        (2, 2): (None, 6, None, "Nazzari Paolo", None, None, False),  # side a not known yet
+        (1, 0): (1, None, "Stefano Rizzo", None, None, None, False),
+    }
     dates = {(r["round"], r["slot"]): r["date"] for r in rows}
     assert dates[(3, 4)] == pd.Timestamp("2026-09-30 18:00") and dates[(2, 0)] is None
 
@@ -121,12 +125,12 @@ def test_draw_of_a_doubles_event_by_abbreviated_names():
     ]}  # fmt: skip
     rows = {(r["round"], r["slot"]): r for r in t.json_draw_rows(9, draw)}
     first = rows[(2, 0)]
-    assert (first["a1"], first["a2"], first["b1"], first["b2"]) == (10, 11, 13, None)
+    assert (first["a1"], first["a2"], first["b1"], first["b2"]) == (10, 11, None, 13)
     assert (first["winner"], first["walkover"], first["score"]) == (2, True, None)
-    assert first["bName"] == "Klaus Patrick / Von Flüe Dario"  # players ordered by personId
+    assert first["bName"] == "Von Flüe Dario / Klaus Patrick"  # partners in the draw's order
     assert (rows[(2, 2)]["winner"], rows[(2, 2)]["score"]) == (2, "3-6 4-6")
     final = rows[(1, 0)]
-    assert (final["a1"], final["b1"], final["winner"], final["date"]) == (13, 16, None, pd.Timestamp("2026-10-01"))
+    assert (final["a2"], final["b1"], final["winner"], final["date"]) == (13, 16, None, pd.Timestamp("2026-10-01"))
 
 
 def test_draw_helpers():
