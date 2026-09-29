@@ -1160,8 +1160,6 @@ class App:
         r = t.tournaments.loc[tid]
         live = self._levels()
         ev = t.events[t.events["tournamentId"] == tid].sort_values(["matchTypeId", "ageCategoryId", "strong", "eventId"])
-        today = pd.Timestamp.now().normalize()
-        drawn = lambda day: pd.notna(day) and day <= today  # noqa: E731
         return {
             **_tournament_summary(tid, r),
             "drawingTime": _day(r["drawingTime"]),
@@ -1172,8 +1170,9 @@ class App:
                     **_event_summary(t, e),
                     "dateFrom": _day(e["dateFrom"]),
                     "dateTo": _day(e["dateTo"]),
-                    # before the draw the PDF only says "no player"
-                    "pdfUrl": _str(e["pdfUrl"]) if e["hasDraw"] or drawn(e["drawingTime"]) or drawn(e["dateBegin"]) else None,
+                    # only once the draw is out: before it the PDF only says "no player", and a
+                    # passed drawing date does not mean it is published
+                    "pdfUrl": _str(e["pdfUrl"]) if e["hasDraw"] else None,
                     "applicants": _int(e["applicants"]),
                     "players": self._registered(t, int(e["eventId"]), live),
                     "draw": self._draw(t, int(e["eventId"]), live),
