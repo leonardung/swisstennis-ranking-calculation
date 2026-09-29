@@ -52,7 +52,7 @@ export default function TournamentsTab({ playerId }: { playerId: number }) {
           <ul className="entry-list">
             {d.suggested.map((r) => (
               <li key={r.event.id}>
-                <EntryHead entry={r} side={<span className="strong">{t("nearLevelN", { n: fmtInt(r.inRange, locale) })}</span>} />
+                <EntryHead entry={r} openTag={false} side={<span className="strong">{t("nearLevelN", { n: fmtInt(r.inRange, locale) })}</span>} />
               </li>
             ))}
           </ul>
@@ -108,7 +108,7 @@ export default function TournamentsTab({ playerId }: { playerId: number }) {
   );
 }
 
-function EntryHead({ entry, side }: { entry: PlayerTournamentEntry; side?: ReactNode }) {
+function EntryHead({ entry, side, openTag = true }: { entry: PlayerTournamentEntry; side?: ReactNode; openTag?: boolean }) {
   const { t, locale } = useI18n();
   const { tournament: tr, event: e } = entry;
   return (
@@ -128,7 +128,7 @@ function EntryHead({ entry, side }: { entry: PlayerTournamentEntry; side?: React
         </small>
       </div>
       <div className="entry-side">
-        {e.registrationOpen && <span className="tag tag-open">{t("registrationOpen")}</span>}
+        {openTag && e.registrationOpen && <span className="tag tag-open">{t("registrationOpen")}</span>}
         {side}
       </div>
     </div>

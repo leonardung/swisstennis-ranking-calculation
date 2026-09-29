@@ -6,7 +6,7 @@ import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateTime, fmtInt } from "../format";
 import type { DrawMatch, DrawRound, TournamentDetail, TournamentEventDetail } from "../types";
 import { AsyncStatus, Card, CategoryBadge, Hint } from "./common";
-import { DrawNames, dateRange, eventKind, eventTitle, roundLabel } from "./tournamentUtil";
+import { DrawNames, dateRange, eventKind, eventTitle, roundLabel, surfaceLabel } from "./tournamentUtil";
 
 export default function TournamentPage({ id, eventId }: { id: number; eventId: number | null }) {
   const { t, locale } = useI18n();
@@ -88,12 +88,12 @@ export default function TournamentPage({ id, eventId }: { id: number; eventId: n
 }
 
 function TournamentInfo({ tr }: { tr: TournamentDetail }) {
-  const { t, locale } = useI18n();
+  const { t, locale, lang } = useI18n();
   const items: [string, ReactNode][] = [];
   const add = (label: string, v: ReactNode) => {
     if (v != null && v !== "") items.push([label, v]);
   };
-  add(t("surface"), tr.surface);
+  add(t("surface"), tr.surface && surfaceLabel(tr.surface, lang));
   add(t("place"), tr.place);
   add(t("tournamentCategory"), tr.category);
   add(t("entryFee"), tr.entryFee);

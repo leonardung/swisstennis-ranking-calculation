@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from swisstennis_ranking import ranking, stats, web
+from swisstennis_ranking import evaluate, ranking, stats, web
 
 
 def test_first_and_last_list_of_a_result():
@@ -137,3 +137,55 @@ def test_career_and_ranks_at_the_time():
     assert [(w["opponent"]["class"], w["date"]) for w in c["first_wins"]] == [("R2", "2026-05-01"), ("R4", "2025-05-01")]
     first = stats.match_list(m)[-1]
     assert first["own"] == {"class": "R5", "rank": 900} and first["opponent"]["rank"] == 700
+
+
+def _league_app(tmp_path):
+    """An App on a small league: men 1-4 with results against each other (both sides stored),
+    woman 5; today's list is the monthly list of 2025-06-01."""
+    ids = [1, 2, 3, 4, 5]
+    history = pd.DataFrame({
+        "personId": ids, "date": pd.to_datetime(["2025-04-01"] * 5), "firstname": list("abcde"),
+        "lastname": list("vwxyz"), "classification": ["R3", "R4", "R5", "R6", "R4"], "rank": [1, 2, 3, 4, 1],
+        "W": [6.0, 5.0, 4.0, 3.0, 5.0], "C": [6.0, 5.0, 4.0, 3.0, 5.0], "games": [0] * 5,
+    })
+    games = [(1, 2, "2025-01-10"), (2, 3, "2025-02-10"), (3, 1, "2025-03-10"), (1, 4, "2025-05-01")]
+    rows = []
+    for winner, loser, day in games:
+        for pid, opp, code in ((winner, loser, "S"), (loser, winner, "N")):
+            rows.append({"personId": pid, "date": pd.Timestamp(day), "adversaryPersonId": opp, "playerWinnerCode": code,
+                         "matchNotConsidered": False, "encounterId": np.nan, "adversaryValue": 0.0})
+    matches = pd.DataFrame(rows).assign(adversaryPersonId=lambda m: m["adversaryPersonId"].astype("Int64"))
+    players = pd.DataFrame({"personId": ids, "gender": ["M"] * 4 + ["F"]})
+    today = pd.Timestamp("2025-06-01")
+    period = evaluate.build_period(history, matches, players, today)
+    p, calc = evaluate.evaluate_detailed(period, predict=True)
+    people = pd.DataFrame({"name": list("ABCDE"), "gender": players["gender"].to_numpy()}, index=pd.Index(ids, name="personId"))
+    app = web.App(tmp_path, None)
+    app.state = web.State(
+        today=today, updated=None, history=history, matches=matches, match_rows=None, period=period, p=p, rows=calc,
+        player_rows=calc.groupby("player").indices, number=pd.Series(p.index, index=p["personId"]), people=people,
+        official_date=today, official_class=pd.Series(dtype=object), highlights={}, chance=lambda q: None,
+        match_chance=None,
+    )
+    return app, matches
+
+
+def test_predict_removes_played_matches_and_adds_matches_against_players(tmp_path):
+    from fastapi import HTTPException
+
+    app, matches = _league_app(tmp_path)
+    before = app.predict(1, add="win:4")["before"]
+    # 1 lost to 3: without that loss (and 3's win) player 1's C goes up
+    loss = matches.index[(matches["personId"] == 1) & (matches["adversaryPersonId"] == 3)][0]
+    out = app.predict(1, remove=str(loss))
+    assert out["removed"] == 1 and out["after"]["C"] > before["C"]
+    # a win against a given player: the same full calculation as the simulator
+    out = app.predict(1, add="win:2")
+    assert out["after"] == app.simulate(1, 2)["player"]["win"] and out["after"]["C"] > before["C"]
+    both = app.predict(1, remove=str(loss), add="win:2,loss:4")
+    assert both["removed"] == 1 and both["added"] == 2
+    for kw in ({"add": "win:5"}, {"add": "win:99"}, {"add": "win:1"}, {"add": "draw:2"}, {"remove": str(loss - 1)},  # the opponent's side
+               {"remove": "x"}, {}, {"add": ",".join(["win:2"] * (web.PREDICT_MAX_ADD + 1))}):
+        with pytest.raises(HTTPException) as e:
+            app.predict(1, **kw)
+        assert e.value.status_code == 400, kw

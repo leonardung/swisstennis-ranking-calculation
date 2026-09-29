@@ -77,6 +77,60 @@ def test_doubles_round_robin_stays_unplaced():
     assert [r["round"] for r in rows] == [0, 0, 0] and sorted(r["slot"] for r in rows) == [0, 1, 2]
 
 
+DRAW_PDF_TEXT = """Club Champion Trophy TC X (155860),                       29 Septembre 2026
+                                                            Page 1 / 1
+MD R1/R9 (Herrendoppel)
+TC X
+(1) (R5/R5) 1 N / 2 N
+                              1 N. / 2 N.
+ BYE
+                                              1 N. / 2 N.
+(R7/R7) 3 N / 4 N                                 6/1
+                              3 N. / 4 N.
+(NC/R8) 5 N / 6 N              6/1
+(2) (R6/R6) 7 N / 8 N
+                              7 N. / 8 N.
+BYE                                             7 N. / 8 N.
+                                                   6/1
+(R9/R9) 9 N / 10 N
+                              9 N. / 10 N.
+(NC/NC) Zed Foo / Bar Baz      6/2 6/2
+"""
+
+
+def test_draw_entries_from_the_pdf_text():
+    entries = t.draw_entries(DRAW_PDF_TEXT)
+    assert entries == [["1 N", "2 N"], None, ["3 N", "4 N"], ["5 N", "6 N"], ["7 N", "8 N"], None,
+                       ["9 N", "10 N"], ["Zed Foo", "Bar Baz"]]  # fmt: skip
+    assert t.draw_entries("MS R1/R9\n(R5) A B\n(R6) C D\n(R7) E F\n") is None  # 3: not a knockout draw
+
+
+def test_doubles_placed_by_the_draw_with_byes_and_missing_matches():
+    a, b, c, d, e = (1, 2), (3, 4), (5, 6), (7, 8), (9, 10)
+    sides = [_double(b, c, "S"), _double(a, b, "S"), _double(d, e, "S")]  # E beat F: not upstream
+    rows = t.draw_rows(9, sides, entries=lambda: t.draw_entries(DRAW_PDF_TEXT), people={9: "N 9", 10: "N 10"})
+    got = {(r["round"], r["slot"]): (r["a1"], r["b1"], r["winner"], r["aName"], r["bName"]) for r in rows}
+    assert got == {
+        (3, 2): (3, 5, 1, "N 3 / N 4", "N 5 / N 6"),
+        (2, 0): (1, 3, 1, "N 1 / N 2", "N 3 / N 4"),
+        (2, 2): (7, 9, 1, "N 7 / N 8", "N 9 / N 10"),
+        (3, 6): (9, None, 1, "N 9 / N 10", "Zed Foo / Bar Baz"),  # inferred: E plays the next round
+        (1, 0): (1, 7, None, "N 1 / N 2", "N 7 / N 8"),  # still to play
+    }
+    # no draw (or a draw that does not fit): the finished-knockout guess, else unplaced
+    rows = t.draw_rows(9, sides, entries=lambda: None)
+    assert [r["round"] for r in rows] == [0, 0, 0]
+    assert all(r["round"] == 0 for r in t.draw_rows(9, sides, entries=lambda: [["X Y"], ["Z W"]]))
+
+
+def test_age_info_from_the_category_texts():
+    assert t.age_info({1: "Aktiv", 2: "Actifs"}) == {"kind": "actives", "fr": "Actifs", "de": "Aktiv"}
+    assert t.age_info({1: "Junioren V (10+U)", 2: "Juniors V  (10+U)"})["max"] == 10
+    seniors = t.age_info({2: "Jeunes Seniors (Men 35+ Women 30+)"})
+    assert (seniors["kind"], seniors["men"], seniors["women"], seniors["de"]) == ("seniors", 35, 30, None)
+    assert t.age_info({2: None})["kind"] == "other"
+
+
 def test_ranking_bounds():
     assert t.parse_bounds("MS A R1/R5 ") == (9, 5)
     assert t.parse_bounds("WS N4/R3") == (7, 4)

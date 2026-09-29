@@ -86,8 +86,10 @@ export function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-export type Tab = "overview" | "matches" | "simulator" | "stats" | "tournaments";
-export const TABS: Tab[] = ["overview", "matches", "simulator", "stats", "tournaments"];
+export type Tab = "overview" | "matches" | "h2h" | "simulation" | "stats" | "tournaments";
+export const TABS: Tab[] = ["overview", "matches", "h2h", "simulation", "stats", "tournaments"];
+/** tabs renamed since: old links still open the right one */
+const OLD_TABS: Record<string, Tab> = { simulator: "h2h" };
 
 export type Route =
   | { page: "home" }
@@ -96,9 +98,10 @@ export type Route =
   | { page: "tournament"; id: number; eventId: number | null };
 
 export function parsePath(path: string): Route {
-  const m = /^\/player\/(\d+)(?:\/([a-z]+))?\/?$/.exec(path);
+  const m = /^\/player\/(\d+)(?:\/([a-z0-9]+))?\/?$/.exec(path);
   if (m) {
-    const tab = (TABS as string[]).includes(m[2] ?? "") ? (m[2] as Tab) : "overview";
+    const name = OLD_TABS[m[2] ?? ""] ?? m[2] ?? "";
+    const tab = (TABS as string[]).includes(name) ? (name as Tab) : "overview";
     return { page: "player", id: Number(m[1]), tab };
   }
   if (/^\/tournaments\/?$/.test(path)) return { page: "tournaments" };

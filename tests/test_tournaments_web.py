@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -35,7 +36,7 @@ def _tables(tdir):
     ev = lambda eid, tid, mt, lower, upper, b, e, open_: {  # noqa: E731
         "eventId": eid, "tournamentId": tid, "matchTypeId": mt, "ageCategoryId": 1, "lowerRankingId": lower,
         "upperRankingId": upper, "dateFrom": D(b), "dateTo": D(e), "statusId": 1, "competition": f"E{eid}",
-        "applicants": 9, "registrationOpen": open_, "onlineRegistration": True, "pdfUrl": None,
+        "applicants": 9, "registrationOpen": open_, "onlineRegistration": True, "pdfUrl": f"pdf{eid}",
     }
     _write(tdir, "events", [
         ev(1001, 100, 1, 13, 9, 10, 15, True),  # MS R9/R5
@@ -57,6 +58,10 @@ def _tables(tdir):
     _write(tdir, "draws", [
         m(1, 0, 2, 1, 1, "6-2 3-6 10-8"), m(2, 2, 2, 5, 1, "6-0 6-0"), m(2, 0, 1, 3, 1, "6-3 6-4"),
     ], T["draws"])
+    (tdir / "ages.json").write_text(json.dumps({
+        "1": {"kind": "actives", "fr": "Actifs", "de": "Aktiv"}, "3": {"kind": "juniors", "max": 16, "fr": "Juniors II (16+U)"},
+        "5": {"kind": "juniors", "max": 12}, "7": {"kind": "seniors", "men": 35, "women": 30}, "16": {"kind": "seniors", "men": 40, "women": 35},
+    }))  # fmt: skip
 
 
 def _state(chance=None):
@@ -76,8 +81,12 @@ def _state(chance=None):
     )
 
 
+PLACES = {"1025": [46.51, 6.56], "down": False}  # a postal code near Lausanne; Nominatim down
+
+
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
+    monkeypatch.setattr(web, "locate", lambda place, cache: PLACES.get(place))
     _tables(tmp_path / web.TOURNAMENT_DIR)
     api = web.create_app(tmp_path, None, None)
     api.state.app.state = _state()
@@ -91,13 +100,26 @@ def _ids(r):
 def test_list_filters_and_options(client):
     r = client.get("/api/tournaments").json()
     assert [t["id"] for t in r["tournaments"]] == [200, 100] and r["total"] == 2  # upcoming, by date
-    assert r["options"] == {"matchTypes": [1, 2, 3], "ages": [1], "cantons": ["BE", "VD", "ZH"], "cities": ["Bern", "Lausanne", "Zürich"]}
+    # options: of the upcoming tournaments (not 300), whatever the other filters
+    assert r["options"] == {"matchTypes": [1, 2, 3], "ages": [{"id": 1, "kind": "actives"}], "surfaces": ["Terre battue"],
+                            "cantons": ["BE", "VD"], "cities": ["Bern", "Lausanne"]}  # fmt: skip
+    assert client.get("/api/tournaments", params={"age": "2"}).json()["options"] == r["options"]
     assert r["updated"] is not None
     t200 = r["tournaments"][0]
     assert t200["players"] == 3 + 1 + 9 and t200["inRange"] is None and t200["distanceKm"] is None  # 2002: applicants
-    assert t200["events"][0] == {"id": 2001, "matchType": 1, "age": 1, "lower": "R4", "upper": "R1", "competition": "E2001",
-                                 "players": 4, "inRange": None, "registrationOpen": None, "hasDraw": False}
-    assert _ids(client.get("/api/tournaments", params={"from": D(-30).date().isoformat()})) == [300, 200, 100]
+    assert t200["surface"] == "Terre battue"
+    assert t200["events"][0] == {"id": 2001, "matchType": 1, "age": 1, "ageInfo": {"id": 1, "kind": "actives"}, "lower": "R4",
+                                 "upper": "R1", "competition": "E2001", "players": 4, "inRange": None,
+                                 "registrationOpen": None, "hasDraw": False}  # fmt: skip
+    # past: newest first; live: not over and no kept event takes registrations (2001 alone)
+    past = client.get("/api/tournaments", params={"when": "past"}).json()
+    assert [t["id"] for t in past["tournaments"]] == [300] and past["options"]["cities"] == ["Zürich"]
+    assert _ids(client.get("/api/tournaments", params={"when": "live"})) == []
+    assert _ids(client.get("/api/tournaments", params={"when": "live", "matchType": "1"})) == [200]
+    assert _ids(client.get("/api/tournaments", params={"matchType": "1"})) == [100]
+    assert _ids(client.get("/api/tournaments", params={"from": D(6).date().isoformat()})) == [100]
+    assert _ids(client.get("/api/tournaments", params={"surface": "Gazon,Terre battue"})) == [200, 100]
+    assert _ids(client.get("/api/tournaments", params={"surface": "Gazon"})) == []
     assert _ids(client.get("/api/tournaments", params={"to": D(7).date().isoformat()})) == [200]
     one = client.get("/api/tournaments", params={"matchType": "2"}).json()["tournaments"]
     assert [(t["id"], [e["id"] for e in t["events"]]) for t in one] == [(100, [1002])]
@@ -112,7 +134,15 @@ def test_list_filters_and_options(client):
     # only the weakest end: R6 and stronger
     got = client.get("/api/tournaments", params={"eventMin": "R6"}).json()["tournaments"]
     assert {t["id"]: [e["id"] for e in t["events"]] for t in got} == {200: [2001, 2002], 100: [1001, 1002]}
-    assert _ids(client.get("/api/tournaments", params={"player": 1, "from": D(-30).date().isoformat()})) == [300, 100]
+    assert _ids(client.get("/api/tournaments", params={"player": 1})) == [100]
+    assert _ids(client.get("/api/tournaments", params={"player": 1, "when": "past"})) == [300]
+
+
+def test_age_options_order(client):
+    app = client.app.state.app
+    e = app.tournaments.events.iloc[[0] * 6].assign(ageCategoryId=[16, 5, 1, 7, 3, 99])
+    assert [a["id"] for a in app._options(app.tournaments, e)["ages"]] == [1, 3, 5, 7, 16, 99]
+    assert app._options(app.tournaments, e)["ages"][-1] == {"id": 99, "kind": "other"}
 
 
 def test_list_in_range_distance_sorts_and_paging(client):
@@ -122,6 +152,11 @@ def test_list_in_range_distance_sorts_and_paging(client):
     r = client.get("/api/tournaments", params={"near": "Lausanne", "sort": "distance"}).json()["tournaments"]
     assert [t["id"] for t in r] == [100, 200] and r[0]["distanceKm"] == 0 and 70 < r[1]["distanceKm"] < 90
     assert _ids(client.get("/api/tournaments", params={"near": "Lausanne", "radius": 50})) == [100]
+    assert _ids(client.get("/api/tournaments", params={"near": " lausanne ", "radius": 50})) == [100]  # a city of the data
+    r = client.get("/api/tournaments", params={"near": "1025", "radius": 30}).json()["tournaments"]  # any place
+    assert [t["id"] for t in r] == [100] and 0 < r[0]["distanceKm"] < 10
+    assert client.get("/api/tournaments", params={"near": "Nowhere"}).json() == {"detail": "unknown place"}
+    assert client.get("/api/tournaments", params={"near": "down"}).status_code == 503
     assert _ids(client.get("/api/tournaments", params={"radius": 50})) == [200, 100]  # radius without near: ignored
     assert _ids(client.get("/api/tournaments", params={"sort": "-date"})) == [100, 200]
     assert _ids(client.get("/api/tournaments", params={"sort": "players"})) == [200, 100]
@@ -132,7 +167,7 @@ def test_list_in_range_distance_sorts_and_paging(client):
 
 @pytest.mark.parametrize("params", [
     {"sort": "name"}, {"from": "2026-13-01"}, {"to": "tomorrow"}, {"eventMin": "X9"}, {"fieldMax": "R10"},
-    {"matchType": "a"}, {"near": "Nowhere"}, {"sort": "distance"}, {"sort": "inRange"},
+    {"matchType": "a"}, {"near": "Nowhere"}, {"sort": "distance"}, {"sort": "inRange"}, {"when": "soon"},
 ])
 def test_list_rejects_bad_parameters(client, params):
     assert client.get("/api/tournaments", params=params).status_code == 400
@@ -144,6 +179,8 @@ def test_detail_players_and_draw(client):
     assert r["surface"] == "Terre battue" and r["drawingTime"] == D(1).date().isoformat()
     ev = r["events"][0]
     assert ev["id"] == 2001 and ev["draw"] is None and ev["applicants"] == 9
+    assert ev["pdfUrl"] is None  # not drawn yet
+    assert client.get("/api/tournaments/300").json()["events"][0]["pdfUrl"] == "pdf3001"
     # strongest first (today's C), unknown players last
     assert [p["personId"] for p in ev["players"]] == [2, 5, 3, None]
     assert ev["players"][0] == {"personId": 2, "name": "B Two", "class": "R2", "licence": "2", "officialClass": "R2", "C": 7.5}
@@ -199,7 +236,7 @@ def test_missing_files_give_empty_results(tmp_path):
     api.state.app.state = _state()
     c = TestClient(api)
     r = c.get("/api/tournaments").json()
-    assert r == {"total": 0, "tournaments": [], "options": {"matchTypes": [], "ages": [], "cantons": [], "cities": []}, "updated": None}
+    assert r == {"total": 0, "tournaments": [], "options": {"matchTypes": [], "ages": [], "surfaces": [], "cantons": [], "cities": []}, "updated": None}
     assert c.get("/api/tournaments/1").status_code == 404
     assert c.get("/api/players/1/tournaments").json() == {"registered": [], "suggested": [], "past": []}
     assert c.get("/api/meta").json()["tournaments"] == {"updated": None, "running": False, "lastError": None}

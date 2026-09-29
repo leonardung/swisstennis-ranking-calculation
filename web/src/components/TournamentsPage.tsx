@@ -1,20 +1,22 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { api } from "../api";
+import { useEffect, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { api, ApiError } from "../api";
 import { trackView } from "../analytics";
 import { tournamentHref, useAsync, useDebounced } from "../hooks";
 import { useI18n } from "../i18n";
 import { CATEGORIES, fmtDateTime, fmtInt } from "../format";
-import type { TournamentListItem, TournamentOptions } from "../types";
+import type { AgeInfo, TournamentListItem, TournamentOptions, TournamentWhen } from "../types";
 import { AsyncStatus, Spinner } from "./common";
-import { ageLabel, ageOrder, ageTitle, dateRange, eventKind, eventTitle, isoDay, matchTypeLabel } from "./tournamentUtil";
+import { ageInfoOf, ageLabel, ageOrder, ageTitle, dateRange, eventTitle, matchTypeLabel, rangeLabel, surfaceLabel } from "./tournamentUtil";
 
 /** The filters, kept in the query of the URL under the names of the API's parameters. */
 const KEYS = [
+  "when",
   "from",
   "to",
   "q",
   "matchType",
   "age",
+  "surface",
   "eventMin",
   "eventMax",
   "fieldMin",
@@ -32,11 +34,16 @@ type Params = Partial<Record<Key, string>>;
 const LIMIT = 50;
 const RADII = ["10", "20", "30", "50", "100"];
 const DEFAULT_RADIUS = "30";
-// "field in range" preset: the players of the upper regional and lower national levels
-const PRESET = { fieldMin: "R3", fieldMax: "N4" };
-const RECENT_DAYS = 60;
+// "field in range" quick ranges, weakest bound first
+const PRESETS: [string, string][] = [
+  ["R9", "R7"],
+  ["R6", "R4"],
+  ["R3", "R1"],
+  ["N4", "N1"],
+];
+const WHENS: TournamentWhen[] = ["upcoming", "live", "past"];
 // the filters behind "more filters" on a phone
-const MORE_KEYS: Key[] = ["matchType", "age", "eventMin", "eventMax", "fieldMin", "fieldMax", "near", "canton"];
+const MORE_KEYS: Key[] = ["matchType", "age", "surface", "eventMin", "eventMax", "fieldMin", "fieldMax", "near", "canton"];
 // weakest first: a range reads "R9 … N1"
 const LEVELS = [...CATEGORIES].reverse();
 
@@ -71,16 +78,16 @@ function apiQuery(p: Params): string {
   return q.toString();
 }
 
-function toggleId(list: string | undefined, id: number): string {
-  const ids = new Set((list ?? "").split(",").filter(Boolean));
-  const k = String(id);
-  if (ids.has(k)) ids.delete(k);
-  else ids.add(k);
-  return [...ids].sort((a, b) => Number(a) - Number(b)).join(",");
+function whenOf(p: Params): TournamentWhen {
+  return WHENS.includes(p.when as TournamentWhen) ? (p.when as TournamentWhen) : "upcoming";
+}
+
+function listOf(v: string | undefined): string[] {
+  return (v ?? "").split(",").filter(Boolean);
 }
 
 export default function TournamentsPage() {
-  const { t, locale } = useI18n();
+  const { t, locale, lang } = useI18n();
   const [params, setParams] = useState<Params>(readParams);
   const query = useDebounced(apiQuery(params), 300);
   const st = useAsync((s) => api.tournaments(query, s), [query]);
@@ -103,41 +110,41 @@ export default function TournamentsPage() {
     writeParams(next);
   };
 
+  const when = whenOf(params);
+  const defaultSort = when === "past" ? "-date" : "date";
   const fieldFilter = !!(params.fieldMin || params.fieldMax);
-  const upcoming = !params.from && !params.to;
-  const recent = !!params.to && params.sort === "-date";
+  const fieldRange = rangeLabel(params.fieldMin || LEVELS[0], params.fieldMax || LEVELS[LEVELS.length - 1]);
   const offset = Number(params.offset) || 0;
-  const today = isoDay(new Date());
   const data = st.data;
+  // the server could not place the "near" text
+  const placeError = !!params.near && st.error instanceof ApiError && st.error.status === 400 && /place|city/i.test(st.error.message);
 
-  const setRecent = () => {
-    const from = new Date();
-    from.setDate(from.getDate() - RECENT_DAYS);
-    update({ from: isoDay(from), to: today, sort: "-date" });
+  const setWhen = (w: TournamentWhen) => (ev: MouseEvent) => {
+    if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button !== 0) return;
+    ev.preventDefault();
+    update({ when: w === "upcoming" ? "" : w, sort: params.sort === "date" || params.sort === "-date" ? "" : params.sort });
   };
+  const whenHref = (w: TournamentWhen) => (w === "upcoming" ? "/tournaments" : `/tournaments?when=${w}`);
+  const whenLabel = { upcoming: t("whenUpcoming"), live: t("whenLive"), past: t("whenPast") };
 
-  const filtered = KEYS.some((k) => k !== "offset" && k !== "sort" && params[k]);
-  const reset = () =>
-    update({
-      from: "",
-      to: "",
-      q: "",
-      matchType: "",
-      age: "",
-      eventMin: "",
-      eventMax: "",
-      fieldMin: "",
-      fieldMax: "",
-      near: "",
-      radius: "",
-      canton: "",
-      player: "",
-      sort: "",
-    });
+  const filtered = KEYS.some((k) => k !== "offset" && k !== "sort" && k !== "when" && params[k]);
+  const reset = () => {
+    const clear: Params = {};
+    for (const k of KEYS) if (k !== "when") clear[k] = "";
+    update(clear);
+  };
   // the filters below the first row: open on a wide screen or when one is set, behind a button on a phone
   const more = MORE_KEYS.filter((k) => params[k]).length;
   const [moreOpen, setMoreOpen] = useState(() => more > 0 || !window.matchMedia?.("(max-width: 720px)").matches);
   const moreId = useId();
+  const resultsId = useId();
+
+  const ages = useMemo(() => {
+    const list: AgeInfo[] = (options?.ages ?? []).map((a) => (typeof a === "number" ? (ageInfoOf(a) ?? { id: a, kind: "" }) : a));
+    // an older server sends plain ids in no particular order
+    if (options?.ages.some((a) => typeof a === "number")) list.sort((a, b) => ageOrder(a.id, a) - ageOrder(b.id, b));
+    return list;
+  }, [options]);
 
   return (
     <div className="tournaments-page">
@@ -150,22 +157,23 @@ export default function TournamentsPage() {
         )}
       </div>
 
+      <nav className="tabs when-tabs" aria-label={t("whenTabs")}>
+        {WHENS.map((w) => (
+          <a
+            key={w}
+            className={`tab${when === w ? " active" : ""}`}
+            href={whenHref(w)}
+            aria-current={when === w ? "page" : undefined}
+            aria-controls={resultsId}
+            onClick={setWhen(w)}
+          >
+            {whenLabel[w]}
+          </a>
+        ))}
+      </nav>
+
       <section className="card filters" aria-label={t("filters")}>
         <div className="filter-row">
-          <div className="seg" role="group" aria-label={t("when")}>
-            <button className={upcoming ? "active" : ""} aria-pressed={upcoming} onClick={() => update({ from: "", to: "", sort: "" })}>
-              {t("whenUpcoming")}
-            </button>
-            <button className={recent ? "active" : ""} aria-pressed={recent} onClick={setRecent}>
-              {t("whenRecent")}
-            </button>
-          </div>
-          <Field label={t("dateFrom")}>
-            {(id) => <input id={id} type="date" className="input-sm" value={params.from ?? today} onChange={(e) => update({ from: e.target.value })} />}
-          </Field>
-          <Field label={t("dateTo")}>
-            {(id) => <input id={id} type="date" className="input-sm" value={params.to ?? ""} onChange={(e) => update({ to: e.target.value })} />}
-          </Field>
           <Field label={t("searchText")} grow>
             {(id) => (
               <input
@@ -178,26 +186,24 @@ export default function TournamentsPage() {
               />
             )}
           </Field>
+          <DateField label={t("dateFrom")} value={params.from} onChange={(from) => update({ from })} />
+          <DateField label={t("dateTo")} value={params.to} onChange={(to) => update({ to })} />
           <Field label={t("sortBy")}>
-              {(id) => (
-                <select
-                  id={id}
-                  className="input-sm"
-                  value={params.sort ?? "date"}
-                  onChange={(e) =>
-                    update({
-                      sort: e.target.value === "date" ? "" : e.target.value,
-                    })
-                  }
-                >
-                  <option value="date">{t("sortDateAsc")}</option>
-                  <option value="-date">{t("sortDateDesc")}</option>
-                  <option value="players">{t("sortPlayers")}</option>
-                  {fieldFilter && <option value="inRange">{t("sortInRange")}</option>}
-                  {params.near && <option value="distance">{t("sortDistance")}</option>}
-                </select>
-              )}
-            </Field>
+            {(id) => (
+              <select
+                id={id}
+                className="input-sm"
+                value={params.sort ?? defaultSort}
+                onChange={(e) => update({ sort: e.target.value === defaultSort ? "" : e.target.value })}
+              >
+                <option value="date">{t("sortDateAsc")}</option>
+                <option value="-date">{t("sortDateDesc")}</option>
+                <option value="players">{t("sortPlayers")}</option>
+                {fieldFilter && <option value="inRange">{t("sortInRange")}</option>}
+                {params.near && <option value="distance">{t("sortDistance")}</option>}
+              </select>
+            )}
+          </Field>
         </div>
 
         <div className="filter-row more-toggle-row">
@@ -211,25 +217,32 @@ export default function TournamentsPage() {
         </div>
 
         <div id={moreId} className="filters-more" hidden={!moreOpen}>
-          {options && (
-            <>
+          <div className="filter-row">
+            {options && (
               <ChipGroup
                 label={t("matchType")}
                 ids={options.matchTypes}
                 selected={params.matchType}
                 name={(id) => matchTypeLabel(id, t)}
-                onToggle={(id) => update({ matchType: toggleId(params.matchType, id) })}
+                onToggle={(id) => update({ matchType: toggle(params.matchType, String(id), true) })}
               />
-              <ChipGroup
-                label={t("ageCategory")}
-                ids={[...options.ages].sort((a, b) => ageOrder(a) - ageOrder(b))}
-                selected={params.age}
-                name={(id) => ageLabel(id, t)}
-                title={(id) => ageTitle(id, t)}
-                onToggle={(id) => update({ age: toggleId(params.age, id) })}
+            )}
+            <MultiSelect
+              label={t("ageCategory")}
+              items={ages.map((a) => ({ value: String(a.id), label: ageLabel(a.id, t, undefined, a), title: ageTitle(a.id, t, a) }))}
+              selected={params.age}
+              onChange={(age) => update({ age })}
+              numeric
+            />
+            {(options?.surfaces?.length ?? 0) > 0 && (
+              <MultiSelect
+                label={t("surface")}
+                items={(options?.surfaces ?? []).map((s) => ({ value: s, label: surfaceLabel(s, lang) }))}
+                selected={params.surface}
+                onChange={(surface) => update({ surface })}
               />
-            </>
-          )}
+            )}
+          </div>
 
           <div className="filter-row">
             <RangeField label={t("eventRange")} min={params.eventMin} max={params.eventMax} onChange={(eventMin, eventMax) => update({ eventMin, eventMax })} />
@@ -246,13 +259,16 @@ export default function TournamentsPage() {
                 })
               }
             >
-              <button
-                className={`chip${params.fieldMin === PRESET.fieldMin && params.fieldMax === PRESET.fieldMax ? " active" : ""}`}
-                onClick={() => update(PRESET)}
-                aria-pressed={params.fieldMin === PRESET.fieldMin && params.fieldMax === PRESET.fieldMax}
-              >
-                {PRESET.fieldMin}–{PRESET.fieldMax}
-              </button>
+              <span className="range-presets" role="group" aria-label={t("fieldPresets")}>
+                {PRESETS.map(([lo, hi]) => {
+                  const on = params.fieldMin === lo && params.fieldMax === hi;
+                  return (
+                    <button key={lo} className={`chip${on ? " active" : ""}`} aria-pressed={on} onClick={() => update(on ? { fieldMin: "", fieldMax: "" } : { fieldMin: lo, fieldMax: hi })}>
+                      {lo}–{hi}
+                    </button>
+                  );
+                })}
+              </span>
             </RangeField>
           </div>
 
@@ -260,10 +276,18 @@ export default function TournamentsPage() {
             <NearField
               cities={options?.cities ?? []}
               near={params.near}
+              error={placeError ? t("unknownPlace") : null}
               onChange={(near) =>
                 update({
                   near,
-                  sort: !near && params.sort === "distance" ? "" : params.sort,
+                  // a place just set sorts by distance unless another order was chosen
+                  sort: !near
+                    ? params.sort === "distance"
+                      ? ""
+                      : params.sort
+                    : !params.near && !params.sort
+                      ? "distance"
+                      : params.sort,
                 })
               }
             />
@@ -274,7 +298,7 @@ export default function TournamentsPage() {
                   className="input-sm"
                   value={params.radius ?? DEFAULT_RADIUS}
                   disabled={!params.near}
-                  onChange={(e) => update({ radius: e.target.value })}
+                  onChange={(e) => update({ radius: e.target.value === DEFAULT_RADIUS ? "" : e.target.value })}
                 >
                   {RADII.map((r) => (
                     <option key={r} value={r}>
@@ -296,7 +320,7 @@ export default function TournamentsPage() {
                 </select>
               )}
             </Field>
-            </div>
+          </div>
         </div>
 
         {(playerId || filtered) && (
@@ -318,47 +342,63 @@ export default function TournamentsPage() {
         )}
       </section>
 
-      {!data ? (
-        <AsyncStatus {...st} />
-      ) : (
-        <div className="tourn-results" aria-busy={st.loading}>
-          <div className="toolbar">
-            <span className="muted">{t("tournamentsCount", { n: fmtInt(data.total, locale) })}</span>
-            {st.loading && <Spinner />}
+      <div id={resultsId}>
+        {placeError ? (
+          <div className="state-screen small">
+            <h3>{t("unknownPlace")}</h3>
           </div>
-          {data.tournaments.length === 0 ? (
-            <div className="state-screen small">
-              <h3>{data.updated ? t("noTournaments") : t("noTournamentData")}</h3>
-              {data.updated && filtered && (
-                <button className="btn" onClick={reset}>
-                  {t("resetFilters")}
+        ) : !data ? (
+          <AsyncStatus {...st} />
+        ) : (
+          <div className="tourn-results" aria-busy={st.loading}>
+            <div className="toolbar">
+              <span className="muted">{t("tournamentsCount", { n: fmtInt(data.total, locale) })}</span>
+              {st.loading && <Spinner />}
+            </div>
+            {data.tournaments.length === 0 ? (
+              <div className="state-screen small">
+                <h3>{data.updated ? t("noTournaments") : t("noTournamentData")}</h3>
+                {data.updated && filtered && (
+                  <button className="btn" onClick={reset}>
+                    {t("resetFilters")}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="tourn-list">
+                {data.tournaments.map((tr) => (
+                  <TournamentCard key={tr.id} tr={tr} fieldRange={fieldFilter ? fieldRange : null} />
+                ))}
+              </div>
+            )}
+            {data.total > LIMIT && (
+              <nav className="pager" aria-label={t("pages")}>
+                <button className="btn" disabled={offset <= 0} onClick={() => update({ offset: String(Math.max(0, offset - LIMIT)) })}>
+                  ‹ {t("previous")}
                 </button>
-              )}
-            </div>
-          ) : (
-            <div className="tourn-list">
-              {data.tournaments.map((tr) => (
-                <TournamentCard key={tr.id} tr={tr} showInRange={fieldFilter} />
-              ))}
-            </div>
-          )}
-          {data.total > LIMIT && (
-            <nav className="pager" aria-label={t("pages")}>
-              <button className="btn" disabled={offset <= 0} onClick={() => update({ offset: String(Math.max(0, offset - LIMIT)) })}>
-                ‹ {t("previous")}
-              </button>
-              <span className="muted">
-                {fmtInt(offset + 1, locale)}–{fmtInt(Math.min(offset + LIMIT, data.total), locale)} / {fmtInt(data.total, locale)}
-              </span>
-              <button className="btn" disabled={offset + LIMIT >= data.total} onClick={() => update({ offset: String(offset + LIMIT) })}>
-                {t("next")} ›
-              </button>
-            </nav>
-          )}
-        </div>
-      )}
+                <span className="muted">
+                  {fmtInt(offset + 1, locale)}–{fmtInt(Math.min(offset + LIMIT, data.total), locale)} / {fmtInt(data.total, locale)}
+                </span>
+                <button className="btn" disabled={offset + LIMIT >= data.total} onClick={() => update({ offset: String(offset + LIMIT) })}>
+                  {t("next")} ›
+                </button>
+              </nav>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
+}
+
+/** Adds or removes a value of a comma list (ids sorted numerically). */
+function toggle(list: string | undefined, v: string, numeric = false): string {
+  const set = new Set(listOf(list));
+  if (set.has(v)) set.delete(v);
+  else set.add(v);
+  const out = [...set];
+  if (numeric) out.sort((a, b) => Number(a) - Number(b));
+  return out.join(",");
 }
 
 function Field({ label, grow = false, children }: { label: string; grow?: boolean; children: (id: string) => ReactNode }) {
@@ -376,30 +416,214 @@ function ChipGroup({
   ids,
   selected,
   name,
-  title,
   onToggle,
 }: {
   label: string;
   ids: number[];
   selected: string | undefined;
   name: (id: number) => string;
-  title?: (id: number) => string | undefined;
   onToggle: (id: number) => void;
 }) {
-  const set = new Set((selected ?? "").split(",").filter(Boolean).map(Number));
+  const set = new Set(listOf(selected).map(Number));
   if (!ids.length) return null;
   return (
     <div className="chip-filter" role="group" aria-label={label}>
       <span className="field-label">{label}</span>
       <div className="chips">
         {ids.map((id) => (
-          <button key={id} className={`chip${set.has(id) ? " active" : ""}`} aria-pressed={set.has(id)} title={title?.(id)} onClick={() => onToggle(id)}>
+          <button key={id} className={`chip${set.has(id) ? " active" : ""}`} aria-pressed={set.has(id)} onClick={() => onToggle(id)}>
             {name(id)}
           </button>
         ))}
       </div>
     </div>
   );
+}
+
+/** A dropdown of checkboxes: a disclosure button, closed by Escape, a click outside or leaving it with Tab. */
+function MultiSelect({
+  label,
+  items,
+  selected,
+  onChange,
+  numeric = false,
+}: {
+  label: string;
+  items: { value: string; label: string; title?: string }[];
+  selected: string | undefined;
+  onChange: (v: string) => void;
+  numeric?: boolean;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const labelId = useId();
+  const buttonId = useId();
+  const panelId = useId();
+  const set = new Set(listOf(selected));
+  const chosen = items.filter((i) => set.has(i.value));
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (!wrap.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [open]);
+
+  const summary = !set.size ? t("any") : chosen.length && chosen.length <= 2 ? chosen.map((i) => i.label).join(", ") : t("selectedN", { n: set.size });
+
+  return (
+    <div
+      className="field ms-field"
+      ref={wrap}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) {
+          e.stopPropagation();
+          setOpen(false);
+          button.current?.focus();
+        }
+      }}
+      onBlur={(e) => {
+        const next = e.relatedTarget as Node | null;
+        if (open && next && !wrap.current?.contains(next)) setOpen(false);
+      }}
+    >
+      <span className="field-label" id={labelId}>
+        {label}
+      </span>
+      <button
+        ref={button}
+        id={buttonId}
+        type="button"
+        className={`input-sm ms-button${set.size ? " has-value" : ""}`}
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-labelledby={`${labelId} ${buttonId}`}
+        onClick={() => setOpen(!open)}
+        disabled={!items.length && !set.size}
+      >
+        <span className="ms-summary">{summary}</span>
+        <span className="caret" aria-hidden>
+          ▾
+        </span>
+      </button>
+      <div id={panelId} className="ms-panel" role="group" aria-labelledby={labelId} hidden={!open}>
+        {items.map((i) => (
+          <label key={i.value} className="ms-option" title={i.title}>
+            <input type="checkbox" checked={set.has(i.value)} onChange={() => onChange(toggle(selected, i.value, numeric))} />
+            <span>{i.label}</span>
+          </label>
+        ))}
+        {set.size > 0 && (
+          <button type="button" className="btn btn-ghost ms-clear" onClick={() => onChange("")}>
+            {t("resetFilters")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "dd.mm.yyyy" (fr) or "dd/mm/yyyy" (en) typed, or picked in the browser's calendar; the value is an ISO day. */
+function DateField({ label, value, onChange }: { label: string; value: string | undefined; onChange: (iso: string) => void }) {
+  const { t, lang } = useI18n();
+  const id = useId();
+  const errId = useId();
+  const picker = useRef<HTMLInputElement>(null);
+  const sep = lang === "fr" ? "." : "/";
+  const show = (iso: string | undefined) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
+    return m ? `${m[3]}${sep}${m[2]}${sep}${m[1]}` : "";
+  };
+  const [text, setText] = useState(() => show(value));
+  // the value changed from outside (reset, calendar, language): show it
+  useEffect(() => {
+    if (parseDay(text) !== (value ?? "")) setText(show(value));
+  }, [value, sep]); // eslint-disable-line react-hooks/exhaustive-deps
+  const invalid = !!text.trim() && !parseDay(text);
+  const change = (v: string) => {
+    setText(v);
+    const iso = parseDay(v);
+    if (iso) {
+      if (iso !== value) onChange(iso);
+    } else if (!v.trim() && value) onChange("");
+  };
+  return (
+    <div className="field date-field">
+      <label htmlFor={id}>{label}</label>
+      <div className="date-input">
+        <input
+          id={id}
+          className="input-sm"
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder={t("datePlaceholder")}
+          value={text}
+          onChange={(e) => change(e.target.value)}
+          onBlur={() => !invalid && setText(show(value))}
+          aria-invalid={invalid}
+          aria-describedby={invalid ? errId : undefined}
+          size={10}
+        />
+        <button
+          type="button"
+          className="btn btn-ghost date-pick"
+          aria-label={`${label}: ${t("openCalendar")}`}
+          title={t("openCalendar")}
+          onClick={() => {
+            const el = picker.current;
+            if (!el) return;
+            try {
+              el.showPicker();
+            } catch {
+              el.focus();
+              el.click();
+            }
+          }}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="2" y="3" width="12" height="11" rx="1.5" />
+            <path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" />
+          </svg>
+        </button>
+        <input
+          ref={picker}
+          type="date"
+          className="date-native"
+          tabIndex={-1}
+          aria-hidden
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
+      {invalid && (
+        <small id={errId} className="field-error">
+          {t("dateInvalid")}
+        </small>
+      )}
+    </div>
+  );
+}
+
+/** "3.10.2026", "03/10/26", "2026-10-03" → "2026-10-03"; "" when not a valid date. */
+function parseDay(s: string): string {
+  const v = s.trim();
+  let y: number, m: number, d: number;
+  let r = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v);
+  if (r) [y, m, d] = [Number(r[1]), Number(r[2]), Number(r[3])];
+  else {
+    r = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/.exec(v);
+    if (!r) return "";
+    [d, m, y] = [Number(r[1]), Number(r[2]), Number(r[3])];
+    if (y < 100) y += 2000;
+  }
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${y}-${p(m)}-${p(d)}`;
 }
 
 /** Two category selects, weakest first ("R3 … N4"); both empty = any. */
@@ -450,45 +674,74 @@ function RangeField({
   );
 }
 
-/** A city typed with suggestions; only a known city is used as filter. */
-function NearField({ cities, near, onChange }: { cities: string[]; near: string | undefined; onChange: (near: string) => void }) {
+/** Any place (postal code, town, village), resolved by the server; the cities of the data are suggested once something is typed. */
+function NearField({
+  cities,
+  near,
+  error,
+  onChange,
+}: {
+  cities: string[];
+  near: string | undefined;
+  error: string | null;
+  onChange: (near: string) => void;
+}) {
   const { t } = useI18n();
   const id = useId();
+  const errId = useId();
+  const hintId = useId();
   const [text, setText] = useState(near ?? "");
-  const byName = useMemo(() => new Map(cities.map((c) => [c.toLowerCase(), c])), [cities]);
   // the filter changed from outside (reset, back/forward): show it, keep what is being typed otherwise
   useEffect(() => {
-    if ((byName.get(text.trim().toLowerCase()) ?? "") !== (near ?? "")) setText(near ?? "");
+    if (text.trim() !== (near ?? "")) setText(near ?? "");
   }, [near]); // eslint-disable-line react-hooks/exhaustive-deps
+  const typed = text.trim();
+  const suggestions = useMemo(() => {
+    if (!typed) return [];
+    const low = typed.toLowerCase();
+    return cities.filter((c) => c.toLowerCase().includes(low)).slice(0, 12);
+  }, [cities, typed]);
   const change = (v: string) => {
     setText(v);
-    const city = byName.get(v.trim().toLowerCase());
-    if (city) onChange(city);
-    else if (!v.trim() || near) onChange("");
+    const p = v.trim();
+    if (p.length >= 2) onChange(p);
+    else if (near) onChange("");
   };
   return (
-    <div className="field">
+    <div className="field near-field">
       <label htmlFor={id}>{t("nearCity")}</label>
       <input
         id={id}
         className="input-sm"
-        list={`${id}-cities`}
+        list={suggestions.length ? `${id}-cities` : undefined}
         value={text}
+        autoComplete="off"
         placeholder={t("nearCityPlaceholder")}
         onChange={(e) => change(e.target.value)}
-        aria-invalid={!!text.trim() && !near}
+        aria-invalid={!!error}
+        aria-describedby={error ? errId : hintId}
       />
-      <datalist id={`${id}-cities`}>
-        {cities.map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
+      <span id={hintId} className="sr-only">
+        {t("nearHint")}
+      </span>
+      {suggestions.length > 0 && (
+        <datalist id={`${id}-cities`}>
+          {suggestions.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+      )}
+      {error && (
+        <small id={errId} className="field-error" role="alert">
+          {error}
+        </small>
+      )}
     </div>
   );
 }
 
-function TournamentCard({ tr, showInRange }: { tr: TournamentListItem; showInRange: boolean }) {
-  const { t, locale } = useI18n();
+function TournamentCard({ tr, fieldRange }: { tr: TournamentListItem; fieldRange: string | null }) {
+  const { t, locale, lang } = useI18n();
   return (
     <article className="card tourn-card">
       <header className="tourn-card-head">
@@ -504,20 +757,23 @@ function TournamentCard({ tr, showInRange }: { tr: TournamentListItem; showInRan
             </span>
           )}
           {tr.distanceKm != null && <span>{t("distanceKm", { km: Math.round(tr.distanceKm) })}</span>}
+          {tr.surface && <span>{surfaceLabel(tr.surface, lang)}</span>}
           <span>{t("playersN", { n: fmtInt(tr.players, locale) })}</span>
-          {showInRange && tr.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(tr.inRange, locale) })}</span>}
+          {fieldRange && tr.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(tr.inRange, locale), range: fieldRange })}</span>}
         </div>
       </header>
       <ul className="tourn-events">
         {tr.events.map((e) => (
           <li key={e.id}>
-            <a href={tournamentHref(tr.id, e.id)} className="tourn-event-name">
-              {eventTitle(e, t)}
+            <a href={tournamentHref(tr.id, e.id)} className="tourn-event-link">
+              <span className="tourn-event-kind">
+                {matchTypeLabel(e.matchType, t)} · {ageLabel(e.age, t, e.matchType, e.ageInfo)}
+              </span>
+              <span className="tourn-event-name">{eventTitle(e, t)}</span>
             </a>
-            <small className="muted">{eventKind(e, t)}</small>
             <span className="tourn-event-side">
               <span title={t("registeredPlayers")}>{t("playersN", { n: fmtInt(e.players, locale) })}</span>
-              {showInRange && e.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(e.inRange, locale) })}</span>}
+              {fieldRange && e.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(e.inRange, locale), range: fieldRange })}</span>}
               {e.registrationOpen && <span className="tag tag-open">{t("registrationOpen")}</span>}
               {e.hasDraw && <span className="tag tag-info">{t("hasDraw")}</span>}
             </span>

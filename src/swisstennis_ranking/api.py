@@ -140,6 +140,9 @@ query LicenceHolders($licences: [String!]) {
   }
 }"""
 
+AGE_CATEGORIES_QUERY = """
+query { AgeCategoryLng { id: Agcl_Id_AgeCategory_l lang: Agcl_Id_Language_l text: Agcl_Text_s } }"""
+
 RESULTS_QUERY = """
 query SingleResults($where: AllSingleResults_bool_exp, $limit: Int) {
   results: AllSingleResults(where: $where, order_by: {date: asc}, limit: $limit) {

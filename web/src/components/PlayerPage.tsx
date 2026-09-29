@@ -8,13 +8,15 @@ import { AsyncStatus, CategoryBadge } from "./common";
 import OverviewTab from "./OverviewTab";
 import MatchesTab from "./MatchesTab";
 import SimulatorTab from "./SimulatorTab";
+import SimulationTab from "./SimulationTab";
 import StatsTab from "./StatsTab";
 import TournamentsTab from "./TournamentsTab";
 
 const TAB_LABEL: Record<Tab, MsgKey> = {
   overview: "tabOverview",
   matches: "tabMatches",
-  simulator: "tabSimulator",
+  h2h: "tabH2h",
+  simulation: "tabSimulation",
   stats: "tabStats",
   tournaments: "tabTournaments",
 };
@@ -31,6 +33,14 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
   useEffect(() => {
     if (p) trackView();
   }, [p, tab]);
+
+  // an old link (/player/<id>/simulator): show the tab's current address
+  useEffect(() => {
+    const path = playerHref(id, tab);
+    if (tab !== "overview" && window.location.pathname !== path) {
+      window.history.replaceState(window.history.state, "", path + window.location.search);
+    }
+  }, [id, tab]);
 
   // on a phone the tabs scroll sideways: bring the current one into view
   const tabsRef = useRef<HTMLElement>(null);
@@ -109,7 +119,8 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
       <div className="tab-body">
         {tab === "overview" && <OverviewTab player={p} />}
         {tab === "matches" && <MatchesTab playerId={id} />}
-        {tab === "simulator" && <SimulatorTab player={p} />}
+        {tab === "h2h" && <SimulatorTab player={p} />}
+        {tab === "simulation" && <SimulationTab player={p} />}
         {tab === "stats" && <StatsTab playerId={id} />}
         {tab === "tournaments" && <TournamentsTab playerId={id} />}
       </div>

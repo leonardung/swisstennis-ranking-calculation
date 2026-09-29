@@ -2037,6 +2037,25 @@ dialog.match-dialog::backdrop {
   margin-top: 4px;
 }
 @media (max-width: 600px) {
+  /* the whole result on a phone: the label and the category change wrap */
+  .predict-result .sim-table tbody th {
+    white-space: normal;
+  }
+  .predict-result .sim-table .class-change {
+    flex-wrap: wrap;
+  }
+  .predict-result .sim-table {
+    font-size: 13px;
+  }
+  .predict-result .sim-table thead th {
+    font-size: 11px;
+    letter-spacing: 0;
+  }
+  .predict-result .sim-table th,
+  .predict-result .sim-table td {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
   .predict-row {
     flex-wrap: nowrap;
     gap: 5px;
@@ -2064,6 +2083,109 @@ dialog.match-dialog::backdrop {
 }
 .predict-row .predict-remove:hover {
   background: color-mix(in srgb, var(--neg) 12%, transparent);
+}
+/* simulation tab: the sections of the what-if, matches against players, played matches */
+.predict-sub {
+  font-size: 14px;
+  font-weight: 650;
+  margin: 18px 0 4px;
+}
+.predict-vs-search {
+  margin-top: 0;
+  width: 100%;
+}
+.predict-vs-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.predict-vs-name a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.predict-played {
+  margin: 8px 0 12px;
+}
+.predict-played > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.predict-played > summary .predict-sub {
+  margin: 10px 0 6px;
+}
+.predict-played > summary::before {
+  content: "▸";
+  color: var(--muted, currentColor);
+  margin-top: 4px;
+}
+.predict-played[open] > summary::before {
+  content: "▾";
+}
+.predict-played > summary::-webkit-details-marker {
+  display: none;
+}
+.played-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.played-list li + li {
+  border-top: 1px solid var(--border);
+}
+.played-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.played-list label:hover {
+  background: var(--surface-2);
+}
+.played-list .left-out label > :not(input) {
+  opacity: 0.45;
+}
+.played-list .left-out .played-name {
+  text-decoration: line-through;
+}
+.played-opp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.played-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.played-dc {
+  min-width: 56px;
+  text-align: right;
+}
+@media (max-width: 600px) {
+  .played-score,
+  .played-date {
+    font-size: 12px;
+  }
+  .played-score {
+    display: none;
+  }
+  .played-list label {
+    gap: 6px;
+    padding: 7px 8px;
+  }
 }
 .chart-tip-row {
   display: flex;
@@ -2193,8 +2315,8 @@ dialog.match-dialog::backdrop {
   margin-top: 0;
 }
 .tourn-card-head h3 {
-  font-size: 16px;
-  font-weight: 650;
+  font-size: 17px;
+  font-weight: 700;
   margin: 0 0 4px;
   overflow-wrap: anywhere;
 }
@@ -2216,8 +2338,31 @@ dialog.match-dialog::backdrop {
   border-bottom: 0;
   padding-bottom: 0;
 }
+.tourn-event-link {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  color: var(--text);
+}
+.tourn-event-link:hover {
+  text-decoration: none;
+}
+.tourn-event-link:hover .tourn-event-name {
+  text-decoration: underline;
+}
+.tourn-event-kind {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .tourn-event-name {
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 450;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
 }
 .tourn-event-side {
   display: flex;
@@ -2470,6 +2615,16 @@ dialog.match-dialog::backdrop {
     display: none;
   }
 }
+/* the player's six tabs fit a 390px phone */
+@media (max-width: 480px) {
+  .player-page .tabs {
+    justify-content: space-between;
+  }
+  .player-page .tabs .tab {
+    padding: 10px 5px;
+    font-size: 13px;
+  }
+}
 .more-toggle-row {
   display: none;
 }
@@ -2501,6 +2656,186 @@ dialog.match-dialog::backdrop {
 }
 .filters-more[hidden] {
   display: none;
+}
+
+/* Players / Tournaments switch in the header */
+.section-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+.section-switch a {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.section-switch a:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+.section-switch a.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-weight: 650;
+}
+.section-switch a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@media (max-width: 720px) {
+  .section-switch {
+    order: 2;
+    flex: 1 1 100%;
+  }
+  .section-switch a {
+    flex: 1 1 0;
+    padding: 4px 9px;
+    text-align: center;
+  }
+}
+
+/* tournament list: period tabs, dropdowns of checkboxes, date fields */
+.when-tabs {
+  margin-bottom: 14px;
+}
+.range-presets {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ms-field {
+  position: relative;
+}
+.ms-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 190px;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.ms-button.has-value {
+  border-color: var(--accent);
+}
+.ms-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ms-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ms-button .caret {
+  color: var(--muted);
+  font-size: 12px;
+}
+.ms-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 32px));
+  max-height: 320px;
+  overflow: auto;
+  margin-top: 4px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow), 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.ms-panel[hidden] {
+  display: none;
+}
+.ms-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+.ms-option:hover {
+  background: var(--surface-2);
+}
+.ms-option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+.ms-clear {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.date-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.date-input .input-sm {
+  width: 9.5em;
+  padding-right: 34px;
+}
+.date-pick {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 5px 7px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.date-pick:hover {
+  color: var(--text);
+}
+.date-native {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.field-error {
+  color: var(--neg);
+  font-size: 12.5px;
+}
+@media (max-width: 720px) {
+  .filter-row > .field.ms-field,
+  .filter-row > .field.range-field {
+    flex: 1 1 100%;
+  }
+  .ms-button,
+  .date-input .input-sm {
+    width: 100%;
+  }
 }
 
 .pool-matches {

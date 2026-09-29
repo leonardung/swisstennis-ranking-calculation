@@ -8,7 +8,7 @@ import type {
   Outlook,
   PlayerDetail,
   PlayerSummary,
-  SimState,
+  PredictResponse,
   SimulateResponse,
   Stats,
   TournamentDetail,
@@ -65,9 +65,9 @@ async function get<T>(path: string, signal?: AbortSignal, useCache = true): Prom
 
 export const api = {
   meta: (signal?: AbortSignal) => get<Meta>("/api/meta", signal, false),
-  search: (q: string, limit = 20, signal?: AbortSignal) =>
+  search: (q: string, limit = 20, signal?: AbortSignal, gender?: string) =>
     get<PlayerSummary[]>(
-      `/api/players/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+      `/api/players/search?q=${encodeURIComponent(q)}&limit=${limit}${gender ? `&gender=${gender}` : ""}`,
       signal,
     ),
   player: (id: number, signal?: AbortSignal) =>
@@ -75,8 +75,9 @@ export const api = {
   matches: (id: number, season: number, signal?: AbortSignal) =>
     get<MatchesResponse>(`/api/players/${id}/matches?season=${season}`, signal),
   career: (id: number, signal?: AbortSignal) => get<Career>(`/api/players/${id}/career`, signal),
-  predict: (id: number, results: string, signal?: AbortSignal) =>
-    get<{ before: SimState; after: SimState }>(`/api/players/${id}/predict?results=${encodeURIComponent(results)}`, signal),
+  /** what-if: made-up results, played matches left out (ids), matches against players (win:id) */
+  predict: (id: number, q: { results: string; remove: string; add: string }, signal?: AbortSignal) =>
+    get<PredictResponse>(`/api/players/${id}/predict?${new URLSearchParams(q)}`, signal),
   moveUp: (id: number, signal?: AbortSignal) => get<MoveUp | null>(`/api/players/${id}/move-up`, signal),
   stats: (id: number, range: string, signal?: AbortSignal) =>
     get<Stats>(`/api/players/${id}/stats?range=${encodeURIComponent(range)}`, signal),

@@ -43,12 +43,16 @@ Writes `data/tournaments/` (each file replaced atomically):
 | `events.parquet` | event: match type, age category, ranking bounds (ids 1 N1 … 13 R9), applicants, registration open, PDF | Hasura `ioEvent`, REST categories |
 | `registrations.parquet` | (event, player): licence, personId (via `players.parquet`, else the licence table) | REST licence lists |
 | `draws.parquet` | match: round (1 = final, 0 = not in a bracket, e.g. pools), slot, sides a/b, winner, score from a's view | Hasura `singleResults` / `doubleResults` |
-| `geocode.json` | city → coordinates, cached forever (Nominatim, 1 request/s) | |
+| `geocode.json` | city or searched place (`near`) → coordinates, cached forever (Nominatim, 1 request/s) | |
+| `ages.json` | age category id → kind (actives/juniors/seniors), max age or men/women ages, fr/de text | Hasura `AgeCategoryLng` |
 
 A run refreshes the window (default: ended 14 days ago or later, starting within ~6 months) and
 merges it into the existing files; tournaments of the window that disappeared upstream are dropped
 only if at least half of the known ones came back. Doubles results carry no round upstream: the
-bracket is rebuilt from who beat whom when the results form a finished knockout. The first run
+bracket is placed from the first round of the draw PDF (`pdfUrl`, read with pypdf; online only
+while the tournament is recent), adding the matches still to play and those missing upstream (a
+player without licence; the winner is the side that plays on); without the PDF, it is rebuilt
+from who beat whom when the results form a finished knockout. The first run
 geocodes ~400 cities (~8 minutes), later runs take ~2 minutes (1 of them logging in).
 
 ## Web UI

@@ -26,6 +26,14 @@ export default function Header({
             <small>{t("appTagline")}</small>
           </span>
         </a>
+        <nav className="section-switch" aria-label={t("navSections")}>
+          <a href="/" className={inTournaments ? "" : "active"} aria-current={inTournaments ? undefined : "true"}>
+            {t("navPlayers")}
+          </a>
+          <a href="/tournaments" className={inTournaments ? "active" : ""} aria-current={inTournaments ? "true" : undefined}>
+            {t("navTournaments")}
+          </a>
+        </nav>
         {showSearch && <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />}
         <div className="header-side">
           {meta && (
@@ -43,13 +51,6 @@ export default function Header({
               </span>
             </div>
           )}
-          <a
-            className={`btn btn-ghost nav-link${inTournaments ? " active" : ""}`}
-            href="/tournaments"
-            aria-current={inTournaments ? "page" : undefined}
-          >
-            {t("navTournaments")}
-          </a>
           <FeedbackButton />
           <button
             className="btn btn-ghost lang-toggle"

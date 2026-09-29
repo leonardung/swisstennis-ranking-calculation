@@ -143,6 +143,14 @@ export interface SimSide {
   loss: SimState;
 }
 
+export interface PredictResponse {
+  before: SimState;
+  after: SimState;
+  /** played matches left out, results added (made up and against players) */
+  removed: number;
+  added: number;
+}
+
 export interface SimulateResponse {
   player: SimSide;
   opponent: SimSide;
@@ -331,7 +339,20 @@ export interface TournamentEvent {
   inRange: number | null;
   registrationOpen: boolean | null;
   hasDraw: boolean;
+  /** Parsed age category (null/absent when unknown or on an older server). */
+  ageInfo?: AgeInfo | null;
 }
+
+/** An age category: actives, juniors up to `max` ("U16"), or seniors with the men's and women's limits. */
+export interface AgeInfo {
+  id: number;
+  kind: "actives" | "juniors" | "seniors" | string;
+  men?: number | null;
+  women?: number | null;
+  max?: number | null;
+}
+
+export type TournamentWhen = "upcoming" | "live" | "past";
 
 export interface TournamentSummary {
   id: number;
@@ -344,6 +365,7 @@ export interface TournamentSummary {
   distanceKm: number | null;
   players: number;
   inRange: number | null;
+  surface?: string | null;
 }
 
 export interface TournamentListItem extends TournamentSummary {
@@ -352,7 +374,9 @@ export interface TournamentListItem extends TournamentSummary {
 
 export interface TournamentOptions {
   matchTypes: number[];
-  ages: number[];
+  /** AgeInfo items; plain ids on an older server. */
+  ages: (AgeInfo | number)[];
+  surfaces?: string[];
   cantons: string[];
   cities: string[];
 }
@@ -405,6 +429,7 @@ export interface TournamentEventDetail {
   dateTo: string | null;
   registrationOpen: boolean | null;
   pdfUrl: string | null;
+  ageInfo?: AgeInfo | null;
   applicants: number | null;
   players: RegisteredPlayer[];
   draw: { rounds: DrawRound[] } | null;

@@ -3,9 +3,9 @@ import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, X
 import { api } from "../api";
 import { trackEvent } from "../analytics";
 import { useChartColors } from "../chartTheme";
-import { playerHref, useAsync, useDebounced, useUrlState } from "../hooks";
-import { useI18n, type MsgKey } from "../i18n";
-import { CATEGORIES, fmt3, fmtChance, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
+import { playerHref, useAsync, useUrlState } from "../hooks";
+import { useI18n } from "../i18n";
+import { fmt3, fmtChance, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
 import type { PlayerDetail, SimSide, SimState } from "../types";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, Spinner } from "./common";
 import { MatchTable } from "./MatchListDialog";
@@ -111,8 +111,6 @@ export default function SimulatorTab({ player }: { player: PlayerDetail }) {
         </div>
       )}
 
-      <MoveUpCard playerId={player.id} />
-      <PredictCard player={player} />
     </div>
   );
 }
@@ -259,193 +257,6 @@ function HeadToHead({ playerId, opponent }: { playerId: number; opponent: Player
   );
 }
 
-const LEVELS: [number, MsgKey][] = [
-  [25, "moveUpWeak"],
-  [50, "moveUpMedium"],
-  [75, "moveUpStrong"],
-];
-
-/** The wins the player needs to reach the next category, per opponent category and strength. */
-function MoveUpCard({ playerId }: { playerId: number }) {
-  const { t, locale } = useI18n();
-  const st = useAsync((s) => api.moveUp(playerId, s), [playerId]);
-  if (st.loading || st.error) return <AsyncStatus {...st} />;
-  const d = st.data;
-  const reachable = d?.levels.filter((l) => l.opponents.some((o) => o.wins != null)) ?? [];
-  // stronger categories than the weakest one where a single win can be enough say nothing more
-  const once = reachable.map((l) => l.opponents.some((o) => o.wins === 1)).lastIndexOf(true);
-  const levels = reachable.slice(Math.max(once, 0));
-  return (
-    <Card title={t("moveUpTitle")}>
-      {!d || levels.length === 0 ? (
-        <p className="muted">{t("moveUpNone")}</p>
-      ) : (
-        <>
-          <p className="muted">
-            {t("moveUpIntro", { from: d.class, to: d.target, C: fmt3(d.C), need: fmt3(d.need) })}
-          </p>
-          <div className="table-wrap">
-            <table className="data move-up">
-              <thead>
-                <tr>
-                  <th>{t("moveUpAgainst")}</th>
-                  {LEVELS.map(([q, label]) => (
-                    <th key={q} className="num">
-                      <Hint label={t(label)} text={t("moveUpLevelHelp", { p: q })} align="end" />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {levels.map((l) => (
-                  <tr key={l.class}>
-                    <th>
-                      <CategoryBadge cls={l.class} size="sm" />
-                    </th>
-                    {LEVELS.map(([q]) => {
-                      const o = l.opponents.find((x) => x.percentile === q);
-                      return (
-                        <td key={q} className="num" title={o ? `W ${fmt3(o.W)}` : undefined}>
-                          {o?.wins != null ? (
-                            <strong>{t("moveUpWins", { n: o.wins })}</strong>
-                          ) : (
-                            <span className="muted">{`> ${fmtInt(d.max_wins, locale)}`}</span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="hint small">{t("moveUpHelp")}</p>
-        </>
-      )}
-    </Card>
-  );
-}
-
-// custom prediction: a result is outcome:count:category:percentile (see the backend's predict)
-const MAX_PER_ROW = 30;
-const MAX_RESULTS = 60;
-
-interface Hypo {
-  win: boolean;
-  count: number;
-  cls: string;
-  percentile: number;
-}
-
-function parseHypos(v: string): Hypo[] {
-  return v
-    .split(",")
-    .map((x) => x.split(":"))
-    .filter((p) => p.length === 4)
-    .map(([o, n, cls, q]) => ({ win: o !== "loss", count: Number(n) || 1, cls, percentile: Number(q) || 50 }));
-}
-
-const formatHypos = (h: Hypo[]) => h.map((x) => `${x.win ? "win" : "loss"}:${x.count}:${x.cls}:${x.percentile}`).join(",");
-
-/** The player's values after results the visitor makes up (kept in the URL). */
-function PredictCard({ player }: { player: PlayerDetail }) {
-  const { t } = useI18n();
-  const own = player.today?.class && CATEGORIES.includes(player.today.class) ? player.today.class : "R5";
-  const [param, setParam] = useUrlState("pred", "");
-  const rows = param ? parseHypos(param) : [{ win: true, count: 1, cls: own, percentile: 50 }];
-  const set = (h: Hypo[]) => setParam(formatHypos(h));
-  const update = (i: number, change: Partial<Hypo>) => set(rows.map((r, j) => (j === i ? { ...r, ...change } : r)));
-  const total = rows.reduce((n, r) => n + r.count, 0);
-  const query = useDebounced(total <= MAX_RESULTS && rows.length ? formatHypos(rows) : "", 400);
-  const st = useAsync(query ? (s) => api.predict(player.id, query, s) : null, [player.id, query]);
-  const d = st.data;
-  return (
-    <Card title={t("predictTitle")}>
-      <p className="muted">{t("predictIntro")}</p>
-      <div className="predict-rows">
-        {rows.map((r, i) => (
-          <div key={i} className="predict-row">
-            <select value={r.win ? "win" : "loss"} onChange={(e) => update(i, { win: e.target.value === "win" })} aria-label={t("result")}>
-              <option value="win">{t("predictWins")}</option>
-              <option value="loss">{t("predictLosses")}</option>
-            </select>
-            <input
-              type="number"
-              min={1}
-              max={MAX_PER_ROW}
-              value={r.count}
-              aria-label={t("predictCount")}
-              onChange={(e) => update(i, { count: Math.min(MAX_PER_ROW, Math.max(1, Math.round(Number(e.target.value)) || 1)) })}
-            />
-            <span className="muted">×</span>
-            <select value={r.cls} onChange={(e) => update(i, { cls: e.target.value })} aria-label={t("category")}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <select value={r.percentile} onChange={(e) => update(i, { percentile: Number(e.target.value) })} aria-label={t("predictStrength")}>
-              {LEVELS.map(([q, label]) => (
-                <option key={q} value={q}>
-                  {t(label)}
-                </option>
-              ))}
-            </select>
-            <button className="btn btn-ghost predict-remove" onClick={() => set(rows.filter((_, j) => j !== i))} aria-label={t("predictRemove")} title={t("predictRemove")}>
-              ✕
-            </button>
-          </div>
-        ))}
-        <button className="btn btn-ghost predict-add" onClick={() => set([...rows, { ...(rows[rows.length - 1] ?? { win: true, count: 1, cls: own, percentile: 50 }) }])}>
-          + {t("predictAdd")}
-        </button>
-      </div>
-      {total > MAX_RESULTS && <p className="hint neg">{t("predictTooMany", { n: MAX_RESULTS })}</p>}
-      {rows.length > 0 && total <= MAX_RESULTS && (
-        <div className="predict-result">
-          {d ? (
-            <div className="table-wrap">
-              <table className="data sim-table">
-                <thead>
-                  <tr>
-                    <th />
-                    <th>{t("category")}</th>
-                    <th className="num">W</th>
-                    <th className="num">C</th>
-                    <th className="num">{t("rank")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="sim-before">
-                    <th>{t("simBefore")}</th>
-                    <td>
-                      <CategoryBadge cls={d.before.class} size="sm" />
-                    </td>
-                    <td className="num">{fmt3(d.before.W)}</td>
-                    <td className="num">{fmt3(d.before.C)}</td>
-                    <td className="num">{fmtInt(d.before.rank)}</td>
-                  </tr>
-                  <SimRow
-                    label={t("predictAfter")}
-                    good={(d.after.C ?? 0) >= (d.before.C ?? 0)}
-                    before={d.before}
-                    after={d.after}
-                  />
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <AsyncStatus {...st} />
-          )}
-          {st.loading && d && <Spinner />}
-        </div>
-      )}
-      <p className="hint small">{t("predictHelp")}</p>
-    </Card>
-  );
-}
-
 function SimCard({
   title,
   role,
@@ -516,7 +327,7 @@ function SimCard({
   );
 }
 
-function SimRow({ label, sub, good, before, after }: { label: string; sub?: string; good: boolean; before: SimState; after: SimState }) {
+export function SimRow({ label, sub, good, before, after }: { label: string; sub?: string; good: boolean; before: SimState; after: SimState }) {
   const dW = before.W != null && after.W != null ? after.W - before.W : null;
   const dC = before.C != null && after.C != null ? after.C - before.C : null;
   const dRank = before.rank != null && after.rank != null ? before.rank - after.rank : null;

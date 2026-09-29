@@ -12,9 +12,11 @@ interface Props {
   className?: string;
   /** Clear the input after a selection (header search) */
   clearOnSelect?: boolean;
+  /** only players of this gender (M or F) */
+  gender?: string;
 }
 
-export default function SearchBox({ onSelect, placeholder, autoFocus, className = "", clearOnSelect = true }: Props) {
+export default function SearchBox({ onSelect, placeholder, autoFocus, className = "", clearOnSelect = true, gender }: Props) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PlayerSummary[]>([]);
@@ -34,7 +36,7 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
     }
     const ctrl = new AbortController();
     setBusy(true);
-    api.search(debounced, 20, ctrl.signal).then(
+    api.search(debounced, 20, ctrl.signal, gender).then(
       (r) => {
         setResults(r);
         setActive(0);
@@ -48,7 +50,7 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
       },
     );
     return () => ctrl.abort();
-  }, [debounced]);
+  }, [debounced, gender]);
 
   // close on outside click
   useEffect(() => {
