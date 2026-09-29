@@ -66,6 +66,79 @@ query recentPlayers($from: timestamp, $offset: Int, $limit: Int) {
 }"""
 
 CURRENT_SEASON_QUERY = "query { RankSeasonRange(where: {seasonPointer: {_eq: 1}}) { dateBegin } }"
+PREVIOUS_SEASON_QUERY = "query { RankSeasonRange(where: {seasonPointer: {_eq: 0}}) { dateBegin } }"
+
+TOURNAMENTS_QUERY = """
+query Tournaments($where: ioTournament_bool_exp, $offset: Int, $limit: Int) {
+  ioTournament(where: $where, order_by: {id: asc}, offset: $offset, limit: $limit) {
+    id
+    name
+    city
+    dateBegin
+    dateEnd
+    drawingTime
+    tournamentStatusId
+    kanton { label }
+    competitionCategory { id }
+    events {
+      id
+      Evt_Id_MatchType_l
+      Evt_Id_AgeCategory_l
+      eventStatusId
+      dateFrom
+      dateTo
+      lowerRankingTypeId
+      upperRankingTypeId
+    }
+  }
+}"""
+
+# key2 = round counted from the final, key3 = slot within the round; doubles carry no round.
+DRAWS_QUERY = """
+query Draws($ids: [Int!]) {
+  ioEvent(where: {id: {_in: $ids}}) {
+    id
+    singleResults {
+      key2
+      key3
+      playerPersonId
+      player { person { firstname lastname } }
+      adversaryPersonId
+      adversaryFirstname
+      adversaryLastname
+      playerWinnerCode
+      playerSet1WonGames adversarySet1WonGames
+      playerSet2WonGames adversarySet2WonGames
+      playerSet3WonGames adversarySet3WonGames
+      playerSet4WonGames adversarySet4WonGames
+      playerSet5WonGames adversarySet5WonGames
+      playedDate
+      date
+    }
+    doubleResults {
+      player1PersonId player1Firstname player1Lastname
+      player2PersonId player2Firstname player2Lastname
+      adversary1PersonId adversary1Firstname adversary1Lastname
+      adversary2PersonId adversary2Firstname adversary2Lastname
+      playerWinnerCode
+      playerSet1WonGames adversarySet1WonGames
+      playerSet2WonGames adversarySet2WonGames
+      playerSet3WonGames adversarySet3WonGames
+      playerSet4WonGames adversarySet4WonGames
+      playerSet5WonGames adversarySet5WonGames
+      playedDate
+      date
+    }
+  }
+}"""
+
+LICENCE_HOLDERS_QUERY = """
+query LicenceHolders($licences: [String!]) {
+  lizenz_nehmer(where: {licenceNumber: {_in: $licences}}) {
+    licenceNumber
+    person { id firstname lastname }
+  }
+}"""
 
 RESULTS_QUERY = """
 query SingleResults($where: AllSingleResults_bool_exp, $limit: Int) {

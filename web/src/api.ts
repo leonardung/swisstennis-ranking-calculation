@@ -5,11 +5,15 @@ import type {
   MatchesResponse,
   Meta,
   MoveUp,
+  Outlook,
   PlayerDetail,
   PlayerSummary,
   SimState,
   SimulateResponse,
   Stats,
+  TournamentDetail,
+  TournamentList,
+  PlayerTournaments,
 } from "./types";
 
 /** Error carrying the HTTP status so callers can distinguish 404 / 503 ("loading"). */
@@ -89,4 +93,12 @@ export const api = {
   highlights: (signal?: AbortSignal) => get<Highlights>("/api/highlights", signal),
   simulate: (player: number, opponent: number, signal?: AbortSignal) =>
     get<SimulateResponse>(`/api/simulate?player=${player}&opponent=${opponent}`, signal),
+  /** `query` is a URL query string without "?" (the filters of the tournaments page). */
+  tournaments: (query: string, signal?: AbortSignal) =>
+    get<TournamentList>(`/api/tournaments${query ? `?${query}` : ""}`, signal),
+  tournament: (id: number, signal?: AbortSignal) => get<TournamentDetail>(`/api/tournaments/${id}`, signal),
+  playerTournaments: (id: number, signal?: AbortSignal) =>
+    get<PlayerTournaments>(`/api/players/${id}/tournaments`, signal),
+  outlook: (id: number, eventId: number, signal?: AbortSignal) =>
+    get<Outlook>(`/api/players/${id}/tournaments/events/${eventId}/outlook`, signal),
 };

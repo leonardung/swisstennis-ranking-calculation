@@ -6,6 +6,8 @@ import { I18nContext, loadLang, makeT, saveLang, type I18n, type Lang } from "./
 import Header from "./components/Header";
 import Home from "./components/Home";
 import PlayerPage from "./components/PlayerPage";
+import TournamentsPage from "./components/TournamentsPage";
+import TournamentPage from "./components/TournamentPage";
 import { BackendLoading } from "./components/common";
 
 export default function App() {
@@ -48,8 +50,24 @@ export default function App() {
     }
     lastUpdated.current = u;
   }, [meta.data?.data_updated]);
+  // the tournament tables are refreshed on their own schedule (every few hours): only the
+  // tournament pages start over, an open player page (and its outlook) keeps its state
+  const lastTournaments = useRef<string | null | undefined>(undefined);
+  const [tournamentsVersion, setTournamentsVersion] = useState(0);
+  useEffect(() => {
+    const u = meta.data?.tournaments?.updated;
+    if (u === undefined) return;
+    if (lastTournaments.current !== undefined && lastTournaments.current !== u) {
+      clearCache();
+      setTournamentsVersion((v) => v + 1);
+    }
+    lastTournaments.current = u;
+  }, [meta.data?.tournaments?.updated]);
 
   const route = useRoute();
+  // each navigation counts, even to the same page (another query: a fresh filter state)
+  const nav = useRef({ route, n: 0 });
+  if (nav.current.route !== route) nav.current = { route, n: nav.current.n + 1 };
 
   useEffect(() => {
     if (route.page === "home") {
@@ -60,12 +78,20 @@ export default function App() {
 
   return (
     <I18nContext.Provider value={i18n}>
-      <Header meta={meta.data} showSearch={route.page !== "home"} />
+      <Header
+        meta={meta.data}
+        showSearch={route.page !== "home"}
+        inTournaments={route.page === "tournaments" || route.page === "tournament"}
+      />
       <main className="container">
         {meta.backendLoading && !meta.data ? (
           <BackendLoading />
         ) : route.page === "player" ? (
           <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
+        ) : route.page === "tournaments" ? (
+          <TournamentsPage key={`${nav.current.n}-${dataVersion}-${tournamentsVersion}`} />
+        ) : route.page === "tournament" ? (
+          <TournamentPage key={`${route.id}-${dataVersion}-${tournamentsVersion}`} id={route.id} eventId={route.eventId} />
         ) : (
           <Home meta={meta.data} />
         )}

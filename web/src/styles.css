@@ -2071,3 +2071,367 @@ dialog.match-dialog::backdrop {
   gap: 6px;
   margin-top: 2px;
 }
+
+/* ---------- Tournaments ---------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nav-link {
+  font-size: 13px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.nav-link.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.tag-open {
+  background: var(--pos-bg);
+  color: var(--pos);
+}
+.tag-info {
+  background: var(--info-bg);
+  color: var(--info);
+}
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.page-head h1 {
+  font-size: 26px;
+  margin: 2px 0 4px;
+  overflow-wrap: anywhere;
+}
+.tourn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+/* filter bar */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+.field.grow {
+  flex: 1 1 220px;
+}
+.field > label,
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.field .input-sm {
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.field .input-sm[aria-invalid="true"] {
+  border-color: var(--warn);
+}
+.field select:disabled {
+  opacity: 0.5;
+}
+.range-inputs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip-filter .chips {
+  margin-top: 6px;
+}
+.chip-filter .chip,
+.range-field .chip,
+.filter-row .chip {
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+/* list */
+.tourn-results .toolbar {
+  align-items: center;
+  min-height: 28px;
+}
+.tourn-list {
+  display: grid;
+  gap: 12px;
+}
+.tourn-list > .card + .card {
+  margin-top: 0;
+}
+.tourn-card-head h3 {
+  font-size: 16px;
+  font-weight: 650;
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+.tourn-events {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.tourn-events li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tourn-events li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.tourn-event-name {
+  font-weight: 600;
+}
+.tourn-event-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin-left: auto;
+  font-size: 13.5px;
+}
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+/* tournament page */
+.tourn-info {
+  margin-bottom: 16px;
+}
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px 20px;
+  margin: 0;
+}
+.info-grid dt {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.info-grid dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.contact-links {
+  display: flex;
+  flex-direction: column;
+}
+.selection {
+  margin: 14px 0 0;
+  color: var(--text-2);
+}
+.event-tabs {
+  margin-bottom: 16px;
+}
+.event-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.event-view {
+  margin-bottom: 16px;
+}
+.bracket-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+}
+.bracket-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.bracket {
+  display: flex;
+  gap: 16px;
+  width: max-content;
+}
+.bracket-round {
+  display: flex;
+  flex-direction: column;
+  width: 220px;
+  flex: none;
+}
+.bracket-round h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bracket-matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  gap: 8px;
+}
+.draw-match {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.draw-side {
+  padding: 2px 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.draw-side + .draw-side {
+  border-top: 1px dashed var(--border);
+}
+.draw-side.won {
+  font-weight: 700;
+  color: var(--text);
+}
+.draw-score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 2px;
+  font-size: 12px;
+}
+.draw-names .cat {
+  vertical-align: 1px;
+}
+
+/* player tab */
+.entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.entry-list > li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.entry-list > li:first-child {
+  padding-top: 0;
+}
+.entry-list > li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.entry-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px 12px;
+}
+.entry-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.entry-side {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.outlook-toggle {
+  margin-top: 6px;
+  padding: 4px 8px;
+  font-size: 13.5px;
+}
+.outlook-panel {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.outlook-panel .table-wrap + .table-wrap {
+  margin-top: 12px;
+}
+.outlook-panel .data thead th {
+  background: var(--surface-2);
+}
+.past-results {
+  margin-top: 6px;
+  font-size: 13.5px;
+}
+.past-results td {
+  padding: 5px 8px;
+}
+
+@media (max-width: 720px) {
+  .page-head h1 {
+    font-size: 21px;
+  }
+  .filter-row > .field:not(.grow) {
+    flex: 1 1 140px;
+  }
+  .field .input-sm {
+    width: 100%;
+  }
+  .range-inputs .input-sm {
+    width: auto;
+    flex: 1 1 70px;
+  }
+  .tourn-event-side {
+    margin-left: 0;
+    width: 100%;
+  }
+  .bracket-round {
+    width: 180px;
+  }
+}
+
+.pool-matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 8px;
+}

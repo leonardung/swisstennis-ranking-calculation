@@ -86,10 +86,14 @@ export function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-export type Tab = "overview" | "matches" | "simulator" | "stats";
-export const TABS: Tab[] = ["overview", "matches", "simulator", "stats"];
+export type Tab = "overview" | "matches" | "simulator" | "stats" | "tournaments";
+export const TABS: Tab[] = ["overview", "matches", "simulator", "stats", "tournaments"];
 
-export type Route = { page: "home" } | { page: "player"; id: number; tab: Tab };
+export type Route =
+  | { page: "home" }
+  | { page: "player"; id: number; tab: Tab }
+  | { page: "tournaments" }
+  | { page: "tournament"; id: number; eventId: number | null };
 
 export function parsePath(path: string): Route {
   const m = /^\/player\/(\d+)(?:\/([a-z]+))?\/?$/.exec(path);
@@ -97,6 +101,9 @@ export function parsePath(path: string): Route {
     const tab = (TABS as string[]).includes(m[2] ?? "") ? (m[2] as Tab) : "overview";
     return { page: "player", id: Number(m[1]), tab };
   }
+  if (/^\/tournaments\/?$/.test(path)) return { page: "tournaments" };
+  const t = /^\/tournament\/(\d+)(?:\/(\d+))?\/?$/.exec(path);
+  if (t) return { page: "tournament", id: Number(t[1]), eventId: t[2] ? Number(t[2]) : null };
   return { page: "home" };
 }
 
@@ -104,10 +111,14 @@ export function playerHref(id: number, tab?: Tab): string {
   return tab && tab !== "overview" ? `/player/${id}/${tab}` : `/player/${id}`;
 }
 
+export function tournamentHref(id: number, eventId?: number | null): string {
+  return eventId != null ? `/tournament/${id}/${eventId}` : `/tournament/${id}`;
+}
+
 const ROUTE_CHANGE = "routechange";
 
 export function navigate(href: string): void {
-  if (window.location.pathname === href) return;
+  if (window.location.pathname + window.location.search === href) return;
   window.history.pushState({ entry: newEntry() }, "", href);
   window.dispatchEvent(new Event(ROUTE_CHANGE));
   window.scrollTo({ top: 0 });
@@ -220,7 +231,6 @@ export function useRoute(): Route {
   useEffect(() => {
     const on = () => {
       redirectHashRoute();
-keepScroll();
       setRoute(parsePath(window.location.pathname));
     };
     const click = (e: MouseEvent) => {
@@ -228,7 +238,7 @@ keepScroll();
       const a = (e.target as Element).closest?.("a");
       if (!a || a.target || a.hasAttribute("download") || a.origin !== window.location.origin) return;
       e.preventDefault();
-      navigate(a.pathname);
+      navigate(a.pathname + a.search);
     };
     window.addEventListener("popstate", on);
     window.addEventListener("hashchange", on);

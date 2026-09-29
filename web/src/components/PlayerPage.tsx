@@ -9,12 +9,14 @@ import OverviewTab from "./OverviewTab";
 import MatchesTab from "./MatchesTab";
 import SimulatorTab from "./SimulatorTab";
 import StatsTab from "./StatsTab";
+import TournamentsTab from "./TournamentsTab";
 
 const TAB_LABEL: Record<Tab, MsgKey> = {
   overview: "tabOverview",
   matches: "tabMatches",
   simulator: "tabSimulator",
   stats: "tabStats",
+  tournaments: "tabTournaments",
 };
 
 export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
@@ -99,6 +101,7 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
         {tab === "matches" && <MatchesTab playerId={id} />}
         {tab === "simulator" && <SimulatorTab player={p} />}
         {tab === "stats" && <StatsTab playerId={id} />}
+        {tab === "tournaments" && <TournamentsTab playerId={id} />}
       </div>
     </div>
   );

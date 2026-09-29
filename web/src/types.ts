@@ -18,6 +18,7 @@ export interface Meta {
   window_start: string;
   data_updated: string | null;
   scrape?: ScrapeInfo | null;
+  tournaments?: { updated: string | null; running: boolean; lastError: string | null } | null;
 }
 
 export interface PlayerSummary {
@@ -315,4 +316,154 @@ export interface Highlights {
   leaderboards: { since: string; min_played: Partial<Record<BoardKey, number>>; players: Record<string, Record<BoardKey, BoardRow[]>> };
   upsets: { from: string; to: string; matches: Upset[] };
   movers: { today: MoverList; season?: MoverList };
+}
+
+// ---------- Tournaments ----------
+
+export interface TournamentEvent {
+  id: number;
+  matchType: number;
+  age: number;
+  lower: string | null;
+  upper: string | null;
+  competition: string | null;
+  players: number;
+  inRange: number | null;
+  registrationOpen: boolean | null;
+  hasDraw: boolean;
+}
+
+export interface TournamentSummary {
+  id: number;
+  name: string;
+  city: string | null;
+  canton: string | null;
+  dateBegin: string;
+  dateEnd: string;
+  status: number;
+  distanceKm: number | null;
+  players: number;
+  inRange: number | null;
+}
+
+export interface TournamentListItem extends TournamentSummary {
+  events: TournamentEvent[];
+}
+
+export interface TournamentOptions {
+  matchTypes: number[];
+  ages: number[];
+  cantons: string[];
+  cities: string[];
+}
+
+export interface TournamentList {
+  total: number;
+  tournaments: TournamentListItem[];
+  options: TournamentOptions;
+  updated: string | null;
+}
+
+export interface DrawPlayer {
+  personId: number | null;
+  name: string;
+  class: string | null;
+}
+
+export interface DrawMatch {
+  slot: number;
+  a: DrawPlayer[];
+  b: DrawPlayer[];
+  winner: 1 | 2 | null;
+  score: string | null;
+  walkover: boolean;
+  date: string | null;
+}
+
+export interface DrawRound {
+  round: number;
+  matches: DrawMatch[];
+}
+
+export interface RegisteredPlayer {
+  personId: number | null;
+  licence: string | null;
+  name: string;
+  class: string | null;
+  officialClass: string | null;
+  C: number | null;
+}
+
+export interface TournamentEventDetail {
+  id: number;
+  matchType: number;
+  age: number;
+  lower: string | null;
+  upper: string | null;
+  competition: string | null;
+  dateFrom: string | null;
+  dateTo: string | null;
+  registrationOpen: boolean | null;
+  pdfUrl: string | null;
+  applicants: number | null;
+  players: RegisteredPlayer[];
+  draw: { rounds: DrawRound[] } | null;
+}
+
+export interface TournamentDetail {
+  id: number;
+  name: string;
+  city: string | null;
+  canton: string | null;
+  dateBegin: string;
+  dateEnd: string;
+  drawingTime: string | null;
+  status: number;
+  surface: string | null;
+  place: string | null;
+  category: string | null;
+  selection: string | null;
+  entryFee: string | null;
+  organiser: string | null;
+  email: string | null;
+  phone: string | null;
+  homePage: string | null;
+  mytennisUrl: string | null;
+  events: TournamentEventDetail[];
+}
+
+export interface PlayerTournamentEntry {
+  tournament: TournamentSummary;
+  event: TournamentEvent;
+}
+
+export interface PastResult {
+  round: number;
+  opponent: DrawPlayer[];
+  win: boolean | null; // null: winner unknown
+  score: string | null;
+  walkover: boolean;
+}
+
+export interface PlayerTournaments {
+  registered: PlayerTournamentEntry[];
+  suggested: (PlayerTournamentEntry & { inRange: number })[];
+  past: (PlayerTournamentEntry & { reached: number | null; results: PastResult[] })[];
+}
+
+export interface OutlookOpponent {
+  personId: number | null;
+  name: string;
+  class: string | null;
+  W: number | null;
+  chance: number | null;
+  gainWin: number | null;
+  lossLoss: number | null;
+}
+
+export interface Outlook {
+  field: { count: number; medianW: number | null; topW: number | null; inRange: number | null };
+  opponents: OutlookOpponent[];
+  // null when no opponent has a value
+  expected: { gain: number | null; rounds: { round: number; reach: number; gain: number | null }[] } | null;
 }

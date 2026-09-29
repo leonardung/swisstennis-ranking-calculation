@@ -27,6 +27,30 @@ uv run pytest
 Updating an existing download: `scrape --recent-days 45` fetches again the players with a result
 dated in the last 45 days, or everyone once a new official list is out (`data/raw/season`).
 
+### Tournaments
+
+```bash
+uv run swisstennis-ranking scrape-tournaments                # upcoming ~6 months + draws of the last 14 days
+uv run swisstennis-ranking scrape-tournaments --draws-days 30
+uv run swisstennis-ranking scrape-tournaments --all          # backfill since the start of the previous season
+```
+
+Writes `data/tournaments/` (each file replaced atomically):
+
+| file | one row per | from |
+|---|---|---|
+| `tournaments.parquet` | tournament: dates, city, canton, surface, fee, organiser, contact, lat/lon | Hasura `ioTournament`, the REST tournament info, Nominatim |
+| `events.parquet` | event: match type, age category, ranking bounds (ids 1 N1 … 13 R9), applicants, registration open, PDF | Hasura `ioEvent`, REST categories |
+| `registrations.parquet` | (event, player): licence, personId (via `players.parquet`, else the licence table) | REST licence lists |
+| `draws.parquet` | match: round (1 = final, 0 = not in a bracket, e.g. pools), slot, sides a/b, winner, score from a's view | Hasura `singleResults` / `doubleResults` |
+| `geocode.json` | city → coordinates, cached forever (Nominatim, 1 request/s) | |
+
+A run refreshes the window (default: ended 14 days ago or later, starting within ~6 months) and
+merges it into the existing files; tournaments of the window that disappeared upstream are dropped
+only if at least half of the known ones came back. Doubles results carry no round upstream: the
+bracket is rebuilt from who beat whom when the results form a finished knockout. The first run
+geocodes ~400 cities (~8 minutes), later runs take ~2 minutes (1 of them logging in).
+
 ## Web UI
 
 Search any player and see the official list next to today's calculated list (the monthly list at

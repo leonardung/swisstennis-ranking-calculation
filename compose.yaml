@@ -8,6 +8,8 @@ services:
       PORT: ${PORT:-8000}
       # daily update (HH:MM, Europe/Zurich); empty disables it
       SCRAPE_TIME: ${SCRAPE_TIME-03:00}
+      # tournaments refresh interval in hours; 0 disables it
+      TOURNAMENT_REFRESH_HOURS: ${TOURNAMENT_REFRESH_HOURS-2}
     env_file: .env # MYTENNIS_USER / MYTENNIS_PASSWORD, UMAMI_SCRIPT_URL / UMAMI_WEBSITE_ID
     volumes:
       - ./data:/app/data

@@ -37,6 +37,40 @@ MOVE_UP_PERCENTILES = (25, 50, 75)
 # custom prediction: at most this many results of a kind, and in all
 PREDICT_MAX_PER_ROW = 30
 PREDICT_MAX_RESULTS = 60
+# tournaments: their tables (written by `scrape-tournaments`), refreshed every this many hours
+TOURNAMENT_DIR = "tournaments"
+TOURNAMENT_REFRESH_HOURS = 2
+# tournament list: page size by default and at most; suggested tournaments of a player
+TOURNAMENT_LIMIT = 50
+TOURNAMENT_MAX_LIMIT = 200
+SUGGESTED_MAX = 20
+TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "inRange")
+SINGLES = (1, 2)  # match types: men's and women's singles
+MYTENNIS_URL = "https://www.mytennis.ch/fr/tournois/{}"
+# category index (0 = N1, strongest) of each category, and of each ranking type id (1 N1 ... 13 R9)
+CATEGORY_INDEX = {c: i for i, c in enumerate(evaluate.CATEGORIES)}
+TOURNAMENT_TABLES = {
+    "tournaments": {
+        "tournamentId": "int64", "name": "string", "city": "string", "canton": "string",
+        "dateBegin": "datetime64[ns]", "dateEnd": "datetime64[ns]", "drawingTime": "datetime64[ns]",
+        "statusId": "int64", "competitionCategoryId": "Int64", "surface": "string", "place": "string",
+        "category": "string", "selection": "string", "entryFee": "string", "organiser": "string",
+        "email": "string", "phone": "string", "homePage": "string", "lat": "float64", "lon": "float64",
+        "updated": "datetime64[ns]",
+    },
+    "events": {
+        "eventId": "int64", "tournamentId": "int64", "matchTypeId": "int64", "ageCategoryId": "int64",
+        "lowerRankingId": "Int64", "upperRankingId": "Int64", "dateFrom": "datetime64[ns]",
+        "dateTo": "datetime64[ns]", "statusId": "Int64", "competition": "string", "applicants": "Int64",
+        "registrationOpen": "boolean", "onlineRegistration": "boolean", "pdfUrl": "string",
+    },
+    "registrations": {"eventId": "int64", "licence": "string", "personId": "Int64", "firstname": "string", "lastname": "string"},
+    "draws": {
+        "eventId": "int64", "round": "int64", "slot": "int64", "a1": "Int64", "a2": "Int64", "b1": "Int64",
+        "b2": "Int64", "aName": "string", "bName": "string", "winner": "Int64", "walkover": "boolean",
+        "score": "string", "date": "datetime64[ns]",
+    },
+}
 
 
 class Feedback(BaseModel):
@@ -179,7 +213,8 @@ def _winprob_model(data_dir: Path) -> winprob.Model | None:
 
 
 def _num(v, digits: int = 3):
-    return None if v is None or pd.isna(v) else round(float(v), digits)
+    # + 0.0: no -0.0 for tiny negatives
+    return None if v is None or pd.isna(v) else round(float(v), digits) + 0.0
 
 
 def _int(v):
@@ -218,12 +253,186 @@ def match_deltas(w0: float, opp_w: np.ndarray, win: np.ndarray) -> tuple[np.ndar
     return dW, dC
 
 
+def c_with(w0: float, opp_w: np.ndarray, win: np.ndarray, extra_w, extra_win) -> float:
+    """C of a player after one pass of the formula with his rows (opp_w, win) plus extra results
+    against opponents of W extra_w, the opponents' values fixed (see App.move_up)."""
+    extra_w, extra_win = np.atleast_1d(extra_w).astype(float), np.atleast_1d(extra_win).astype(bool)
+    W, R = ranking.single_pass(
+        np.array([w0]), np.zeros(len(win) + len(extra_win), int), np.r_[opp_w, extra_w], np.r_[win, extra_win]
+    )
+    return W[0] + R[0]
+
+
+# --- tournaments -----------------------------------------------------------------------------
+
+
+@dataclass
+class Tournaments:
+    """The tables of data/tournaments/ (empty when missing). Replaced as a whole on reload: a
+    request reads App.tournaments once and keeps a consistent snapshot."""
+
+    tournaments: pd.DataFrame  # index tournamentId; + key (search text), players (all events)
+    # one row per event (junk match types dropped) with its tournament's columns, players
+    # (registrations, else REST applicants), hasDraw, until (last day), strong/weak (category
+    # indices of the bounds, open bounds N1/R9)
+    events: pd.DataFrame
+    registrations: pd.DataFrame
+    draws: pd.DataFrame  # ordered by event, round (first round first), slot
+    reg_rows: dict  # eventId -> positions in `registrations`
+    draw_rows: dict  # eventId -> positions in `draws`
+    cities: pd.DataFrame  # index city: lat, lon
+    options: dict  # filter values of the list
+    updated: datetime | None  # last refresh (the file's time)
+
+
+def load_tournaments(tdir: Path) -> Tournaments:
+    tables = {}
+    for name, cols in TOURNAMENT_TABLES.items():
+        f = tdir / f"{name}.parquet"
+        df = pd.read_parquet(f) if f.exists() else pd.DataFrame()
+        for c, t in cols.items():
+            if c not in df:
+                df[c] = pd.Series(dtype=t)
+        tables[name] = df.reset_index(drop=True)
+    t = tables["tournaments"].drop_duplicates("tournamentId", keep="last").set_index("tournamentId")
+    t["key"] = _fold(t["name"].astype(object).fillna("") + " " + t["city"].astype(object).fillna("") + " " + t["organiser"].astype(object).fillna(""))
+    regs, draws = tables["registrations"], tables["draws"]
+    draws = draws.sort_values(["eventId", "round", "slot"], ascending=[True, False, True], ignore_index=True)
+
+    e = tables["events"]
+    e = e[e["matchTypeId"] != 100].drop_duplicates("eventId", keep="last")
+    e = e.join(t[["name", "city", "canton", "dateBegin", "dateEnd", "statusId", "lat", "lon", "key"]], on="tournamentId", how="inner", rsuffix="_t")
+    e = e.reset_index(drop=True)
+    n = regs.groupby("eventId").size().reindex(e["eventId"]).to_numpy()
+    e["players"] = pd.Series(n, dtype=float).fillna(e["applicants"].astype(float)).fillna(0).astype(int)
+    e["hasDraw"] = e["eventId"].isin(draws["eventId"])
+    e["until"] = e["dateTo"].fillna(e["dateEnd"])
+    last = len(evaluate.CATEGORIES) - 1
+    e["strong"] = (e["upperRankingId"].astype(float) - 1).clip(0, last).fillna(0).astype(int)
+    e["weak"] = (e["lowerRankingId"].astype(float) - 1).clip(0, last).fillna(last).astype(int)
+    t["players"] = e.groupby("tournamentId")["players"].sum().reindex(t.index).fillna(0).astype(int)
+
+    located = t.dropna(subset=["lat", "lon"])
+    cities = located.groupby(located["city"].astype(object))[["lat", "lon"]].mean()
+    options = {
+        "matchTypes": sorted(int(x) for x in e["matchTypeId"].unique()),
+        "ages": sorted(int(x) for x in e["ageCategoryId"].unique()),
+        "cantons": sorted(t["canton"].dropna().astype(str).unique().tolist()),
+        "cities": sorted(cities.index.astype(str).tolist()),
+    }
+    f = tdir / "tournaments.parquet"
+    return Tournaments(
+        tournaments=t,
+        events=e,
+        registrations=regs,
+        draws=draws,
+        reg_rows=regs.groupby("eventId").indices,
+        draw_rows=draws.groupby("eventId").indices,
+        cities=cities,
+        options=options,
+        updated=datetime.fromtimestamp(f.stat().st_mtime) if f.exists() else None,
+    )
+
+
+def haversine(lat: np.ndarray, lon: np.ndarray, lat0: float, lon0: float) -> np.ndarray:
+    """Great-circle distance in km from (lat0, lon0)."""
+    lat, lon, lat0, lon0 = map(np.radians, (lat, lon, lat0, lon0))
+    a = np.sin((lat - lat0) / 2) ** 2 + np.cos(lat) * np.cos(lat0) * np.sin((lon - lon0) / 2) ** 2
+    return 6371.0 * 2 * np.arcsin(np.sqrt(a))
+
+
+def _date(v: str, name: str) -> pd.Timestamp:
+    try:
+        return pd.Timestamp(datetime.strptime(v, "%Y-%m-%d"))
+    except ValueError:
+        raise HTTPException(400, f"{name} must be a date YYYY-MM-DD") from None
+
+
+def _ids(v: str, name: str) -> list[int]:
+    try:
+        return [int(x) for x in v.split(",") if x.strip()]
+    except ValueError:
+        raise HTTPException(400, f"{name} must be comma-separated ids") from None
+
+
+def _category_range(weakest: str | None, strongest: str | None, name: str) -> tuple[int, int] | None:
+    """(strong, weak) category indices of a range from its weakest (min) and strongest (max)
+    category; a missing end is open (R9 or N1), swapped ends are accepted. None without both."""
+    if not weakest and not strongest:
+        return None
+    try:
+        a = CATEGORY_INDEX[weakest.upper()] if weakest else len(evaluate.CATEGORIES) - 1
+        b = CATEGORY_INDEX[strongest.upper()] if strongest else 0
+    except KeyError:
+        raise HTTPException(400, f"{name}Min and {name}Max must be categories N1 to R9") from None
+    return min(a, b), max(a, b)
+
+
+def _category_of(ranking_id) -> str | None:
+    """Label of a ranking type id (1 N1 ... 13 R9)."""
+    return evaluate.CATEGORIES[int(ranking_id) - 1] if pd.notna(ranking_id) and 1 <= ranking_id <= len(evaluate.CATEGORIES) else None
+
+
+def _day(v) -> str | None:
+    return None if v is None or pd.isna(v) else pd.Timestamp(v).date().isoformat()
+
+
+def _bool(v) -> bool | None:
+    return None if v is None or pd.isna(v) else bool(v)
+
+
+def _in_range(t: Tournaments, level: pd.Series, events: pd.Series, strong: int, weak: int) -> pd.Series:
+    """Per event id of `events`, the registered players whose category index (level: personId ->
+    index of today's class) is within [strong, weak]."""
+    regs = t.registrations[t.registrations["eventId"].isin(events)]
+    lv = regs["personId"].map(level)
+    hit = regs[(lv >= strong) & (lv <= weak)]
+    return hit.groupby("eventId").size().reindex(events).fillna(0).astype(int)
+
+
+def _played_by(draws: pd.DataFrame, pid: int) -> np.ndarray:
+    """Mask of the draw rows where `pid` played (on either side)."""
+    return draws[["a1", "a2", "b1", "b2"]].eq(pid).fillna(False).any(axis=1).to_numpy(bool)
+
+
+def _tournament_summary(tid: int, r: pd.Series) -> dict:
+    return {
+        "id": int(tid),
+        "name": _str(r["name"]),
+        "city": _str(r["city"]),
+        "canton": _str(r["canton"]),
+        "dateBegin": _day(r["dateBegin"]),
+        "dateEnd": _day(r["dateEnd"]),
+        "status": _int(r["statusId"]),
+    }
+
+
+def _event_summary(e: pd.Series, in_range=None) -> dict:
+    return {
+        "id": int(e["eventId"]),
+        "matchType": _int(e["matchTypeId"]),
+        "age": _int(e["ageCategoryId"]),
+        "lower": _category_of(e["lowerRankingId"]),
+        "upper": _category_of(e["upperRankingId"]),
+        "competition": _str(e["competition"]),
+        "players": int(e["players"]),
+        "inRange": _int(in_range),
+        "registrationOpen": _bool(e["registrationOpen"]),
+        "hasDraw": bool(e["hasDraw"]),
+    }
+
+
 class App:
-    def __init__(self, data_dir: Path, scrape_time: str | None):
+    def __init__(self, data_dir: Path, scrape_time: str | None, tournament_hours: float | None = None):
         self.data_dir = data_dir
         self.scrape_time = scrape_time
+        self.tournament_hours = tournament_hours
         self.state: State | None = None
         self.scrape = {"running": False, "last_run": None, "last_error": None, "next_run": None}
+        self.tournament_scrape = {"running": False, "last_run": None, "last_error": None, "next_run": None}
+        # the ranking scrape (and training) and the tournament scrape never run at the same time
+        self.scrape_lock = threading.Lock()
+        self.tournaments = load_tournaments(data_dir / TOURNAMENT_DIR)
         self.feedback_lock = threading.Lock()
         self.feedback_times: dict[str, list[float]] = {}
 
@@ -236,10 +445,14 @@ class App:
         if (self.data_dir / "history.parquet").exists():
             self._reload()
             # no model yet (first start): train it, then load it
-            if self._train_if_stale():
+            with self.scrape_lock:
+                trained = self._train_if_stale()
+            if trained:
                 self._reload()
         else:
             self._scrape()
+        # after the first ranking scrape: the tournament scrape needs players.parquet for the licences
+        threading.Thread(target=self._run_tournaments, daemon=True).start()
         if not self.scrape_time:
             return
         while True:
@@ -253,11 +466,12 @@ class App:
             self._scrape(recent_days=RECENT_DAYS)
 
     def _scrape(self, recent_days: int | None = None) -> None:
-        self.scrape.update(running=True, last_error=None)
-        args = ["scrape"] + ([] if recent_days is None else ["--recent-days", str(recent_days)])
-        if self._command(args, "scrape.log"):
-            self._train_if_stale()
-        self.scrape.update(running=False, last_run=datetime.now().isoformat(timespec="seconds"))
+        with self.scrape_lock:
+            self.scrape.update(running=True, last_error=None)
+            args = ["scrape"] + ([] if recent_days is None else ["--recent-days", str(recent_days)])
+            if self._command(args, "scrape.log"):
+                self._train_if_stale()
+            self.scrape.update(running=False, last_run=datetime.now().isoformat(timespec="seconds"))
         # also when the scrape failed: today's list moves with the date
         if (self.data_dir / "history.parquet").exists():
             self._reload()
@@ -267,18 +481,39 @@ class App:
         own process: its memory is freed); True if it was trained."""
         return winprob.stale(self.data_dir) and self._command(["train-winprob"], "winprob.log")
 
-    def _command(self, args: list[str], log_name: str) -> bool:
-        """Run a CLI command on the data, output to data/log_name; False (and last_error) on failure."""
+    def _run_tournaments(self) -> None:
+        """Scrape the tournaments on first start (no data yet), then every tournament_hours."""
+        if not (self.data_dir / TOURNAMENT_DIR / "tournaments.parquet").exists():
+            self._scrape_tournaments()
+        if not self.tournament_hours:
+            return
+        while True:
+            run = datetime.now() + timedelta(hours=self.tournament_hours)
+            self.tournament_scrape["next_run"] = run.isoformat(timespec="seconds")
+            time.sleep(self.tournament_hours * 3600)
+            self._scrape_tournaments()
+
+    def _scrape_tournaments(self) -> None:
+        with self.scrape_lock:
+            self.tournament_scrape.update(running=True, last_error=None)
+            self._command(["scrape-tournaments"], "tournaments.log", self.tournament_scrape)
+            self.tournament_scrape.update(running=False, last_run=datetime.now().isoformat(timespec="seconds"))
+        self._reload_tournaments()
+
+    def _command(self, args: list[str], log_name: str, status: dict | None = None) -> bool:
+        """Run a CLI command on the data, output to data/log_name; False (and last_error of
+        `status`, by default the ranking scrape's) on failure."""
+        status = self.scrape if status is None else status
         cmd = [sys.executable, "-m", "swisstennis_ranking", "--data", str(self.data_dir), *args]
         log = self.data_dir / log_name
         try:
             with log.open("w") as out:
                 done = subprocess.run(cmd, stdout=out, stderr=subprocess.STDOUT)
             if done.returncode:
-                self.scrape["last_error"] = log.read_text(errors="replace")[-2000:]
+                status["last_error"] = log.read_text(errors="replace")[-2000:]
             return done.returncode == 0
         except Exception as e:  # keep the scheduler alive
-            self.scrape["last_error"] = repr(e)
+            status["last_error"] = repr(e)
             return False
 
     def _reload(self) -> None:
@@ -286,6 +521,13 @@ class App:
             self.state = load_state(self.data_dir)
         except Exception as e:
             self.scrape["last_error"] = f"loading data failed: {e!r}"
+
+    def _reload_tournaments(self) -> None:
+        """Reload only the tournament tables (a new object: requests in flight keep the old one)."""
+        try:
+            self.tournaments = load_tournaments(self.data_dir / TOURNAMENT_DIR)
+        except Exception as e:
+            self.tournament_scrape["last_error"] = f"loading tournaments failed: {e!r}"
 
     def s(self) -> State:
         if self.state is None:
@@ -317,6 +559,11 @@ class App:
             "window_start": s.period.start.date().isoformat(),
             "data_updated": s.updated.isoformat(timespec="seconds"),
             "scrape": self.scrape,
+            "tournaments": {
+                "updated": None if self.tournaments.updated is None else self.tournaments.updated.isoformat(timespec="seconds"),
+                "running": self.tournament_scrape["running"],
+                "lastError": self.tournament_scrape["last_error"],
+            },
         }
 
     def _player(self, s: State, pid: int) -> pd.Series:
@@ -580,18 +827,12 @@ class App:
         need = g.loc[g["class"] == target, "C"].min()
         if pd.isna(need):
             return None
-        rows = s.rows.iloc[s.player_rows.get(r.name, np.array([], int))]
-        opp_w, win = rows["opp_w"].to_numpy(), rows["win"].to_numpy()
+        opp_w, win = self._own_rows(s, r)
         extra = np.arange(MOVE_UP_MAX_WINS + 1)
 
         def gain(value: float) -> np.ndarray:
             """C gained with 0, 1, 2... more wins against an opponent of W `value`."""
-            C = []
-            for k in extra:
-                W, R = ranking.single_pass(
-                    np.array([r["w0"]]), np.zeros(len(win) + k, int), np.r_[opp_w, np.full(k, value)], np.r_[win, np.ones(k, bool)]
-                )
-                C.append(W[0] + R[0])
+            C = [c_with(r["w0"], opp_w, win, np.full(k, value), np.ones(k, bool)) for k in extra]
             return np.array(C) - C[0]
 
         levels = []
@@ -602,6 +843,11 @@ class App:
                 opponents.append({"percentile": q, "W": _num(value), "wins": int(enough[0]) if len(enough) else None})
             levels.append({"class": cls, "opponents": opponents})
         return {"class": _str(r["class"]), "target": target, "C": _num(r["C"]), "need": _num(need), "max_wins": MOVE_UP_MAX_WINS, "levels": levels}
+
+    def _own_rows(self, s: State, r: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+        """The opponents' W and the outcomes of the player's (row r of s.p) results today."""
+        rows = s.rows.iloc[s.player_rows.get(r.name, np.array([], int))]
+        return rows["opp_w"].to_numpy(), rows["win"].to_numpy()
 
     def _stats_matches(self, pid: int, range_: str) -> tuple[pd.DataFrame, list[int]]:
         """The player's matches in `range_` (window, all or a year), describe()d and
@@ -665,6 +911,357 @@ class App:
         m, _ = self._stats_matches(pid, "all")
         return stats.career(m)
 
+    # --- tournaments -------------------------------------------------------------------------
+
+    def _levels(self) -> pd.DataFrame:
+        """Today's class, its category index (level), C and W of the players on today's list
+        (index personId); empty while the ranking data loads."""
+        s = self.state
+        if s is None:
+            return pd.DataFrame({"class": [], "C": [], "W": [], "level": []}, index=pd.Index([], dtype="int64"))
+        cached = getattr(self, "_levels_cache", None)
+        if cached is not None and cached[0] is s:
+            return cached[1]
+        live = s.p.loc[s.p["on_list"], ["personId", "class", "C", "W"]].set_index("personId")
+        live = live.assign(level=live["class"].map(CATEGORY_INDEX))
+        self._levels_cache = (s, live)
+        return live
+
+    def _person(self, pid: int | None, name: str | None, live: pd.DataFrame) -> dict:
+        s = self.state
+        if not name and pid is not None and s is not None and pid in s.people.index:
+            name = s.people.at[pid, "name"]
+        return {"personId": pid, "name": _str(name) or None, "class": None if pid is None else _str(live["class"].get(pid))}
+
+    def _side(self, x: pd.Series, side: str, live: pd.DataFrame) -> list[dict]:
+        """The player(s) of side a or b of a draw row; doubles names are "X / Y"."""
+        ids = [i for i in (_int(x[f"{side}1"]), _int(x[f"{side}2"])) if i is not None]
+        name = _str(x[f"{side}Name"])
+        if not ids:
+            return [] if name is None else [self._person(None, name, live)]
+        names = (name or "").split(" / ") if len(ids) == 2 else [name]
+        if len(names) != len(ids):
+            names = [None] * len(ids)
+        return [self._person(i, n, live) for i, n in zip(ids, names)]
+
+    def _class_of(self, s: State, r: pd.Series) -> str | None:
+        """Today's class of the player (row r of s.p), else his official one."""
+        return r["class"] if r["on_list"] else s.official_class.get(r["personId"])
+
+    def _tournament_item(self, t: Tournaments, e: pd.Series, in_range=None) -> dict:
+        """A tournament (list summary without events) and one of its events."""
+        tid = int(e["tournamentId"])
+        tr = t.tournaments.loc[tid]
+        return {
+            "tournament": {**_tournament_summary(tid, tr), "distanceKm": None, "players": int(tr["players"]), "inRange": None},
+            "event": _event_summary(e, in_range),
+        }
+
+    def tournament_list(
+        self,
+        from_: str | None = None,
+        to: str | None = None,
+        q: str | None = None,
+        match_type: str | None = None,
+        age: str | None = None,
+        event_min: str | None = None,
+        event_max: str | None = None,
+        field_min: str | None = None,
+        field_max: str | None = None,
+        near: str | None = None,
+        radius: float | None = None,
+        canton: str | None = None,
+        player: int | None = None,
+        sort: str = "date",
+        limit: int = TOURNAMENT_LIMIT,
+        offset: int = 0,
+    ) -> dict:
+        """Tournaments with at least one event matching all filters, with only those events (see
+        the API contract). Filters are masks over the events table, no loop over its rows."""
+        t = self.tournaments
+        e = t.events
+        if sort not in TOURNAMENT_SORTS:
+            raise HTTPException(400, f"sort must be one of {', '.join(TOURNAMENT_SORTS)}")
+        limit, offset = min(max(limit, 1), TOURNAMENT_MAX_LIMIT), max(offset, 0)
+        start = _date(from_, "from") if from_ else pd.Timestamp.now().normalize()
+        keep = np.array(e["dateEnd"].fillna(e["dateBegin"]) >= start, bool)  # a writable copy
+        if to:
+            keep &= (e["dateBegin"] <= _date(to, "to")).to_numpy(bool)
+        for w in _fold(pd.Series([q or ""])).iloc[0].split():
+            keep &= e["key"].str.contains(w, regex=False).to_numpy(bool)
+        if match_type:
+            keep &= e["matchTypeId"].isin(_ids(match_type, "matchType")).to_numpy(bool)
+        if age:
+            keep &= e["ageCategoryId"].isin(_ids(age, "age")).to_numpy(bool)
+        if canton:
+            keep &= e["canton"].isin([c.strip().upper() for c in canton.split(",")]).fillna(False).to_numpy(bool)
+        bounds = _category_range(event_min, event_max, "event")
+        if bounds:
+            keep &= ((e["strong"] <= bounds[1]) & (e["weak"] >= bounds[0])).to_numpy(bool)
+        if player is not None:
+            regs = t.registrations
+            ids = set(regs.loc[regs["personId"].eq(player).fillna(False).to_numpy(bool), "eventId"])
+            ids |= set(t.draws.loc[_played_by(t.draws, player), "eventId"])
+            keep &= e["eventId"].isin(ids).to_numpy(bool)
+        dist = np.full(len(e), np.nan)
+        if near:
+            if near not in t.cities.index:
+                raise HTTPException(400, f"unknown city {near!r}")
+            dist = haversine(e["lat"].to_numpy(float), e["lon"].to_numpy(float), *t.cities.loc[near, ["lat", "lon"]])
+        if radius is not None and near:  # without near, radius means nothing
+            keep &= dist <= radius
+        if sort == "distance" and not near:
+            raise HTTPException(400, "sort by distance needs near")
+        field = _category_range(field_min, field_max, "field")
+        if sort == "inRange" and field is None:
+            raise HTTPException(400, "sort by inRange needs fieldMin or fieldMax")
+
+        k = e[keep].assign(distance=dist[keep])
+        k["inRange"] = _in_range(t, self._levels()["level"], k["eventId"], *field).to_numpy() if field else 0
+        g = k.groupby("tournamentId").agg(
+            dateBegin=("dateBegin", "first"), distance=("distance", "first"), players=("players", "sum"), inRange=("inRange", "sum")
+        )
+        by, ascending = {
+            "date": (["dateBegin"], [True]),
+            "-date": (["dateBegin"], [False]),
+            "distance": (["distance", "dateBegin"], [True, True]),
+            "players": (["players", "dateBegin"], [False, True]),
+            "inRange": (["inRange", "dateBegin"], [False, True]),
+        }[sort]
+        g = g.reset_index().sort_values(by + ["tournamentId"], ascending=ascending + [True], na_position="last")
+        events_of = k.groupby("tournamentId").indices
+        out = []
+        for _, x in g.iloc[offset : offset + limit].iterrows():
+            tid = int(x["tournamentId"])
+            ev = k.iloc[events_of[tid]].sort_values(["matchTypeId", "ageCategoryId", "strong", "eventId"])
+            out.append({
+                **_tournament_summary(tid, t.tournaments.loc[tid]),
+                "distanceKm": _num(x["distance"], 1),
+                "players": int(x["players"]),
+                "inRange": int(x["inRange"]) if field else None,
+                "events": [_event_summary(y, y["inRange"] if field else None) for _, y in ev.iterrows()],
+            })
+        return {
+            "total": len(g),
+            "tournaments": out,
+            "options": t.options,
+            "updated": None if t.updated is None else t.updated.isoformat(timespec="seconds"),
+        }
+
+    def tournament(self, tid: int) -> dict:
+        t = self.tournaments
+        if tid not in t.tournaments.index:
+            raise HTTPException(404, f"unknown tournament {tid}")
+        r = t.tournaments.loc[tid]
+        live = self._levels()
+        ev = t.events[t.events["tournamentId"] == tid].sort_values(["matchTypeId", "ageCategoryId", "strong", "eventId"])
+        return {
+            **_tournament_summary(tid, r),
+            "drawingTime": _day(r["drawingTime"]),
+            **{k: _str(r[k]) for k in ("surface", "place", "category", "selection", "entryFee", "organiser", "email", "phone", "homePage")},
+            "mytennisUrl": MYTENNIS_URL.format(tid),
+            "events": [
+                {
+                    **_event_summary(e),
+                    "dateFrom": _day(e["dateFrom"]),
+                    "dateTo": _day(e["dateTo"]),
+                    "pdfUrl": _str(e["pdfUrl"]),
+                    "applicants": _int(e["applicants"]),
+                    "players": self._registered(t, int(e["eventId"]), live),
+                    "draw": self._draw(t, int(e["eventId"]), live),
+                }
+                for _, e in ev.iterrows()
+            ],
+        }
+
+    def _registered(self, t: Tournaments, eid: int, live: pd.DataFrame) -> list[dict]:
+        """The players registered in an event, strongest first (today's C, then the official
+        class; unknown players last)."""
+        s = self.state
+        out = []
+        for _, x in t.registrations.iloc[t.reg_rows.get(eid, np.array([], int))].iterrows():
+            pid = _int(x["personId"])
+            name = " ".join(filter(None, (_str(x["firstname"]), _str(x["lastname"]))))
+            out.append({
+                **self._person(pid, name, live),
+                "licence": _str(x["licence"]),
+                "officialClass": None if s is None or pid is None else _str(s.official_class.get(pid)),
+                "C": None if pid is None else _num(live["C"].get(pid)),
+            })
+        out.sort(key=lambda p: (p["C"] is None, -(p["C"] or 0), CATEGORY_INDEX.get(p["officialClass"], 99), p["name"] or ""))
+        return out
+
+    def _draw(self, t: Tournaments, eid: int, live: pd.DataFrame) -> dict | None:
+        """The results of an event by round, first round first; None without results."""
+        d = t.draws.iloc[t.draw_rows.get(eid, np.array([], int))]
+        if d.empty:
+            return None
+        rounds = []
+        for rnd, m in d.groupby("round", sort=False):  # draws are ordered first round first
+            matches = [
+                {
+                    "slot": int(x["slot"]),
+                    "a": self._side(x, "a", live),
+                    "b": self._side(x, "b", live),
+                    "winner": _int(x["winner"]),
+                    "score": _str(x["score"]),
+                    "walkover": bool(_bool(x["walkover"])),
+                    "date": _day(x["date"]),
+                }
+                for _, x in m.iterrows()
+            ]
+            rounds.append({"round": int(rnd), "matches": matches})
+        return {"rounds": rounds}
+
+    def player_tournaments(self, pid: int) -> dict:
+        """The player's upcoming registrations, suggested events and past results (see the API
+        contract). Suggested: upcoming singles of his gender, actives, registration open or
+        unknown, his class within the event's bounds, ranked by the registered players within
+        one category of his class. Past: from the draws, "reached" is the round (1 = final) of
+        his last match (whether he won it is in his last result), None outside a bracket (round 0:
+        pools, round robin)."""
+        s = self.s()
+        r = self._player(s, pid)
+        t = self.tournaments
+        e = t.events
+        live = self._levels()
+        level = CATEGORY_INDEX.get(self._class_of(s, r))
+
+        def around(ids: pd.Series) -> np.ndarray | list:
+            """Registered players within one category of the player's class, per event."""
+            return [None] * len(ids) if level is None else _in_range(t, live["level"], ids, max(level - 1, 0), level + 1).to_numpy()
+
+        regs = t.registrations
+        mine = regs.loc[regs["personId"].eq(pid).fillna(False).to_numpy(bool), "eventId"]
+        upcoming = (e["until"] >= s.today).to_numpy(bool)
+        registered = e[upcoming & e["eventId"].isin(mine).to_numpy(bool)].sort_values(["dateBegin", "eventId"])
+        registered = registered.assign(inRange=around(registered["eventId"]))
+
+        gender_type = {"M": 1, "F": 2}.get(r["gender"])
+        if level is None or gender_type is None:
+            suggested = e.iloc[:0].assign(inRange=0)
+        else:
+            ok = (
+                upcoming
+                & ~e["eventId"].isin(mine).to_numpy(bool)
+                & e["registrationOpen"].fillna(True).to_numpy(bool)
+                & (e["matchTypeId"] == gender_type).to_numpy(bool)
+                & (e["ageCategoryId"] == 1).to_numpy(bool)
+                & ((e["strong"] <= level) & (e["weak"] >= level)).to_numpy(bool)
+            )
+            suggested = e[ok]
+            suggested = suggested.assign(inRange=around(suggested["eventId"]))
+            suggested = suggested.sort_values(["inRange", "dateBegin", "eventId"], ascending=[False, True, True]).head(SUGGESTED_MAX)
+
+        d = t.draws[_played_by(t.draws, pid)]
+        at = pd.Series(np.arange(len(e)), index=e["eventId"])
+        past = []
+        for eid, m in d.groupby("eventId"):  # rows ordered first round first
+            if eid not in at.index:
+                continue
+            x = e.iloc[at[eid]]
+            results = []
+            for _, y in m.iterrows():
+                side = "a" if pid in (_int(y["a1"]), _int(y["a2"])) else "b"
+                winner, score = _int(y["winner"]), _str(y["score"])
+                if side == "b" and score:  # from the player's view
+                    score = " ".join("-".join(reversed(p.split("-"))) for p in score.split())
+                results.append({
+                    "round": int(y["round"]),
+                    "opponent": self._side(y, "b" if side == "a" else "a", live),
+                    "win": None if winner is None else winner == (1 if side == "a" else 2),
+                    "score": score,
+                    "walkover": bool(_bool(y["walkover"])),
+                })
+            past.append((x["until"], {**self._tournament_item(t, x), "reached": results[-1]["round"] or None, "results": results}))
+        past.sort(key=lambda p: (pd.isna(p[0]), -(p[0].value if pd.notna(p[0]) else 0)))
+        return {
+            "registered": [self._tournament_item(t, x, x["inRange"]) for _, x in registered.iterrows()],
+            "suggested": [{**self._tournament_item(t, x, x["inRange"]), "inRange": _int(x["inRange"])} for _, x in suggested.iterrows()],
+            "past": [p for _, p in past],
+        }
+
+    def outlook(self, pid: int, eid: int) -> dict:
+        """The player's prospects in a singles event. Per registered opponent: today's W, the
+        chance to beat him (the win probability model; null without one) and the change of the
+        player's C by a win (gainWin) or a loss (lossLoss) against him: one pass of the formula
+        with the player's results plus that one, the others' values fixed (as move_up).
+
+        Expected gain, a heuristic: a knockout draw of ceil(log2(field + 1)) rounds. The
+        opponent of the player's round k (1 = his first match) is the typical survivor of the
+        rounds before: the registered player at the 1 - 0.5^k quantile of W (the median of the
+        field, then of its stronger half, of its strongest quarter...). The chance to beat him is
+        the model's, else a logistic in the W difference, 1 / (1 + e^(W_opp - W)). The player
+        reaches round k+1 with reach_k times that chance; round k adds reach_k * (chance * C
+        change by the win + (1 - chance) * C change by the loss), both given the wins of the
+        rounds before, so the rounds sum to the expected change of C over the tournament."""
+        s = self.s()
+        r = self._player(s, pid)
+        t = self.tournaments
+        hit = np.flatnonzero(t.events["eventId"].to_numpy() == eid)
+        if not len(hit):
+            raise HTTPException(404, f"unknown event {eid}")
+        e = t.events.iloc[hit[0]]
+        if e["matchTypeId"] not in SINGLES:
+            raise HTTPException(400, "the outlook is for singles only")
+        live = self._levels()
+        regs = t.registrations.iloc[t.reg_rows.get(eid, np.array([], int))]
+        regs = regs[regs["personId"].ne(pid).fillna(True).to_numpy(bool)]
+        ids = [_int(i) for i in regs["personId"]]
+        W = np.array([np.nan if i is None else live["W"].get(i, np.nan) for i in ids], float)
+        known = [i for i in ids if i is not None and i in s.number.index]
+        c = None
+        if known:
+            q = pd.DataFrame({"personId": pid, "opp": known, "date": s.today, "type": winprob.TOURNAMENT})
+            c = s.chance(q)
+        chance = {} if c is None else dict(zip(known, c))
+        own_w, own_win = self._own_rows(s, r)
+        C0 = c_with(r["w0"], own_w, own_win, [], [])
+
+        opponents = []
+        for (_, x), i, w in zip(regs.iterrows(), ids, W):
+            name = " ".join(filter(None, (_str(x["firstname"]), _str(x["lastname"]))))
+            known_w = not np.isnan(w)
+            opponents.append({
+                **self._person(i, name, live),
+                "W": _num(w),
+                "chance": _num(chance.get(i)),
+                "gainWin": _num(c_with(r["w0"], own_w, own_win, w, True) - C0) if known_w else None,
+                "lossLoss": _num(c_with(r["w0"], own_w, own_win, w, False) - C0) if known_w else None,
+            })
+        opponents.sort(key=lambda o: (o["W"] is None, -(o["W"] or 0)))
+
+        level = CATEGORY_INDEX.get(self._class_of(s, r))
+        levels = pd.Series([live["level"].get(i) if i is not None else None for i in ids], dtype=float)
+        field = {
+            "count": len(ids),
+            "medianW": _num(np.nanmedian(W)) if (~np.isnan(W)).any() else None,
+            "topW": _num(np.nanmax(W)) if (~np.isnan(W)).any() else None,
+            "inRange": None if level is None else int(((levels >= level - 1) & (levels <= level + 1)).sum()),
+        }
+
+        ranked = sorted((w, i) for i, w in zip(ids, W) if not np.isnan(w))
+        expected = None
+        if ranked:
+            rounds, reach, gain, prior_w = [], 1.0, 0.0, []
+            for k in range(1, max(1, int(np.ceil(np.log2(len(ids) + 1)))) + 1):
+                w, i = ranked[min(int(round((1 - 0.5**k) * (len(ranked) - 1))), len(ranked) - 1)]
+                p = chance.get(i, 1 / (1 + np.exp(w - r["W"])))
+                if pd.isna(p):
+                    rounds = None
+                    break
+                wins = np.ones(len(prior_w), bool)
+                base = c_with(r["w0"], own_w, own_win, prior_w, wins)
+                win_c = c_with(r["w0"], own_w, own_win, prior_w + [w], np.r_[wins, True]) - base
+                loss_c = c_with(r["w0"], own_w, own_win, prior_w + [w], np.r_[wins, False]) - base
+                g = reach * (p * win_c + (1 - p) * loss_c)
+                rounds.append({"round": k, "reach": _num(reach), "gain": _num(g)})
+                gain, reach = gain + g, reach * p
+                prior_w.append(w)
+            if rounds is not None:
+                expected = {"gain": _num(gain), "rounds": rounds}
+        return {"field": field, "opponents": opponents, "expected": expected}
+
 
 class SinglePageApp(StaticFiles):
     """The UI's files; any other path outside /api gets index.html (the UI routes itself)."""
@@ -678,8 +1275,14 @@ class SinglePageApp(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
-def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None) -> FastAPI:
-    app = App(data_dir, scrape_time)
+def create_app(
+    data_dir: Path, static_dir: Path | None, scrape_time: str | None, tournament_hours: float | None = None
+) -> FastAPI:
+    """tournament_hours: refresh interval of the tournaments (0 = never), by default
+    TOURNAMENT_REFRESH_HOURS from the environment (2)."""
+    if tournament_hours is None:
+        tournament_hours = float(os.environ.get("TOURNAMENT_REFRESH_HOURS") or TOURNAMENT_REFRESH_HOURS)
+    app = App(data_dir, scrape_time, tournament_hours)
 
     @asynccontextmanager
     async def lifespan(_):
@@ -687,6 +1290,7 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
         yield
 
     api = FastAPI(title="Tennis Radar", lifespan=lifespan)
+    api.state.app = app  # for tests
 
     @api.get("/api/config")
     def config():
@@ -752,6 +1356,41 @@ def create_app(data_dir: Path, static_dir: Path | None, scrape_time: str | None)
     @api.get("/api/simulate")
     def simulate(player: int, opponent: int):
         return app.simulate(player, opponent)
+
+    @api.get("/api/tournaments")
+    def tournaments(
+        from_: str | None = Query(None, alias="from"),
+        to: str | None = None,
+        q: str | None = None,
+        matchType: str | None = None,
+        age: str | None = None,
+        eventMin: str | None = None,
+        eventMax: str | None = None,
+        fieldMin: str | None = None,
+        fieldMax: str | None = None,
+        near: str | None = None,
+        radius: float | None = Query(None, ge=0),
+        canton: str | None = None,
+        player: int | None = None,
+        sort: str = "date",
+        limit: int = TOURNAMENT_LIMIT,
+        offset: int = 0,
+    ):
+        return app.tournament_list(
+            from_, to, q, matchType, age, eventMin, eventMax, fieldMin, fieldMax, near, radius, canton, player, sort, limit, offset
+        )
+
+    @api.get("/api/tournaments/{tid}")
+    def tournament(tid: int):
+        return app.tournament(tid)
+
+    @api.get("/api/players/{pid}/tournaments")
+    def player_tournaments(pid: int):
+        return app.player_tournaments(pid)
+
+    @api.get("/api/players/{pid}/tournaments/events/{eid}/outlook")
+    def outlook(pid: int, eid: int):
+        return app.outlook(pid, eid)
 
     if static_dir is not None and static_dir.is_dir():
         api.mount("/", SinglePageApp(directory=static_dir, html=True), name="ui")

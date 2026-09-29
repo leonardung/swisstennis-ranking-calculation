@@ -43,6 +43,12 @@ def main() -> None:
         "(everyone when a new official list came out)",
     )
 
+    t = sub.add_parser("scrape-tournaments", help="download tournaments, registrations and draws")
+    t.add_argument("--all", action="store_true", help="every tournament since the start of the previous season")
+    t.add_argument(
+        "--draws-days", type=int, default=14, help="fetch the draws of tournaments ended in the last N days (default 14)"
+    )
+
     sub.add_parser("train-winprob", help="fit the win probability model on the scraped results")
 
     sub.add_parser("periods", help="list publication dates found in the ranking history")
@@ -71,6 +77,12 @@ def main() -> None:
         from .scrape import scrape
 
         scrape(args.data, args.since, args.workers, args.recent_days)
+        return
+
+    if args.command == "scrape-tournaments":
+        from .tournaments import scrape_tournaments
+
+        scrape_tournaments(args.data, args.all, args.draws_days)
         return
 
     if args.command == "train-winprob":

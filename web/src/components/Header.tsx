@@ -5,7 +5,15 @@ import type { Meta } from "../types";
 import SearchBox from "./SearchBox";
 import FeedbackButton from "./FeedbackButton";
 
-export default function Header({ meta, showSearch }: { meta: Meta | null; showSearch: boolean }) {
+export default function Header({
+  meta,
+  showSearch,
+  inTournaments = false,
+}: {
+  meta: Meta | null;
+  showSearch: boolean;
+  inTournaments?: boolean;
+}) {
   const { t, lang, setLang, locale } = useI18n();
   const scrape = meta?.scrape;
   return (
@@ -35,6 +43,13 @@ export default function Header({ meta, showSearch }: { meta: Meta | null; showSe
               </span>
             </div>
           )}
+          <a
+            className={`btn btn-ghost nav-link${inTournaments ? " active" : ""}`}
+            href="/tournaments"
+            aria-current={inTournaments ? "page" : undefined}
+          >
+            {t("navTournaments")}
+          </a>
           <FeedbackButton />
           <button
             className="btn btn-ghost lang-toggle"
