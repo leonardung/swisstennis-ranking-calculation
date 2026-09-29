@@ -173,7 +173,9 @@ function OutlookPanel({ playerId, eventId }: { playerId: number; eventId: number
           <strong>{fmtInt(o.field.count, locale)}</strong>
         </div>
         <div className="summary-item">
-          <small>{t("fieldMedianW")}</small>
+          <small>
+            <Hint label={t("fieldMedianW")} text={t("wColHint")} />
+          </small>
           <strong>{fmt3(o.field.medianW)}</strong>
         </div>
         <div className="summary-item">
@@ -223,7 +225,9 @@ function OutlookPanel({ playerId, eventId }: { playerId: number; eventId: number
             <thead>
               <tr>
                 <th>{t("opponent")}</th>
-                <th className="num">W</th>
+                <th className="num hide-phone">
+                  <Hint label="W" text={t("wColHint")} align="end" />
+                </th>
                 <th className="num">{t("winChance")}</th>
                 <th className="num">{t("ifWin")}</th>
                 <th className="num">{t("ifLoss")}</th>
@@ -235,7 +239,7 @@ function OutlookPanel({ playerId, eventId }: { playerId: number; eventId: number
                   <th scope="row">
                     {p.personId != null ? <a href={playerHref(p.personId)}>{p.name}</a> : p.name} <CategoryBadge cls={p.class} size="sm" />
                   </th>
-                  <td className="num">{fmt3(p.W)}</td>
+                  <td className="num hide-phone">{fmt3(p.W)}</td>
                   <td className="num">{p.chance != null ? fmtChance(p.chance) : "–"}</td>
                   <td className="num">
                     <Delta value={p.gainWin} />

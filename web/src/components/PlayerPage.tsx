@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { api } from "../api";
 import { trackView } from "../analytics";
 import { playerHref, TABS, useAsync, type Tab } from "../hooks";
@@ -30,6 +30,16 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
 
   useEffect(() => {
     if (p) trackView();
+  }, [p, tab]);
+
+  // on a phone the tabs scroll sideways: bring the current one into view
+  const tabsRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = tabsRef.current;
+    const a = nav?.querySelector<HTMLElement>(".tab.active");
+    if (!nav || !a) return;
+    const over = a.getBoundingClientRect().right - nav.getBoundingClientRect().right;
+    if (over > 0) nav.scrollLeft += over;
   }, [p, tab]);
 
   if (!p) {
@@ -88,7 +98,7 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
         </div>
       </section>
 
-      <nav className="tabs" role="tablist">
+      <nav className="tabs" role="tablist" ref={tabsRef}>
         {TABS.map((k) => (
           <a key={k} role="tab" aria-selected={tab === k} className={tab === k ? "tab active" : "tab"} href={playerHref(id, k)}>
             {t(TAB_LABEL[k])}

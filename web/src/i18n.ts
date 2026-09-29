@@ -315,14 +315,17 @@ const en = {
   playerFilter: "Tournaments of {name}",
   removePlayerFilter: "Remove the player filter",
   resetFilters: "Reset filters",
-  tournamentsCount: "{n} tournaments",
+  moreFilters: "More filters",
+  cColHint: "C: the ranking value calculated today (C = W + R), which sets the category",
+  wColHint: "W: the strength value, from the wins and losses of the last 12 months",
+  tournamentsCount: "{n} {n?tournament|tournaments}",
   noTournaments: "No tournament matches these filters",
   noTournamentData: "No tournament data yet",
   pages: "Pages",
   previous: "Previous",
   next: "Next",
   distanceKm: "{km} km",
-  playersN: "{n} players",
+  playersN: "{n} {n?player|players}",
   inRangeN: "{n} in range",
   registeredPlayers: "Registered players",
   registrationOpen: "Registration open",
@@ -339,7 +342,7 @@ const en = {
   organiser: "Organiser",
   contact: "Contact",
   selection: "Selection criteria",
-  applicantsN: "{n} applicants",
+  applicantsN: "{n} {n?applicant|applicants}",
   drawPdf: "Draw (PDF)",
   noRegistrations: "No registered players yet",
   player: "Player",
@@ -362,7 +365,7 @@ const en = {
   wonTournament: "Winner",
   reachedRound: "Reached: {round}",
   outlook: "Outlook",
-  fieldCount: "Field",
+  fieldCount: "Opponents",
   fieldMedianW: "Median W",
   fieldTopW: "Top W",
   expectedGain: "Expected C gain",
@@ -385,11 +388,7 @@ const en = {
   age_4: "Juniors III (14U)",
   age_5: "Juniors IV (12U)",
   age_6: "Juniors V (10U)",
-  age_7: "Young seniors",
-  age_8: "Seniors I",
-  age_9: "Seniors II",
-  age_10: "Seniors III",
-  ageSeniorsN: "Seniors {n}",
+  ageSeniorTitle: "Men {m}+, women {w}+",
 };
 
 export type MsgKey = keyof typeof en;
@@ -707,14 +706,17 @@ const fr: Record<MsgKey, string> = {
   playerFilter: "Tournois de {name}",
   removePlayerFilter: "Retirer le filtre joueur",
   resetFilters: "Réinitialiser les filtres",
-  tournamentsCount: "{n} tournois",
+  moreFilters: "Plus de filtres",
+  cColHint: "C : la valeur de classement calculée aujourd'hui (C = W + R), qui fixe la catégorie",
+  wColHint: "W : la valeur de force, selon les victoires et défaites des 12 derniers mois",
+  tournamentsCount: "{n} {n?tournoi|tournois}",
   noTournaments: "Aucun tournoi ne correspond à ces filtres",
   noTournamentData: "Pas encore de données de tournois",
   pages: "Pages",
   previous: "Précédent",
   next: "Suivant",
   distanceKm: "{km} km",
-  playersN: "{n} inscrits",
+  playersN: "{n} {n?inscrit|inscrits}",
   inRangeN: "{n} dans la plage",
   registeredPlayers: "Joueurs inscrits",
   registrationOpen: "Inscriptions ouvertes",
@@ -731,7 +733,7 @@ const fr: Record<MsgKey, string> = {
   organiser: "Organisateur",
   contact: "Contact",
   selection: "Critères de sélection",
-  applicantsN: "{n} candidats",
+  applicantsN: "{n} {n?candidat|candidats}",
   drawPdf: "Tableau (PDF)",
   noRegistrations: "Pas encore d'inscrits",
   player: "Joueur",
@@ -754,7 +756,7 @@ const fr: Record<MsgKey, string> = {
   wonTournament: "Vainqueur",
   reachedRound: "Atteint : {round}",
   outlook: "Perspectives",
-  fieldCount: "Inscrits",
+  fieldCount: "Adversaires",
   fieldMedianW: "W médian",
   fieldTopW: "W max",
   expectedGain: "Gain de C attendu",
@@ -777,11 +779,7 @@ const fr: Record<MsgKey, string> = {
   age_4: "Juniors III (14U)",
   age_5: "Juniors IV (12U)",
   age_6: "Juniors V (10U)",
-  age_7: "Jeunes seniors",
-  age_8: "Seniors I",
-  age_9: "Seniors II",
-  age_10: "Seniors III",
-  ageSeniorsN: "Seniors {n}",
+  ageSeniorTitle: "Hommes {m}+, dames {w}+",
 };
 
 const dictionaries: Record<Lang, Record<MsgKey, string>> = { en, fr };
@@ -792,7 +790,13 @@ export function makeT(lang: Lang): TFunc {
   const dict = dictionaries[lang];
   return (key, vars) => {
     let s = dict[key] ?? en[key] ?? key;
-    if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
+    if (vars) {
+      // "{n?one|other}": singular or plural by the number n (French: 0 and 1 singular)
+      const n = Number(String(vars.n ?? "").replace(/[^\d.-]/g, ""));
+      const one = lang === "fr" ? Math.abs(n) < 2 : n === 1;
+      s = s.replace(/\{n\?([^|}]*)\|([^}]*)\}/g, (_, a: string, b: string) => (one ? a : b));
+      for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v));
+    }
     return s;
   };
 }

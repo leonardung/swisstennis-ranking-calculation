@@ -2128,7 +2128,7 @@ dialog.match-dialog::backdrop {
 .filter-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 12px 16px;
 }
 .field {
@@ -2159,6 +2159,9 @@ dialog.match-dialog::backdrop {
 }
 .field select:disabled {
   opacity: 0.5;
+}
+.filter-row > .seg {
+  align-self: flex-end;
 }
 .range-inputs {
   display: flex;
@@ -2261,6 +2264,7 @@ dialog.match-dialog::backdrop {
   color: var(--text-2);
 }
 .event-tabs {
+  flex-wrap: wrap;
   margin-bottom: 16px;
 }
 .event-facts {
@@ -2273,6 +2277,7 @@ dialog.match-dialog::backdrop {
   margin-bottom: 16px;
 }
 .bracket-scroll {
+  position: relative;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 6px;
@@ -2282,15 +2287,21 @@ dialog.match-dialog::backdrop {
   outline-offset: 2px;
 }
 .bracket {
-  display: flex;
-  gap: 16px;
+  --bracket-col: 210px;
+  display: grid;
+  column-gap: 16px;
   width: max-content;
 }
-.bracket-round {
+/* the rounds and their lists only group the matches: the matches are placed on the grid of .bracket */
+.bracket-round,
+.bracket-matches {
+  display: contents;
+}
+.bracket-matches > li {
   display: flex;
   flex-direction: column;
-  width: 220px;
-  flex: none;
+  justify-content: center;
+  padding: 4px 0;
 }
 .bracket-round h4 {
   margin: 0 0 8px;
@@ -2300,17 +2311,8 @@ dialog.match-dialog::backdrop {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.bracket-matches {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-around;
-  gap: 8px;
-}
 .draw-match {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
@@ -2422,9 +2424,83 @@ dialog.match-dialog::backdrop {
     margin-left: 0;
     width: 100%;
   }
-  .bracket-round {
-    width: 180px;
+  .bracket {
+    --bracket-col: 180px;
   }
+  .event-tabs .tab {
+    padding: 8px 10px;
+  }
+  .reg-table thead th {
+    letter-spacing: 0;
+  }
+  .info-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px 16px;
+  }
+  .reg-table th,
+  .reg-table td,
+  .outlook-panel .data th,
+  .outlook-panel .data td {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+  .outlook-panel {
+    padding: 10px 8px;
+    font-size: 14px;
+  }
+  .outlook-panel .data thead th {
+    white-space: normal;
+    vertical-align: bottom;
+  }
+  .range-field {
+    flex-basis: 100%;
+  }
+  .range-inputs .input-sm {
+    flex: 0 1 110px;
+  }
+}
+@media (max-width: 480px) {
+  .tabs {
+    gap: 0;
+  }
+  .tabs .tab {
+    padding: 10px 9px;
+  }
+  .hide-phone {
+    display: none;
+  }
+}
+.more-toggle-row {
+  display: none;
+}
+@media (max-width: 720px) {
+  .more-toggle-row {
+    display: flex;
+  }
+}
+.more-toggle {
+  padding: 4px 8px;
+  font-size: 13.5px;
+}
+.count-badge {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+.filters-more {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.filters-more[hidden] {
+  display: none;
 }
 
 .pool-matches {

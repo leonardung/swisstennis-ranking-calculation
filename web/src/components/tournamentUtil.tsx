@@ -12,12 +12,46 @@ export function matchTypeLabel(id: number, t: TFunc): string {
   return s === key ? String(id) : s;
 }
 
-/** 1 actives, 2–6 juniors I–V, 7 young seniors, 8+ seniors I, II, … */
-export function ageLabel(id: number, t: TFunc): string {
+/** Senior age categories: the men's and the women's age limits (Swiss Tennis ids, not in age order). */
+const SENIOR_AGES: Record<number, [number, number]> = {
+  7: [35, 30],
+  16: [40, 35],
+  8: [45, 40],
+  9: [50, 45],
+  10: [55, 50],
+  11: [60, 55],
+  12: [65, 60],
+  13: [70, 65],
+  14: [75, 70],
+  15: [80, 75],
+  17: [85, 80],
+  18: [90, 85],
+};
+
+/** 1 actives, 2–6 juniors I–V, 7+ seniors by age ("45+"): the men's or the women's limit when the event says which, both otherwise. */
+export function ageLabel(id: number, t: TFunc, matchType?: number): string {
+  const sen = SENIOR_AGES[id];
+  if (sen) {
+    const [m, w] = sen;
+    if (matchType === 1 || matchType === 3 || m === w) return `${m}+`;
+    if (matchType === 2 || matchType === 4) return `${w}+`;
+    return `${m}+ / ${w}+`;
+  }
   const key = `age_${id}` as MsgKey;
   const s = t(key);
-  if (s !== key) return s;
-  return id > 7 ? t("ageSeniorsN", { n: id - 7 }) : String(id);
+  return s === key ? String(id) : s;
+}
+
+/** Tooltip of a senior age category: "Men 45+, women 40+". */
+export function ageTitle(id: number, t: TFunc): string | undefined {
+  const sen = SENIOR_AGES[id];
+  return sen && t("ageSeniorTitle", { m: sen[0], w: sen[1] });
+}
+
+/** Sort key of an age category: actives, juniors oldest first, then seniors youngest first. */
+export function ageOrder(id: number): number {
+  const sen = SENIOR_AGES[id];
+  return sen ? 100 + sen[0] : id;
 }
 
 /** Singles: only those have an outlook. */
@@ -35,12 +69,12 @@ export function rangeLabel(lower: string | null, upper: string | null): string {
 /** Title of an event: the official competition name, else built from its type, age and bounds. */
 export function eventTitle(e: Pick<TournamentEvent, "competition" | "matchType" | "age" | "lower" | "upper">, t: TFunc): string {
   if (e.competition) return e.competition;
-  return [matchTypeLabel(e.matchType, t), ageLabel(e.age, t), rangeLabel(e.lower, e.upper)].filter(Boolean).join(" · ");
+  return [matchTypeLabel(e.matchType, t), ageLabel(e.age, t, e.matchType), rangeLabel(e.lower, e.upper)].filter(Boolean).join(" · ");
 }
 
 /** Type and age of an event in words ("Men's singles · Actives"). */
 export function eventKind(e: Pick<TournamentEvent, "matchType" | "age">, t: TFunc): string {
-  return `${matchTypeLabel(e.matchType, t)} · ${ageLabel(e.age, t)}`;
+  return `${matchTypeLabel(e.matchType, t)} · ${ageLabel(e.age, t, e.matchType)}`;
 }
 
 /** Round counted from the final: 1 final, 2 semi-finals, 3 quarter-finals, then "round of 16"… */

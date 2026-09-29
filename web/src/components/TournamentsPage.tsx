@@ -6,7 +6,7 @@ import { useI18n } from "../i18n";
 import { CATEGORIES, fmtDateTime, fmtInt } from "../format";
 import type { TournamentListItem, TournamentOptions } from "../types";
 import { AsyncStatus, Spinner } from "./common";
-import { ageLabel, dateRange, eventKind, eventTitle, isoDay, matchTypeLabel } from "./tournamentUtil";
+import { ageLabel, ageOrder, ageTitle, dateRange, eventKind, eventTitle, isoDay, matchTypeLabel } from "./tournamentUtil";
 
 /** The filters, kept in the query of the URL under the names of the API's parameters. */
 const KEYS = [
@@ -35,6 +35,8 @@ const DEFAULT_RADIUS = "30";
 // "field in range" preset: the players of the upper regional and lower national levels
 const PRESET = { fieldMin: "R3", fieldMax: "N4" };
 const RECENT_DAYS = 60;
+// the filters behind "more filters" on a phone
+const MORE_KEYS: Key[] = ["matchType", "age", "eventMin", "eventMax", "fieldMin", "fieldMax", "near", "canton"];
 // weakest first: a range reads "R9 … N1"
 const LEVELS = [...CATEGORIES].reverse();
 
@@ -115,6 +117,27 @@ export default function TournamentsPage() {
   };
 
   const filtered = KEYS.some((k) => k !== "offset" && k !== "sort" && params[k]);
+  const reset = () =>
+    update({
+      from: "",
+      to: "",
+      q: "",
+      matchType: "",
+      age: "",
+      eventMin: "",
+      eventMax: "",
+      fieldMin: "",
+      fieldMax: "",
+      near: "",
+      radius: "",
+      canton: "",
+      player: "",
+      sort: "",
+    });
+  // the filters below the first row: open on a wide screen or when one is set, behind a button on a phone
+  const more = MORE_KEYS.filter((k) => params[k]).length;
+  const [moreOpen, setMoreOpen] = useState(() => more > 0 || !window.matchMedia?.("(max-width: 720px)").matches);
+  const moreId = useId();
 
   return (
     <div className="tournaments-page">
@@ -138,9 +161,7 @@ export default function TournamentsPage() {
             </button>
           </div>
           <Field label={t("dateFrom")}>
-            {(id) => (
-              <input id={id} type="date" className="input-sm" value={params.from ?? today} onChange={(e) => update({ from: e.target.value })} />
-            )}
+            {(id) => <input id={id} type="date" className="input-sm" value={params.from ?? today} onChange={(e) => update({ from: e.target.value })} />}
           </Field>
           <Field label={t("dateTo")}>
             {(id) => <input id={id} type="date" className="input-sm" value={params.to ?? ""} onChange={(e) => update({ to: e.target.value })} />}
@@ -157,102 +178,139 @@ export default function TournamentsPage() {
               />
             )}
           </Field>
-        </div>
-
-        {options && (
-          <>
-            <ChipGroup
-              label={t("matchType")}
-              ids={options.matchTypes}
-              selected={params.matchType}
-              name={(id) => matchTypeLabel(id, t)}
-              onToggle={(id) => update({ matchType: toggleId(params.matchType, id) })}
-            />
-            <ChipGroup
-              label={t("ageCategory")}
-              ids={options.ages}
-              selected={params.age}
-              name={(id) => ageLabel(id, t)}
-              onToggle={(id) => update({ age: toggleId(params.age, id) })}
-            />
-          </>
-        )}
-
-        <div className="filter-row">
-          <RangeField
-            label={t("eventRange")}
-            min={params.eventMin}
-            max={params.eventMax}
-            onChange={(eventMin, eventMax) => update({ eventMin, eventMax })}
-          />
-          <RangeField
-            label={t("fieldRange")}
-            hint={t("fieldRangeHint")}
-            min={params.fieldMin}
-            max={params.fieldMax}
-            onChange={(fieldMin, fieldMax) => update({ fieldMin, fieldMax, sort: !fieldMin && !fieldMax && params.sort === "inRange" ? "" : params.sort })}
-          >
-            <button
-              className={`chip${params.fieldMin === PRESET.fieldMin && params.fieldMax === PRESET.fieldMax ? " active" : ""}`}
-              onClick={() => update(PRESET)}
-              aria-pressed={params.fieldMin === PRESET.fieldMin && params.fieldMax === PRESET.fieldMax}
-            >
-              {PRESET.fieldMin}–{PRESET.fieldMax}
-            </button>
-          </RangeField>
-        </div>
-
-        <div className="filter-row">
-          <NearField
-            cities={options?.cities ?? []}
-            near={params.near}
-            onChange={(near) => update({ near, sort: !near && params.sort === "distance" ? "" : params.sort })}
-          />
-          <Field label={t("radius")}>
-            {(id) => (
-              <select id={id} className="input-sm" value={params.radius ?? DEFAULT_RADIUS} disabled={!params.near} onChange={(e) => update({ radius: e.target.value })}>
-                {RADII.map((r) => (
-                  <option key={r} value={r}>
-                    {r} km
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-          <Field label={t("canton")}>
-            {(id) => (
-              <select id={id} className="input-sm" value={params.canton ?? ""} onChange={(e) => update({ canton: e.target.value })}>
-                <option value="">{t("any")}</option>
-                {(options?.cantons ?? []).map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
           <Field label={t("sortBy")}>
-            {(id) => (
-              <select id={id} className="input-sm" value={params.sort ?? "date"} onChange={(e) => update({ sort: e.target.value === "date" ? "" : e.target.value })}>
-                <option value="date">{t("sortDateAsc")}</option>
-                <option value="-date">{t("sortDateDesc")}</option>
-                <option value="players">{t("sortPlayers")}</option>
-                {fieldFilter && <option value="inRange">{t("sortInRange")}</option>}
-                {params.near && <option value="distance">{t("sortDistance")}</option>}
-              </select>
-            )}
-          </Field>
+              {(id) => (
+                <select
+                  id={id}
+                  className="input-sm"
+                  value={params.sort ?? "date"}
+                  onChange={(e) =>
+                    update({
+                      sort: e.target.value === "date" ? "" : e.target.value,
+                    })
+                  }
+                >
+                  <option value="date">{t("sortDateAsc")}</option>
+                  <option value="-date">{t("sortDateDesc")}</option>
+                  <option value="players">{t("sortPlayers")}</option>
+                  {fieldFilter && <option value="inRange">{t("sortInRange")}</option>}
+                  {params.near && <option value="distance">{t("sortDistance")}</option>}
+                </select>
+              )}
+            </Field>
+        </div>
+
+        <div className="filter-row more-toggle-row">
+          <button className="btn btn-ghost more-toggle" aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen(!moreOpen)}>
+            <span className="caret" aria-hidden>
+              {moreOpen ? "▾" : "▸"}
+            </span>
+            {t("moreFilters")}
+            {more > 0 && <span className="count-badge">{more}</span>}
+          </button>
+        </div>
+
+        <div id={moreId} className="filters-more" hidden={!moreOpen}>
+          {options && (
+            <>
+              <ChipGroup
+                label={t("matchType")}
+                ids={options.matchTypes}
+                selected={params.matchType}
+                name={(id) => matchTypeLabel(id, t)}
+                onToggle={(id) => update({ matchType: toggleId(params.matchType, id) })}
+              />
+              <ChipGroup
+                label={t("ageCategory")}
+                ids={[...options.ages].sort((a, b) => ageOrder(a) - ageOrder(b))}
+                selected={params.age}
+                name={(id) => ageLabel(id, t)}
+                title={(id) => ageTitle(id, t)}
+                onToggle={(id) => update({ age: toggleId(params.age, id) })}
+              />
+            </>
+          )}
+
+          <div className="filter-row">
+            <RangeField label={t("eventRange")} min={params.eventMin} max={params.eventMax} onChange={(eventMin, eventMax) => update({ eventMin, eventMax })} />
+            <RangeField
+              label={t("fieldRange")}
+              hint={t("fieldRangeHint")}
+              min={params.fieldMin}
+              max={params.fieldMax}
+              onChange={(fieldMin, fieldMax) =>
+                update({
+                  fieldMin,
+                  fieldMax,
+                  sort: !fieldMin && !fieldMax && params.sort === "inRange" ? "" : params.sort,
+                })
+              }
+            >
+              <button
+                className={`chip${params.fieldMin === PRESET.fieldMin && params.fieldMax === PRESET.fieldMax ? " active" : ""}`}
+                onClick={() => update(PRESET)}
+                aria-pressed={params.fieldMin === PRESET.fieldMin && params.fieldMax === PRESET.fieldMax}
+              >
+                {PRESET.fieldMin}–{PRESET.fieldMax}
+              </button>
+            </RangeField>
+          </div>
+
+          <div className="filter-row">
+            <NearField
+              cities={options?.cities ?? []}
+              near={params.near}
+              onChange={(near) =>
+                update({
+                  near,
+                  sort: !near && params.sort === "distance" ? "" : params.sort,
+                })
+              }
+            />
+            <Field label={t("radius")}>
+              {(id) => (
+                <select
+                  id={id}
+                  className="input-sm"
+                  value={params.radius ?? DEFAULT_RADIUS}
+                  disabled={!params.near}
+                  onChange={(e) => update({ radius: e.target.value })}
+                >
+                  {RADII.map((r) => (
+                    <option key={r} value={r}>
+                      {r} km
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            <Field label={t("canton")}>
+              {(id) => (
+                <select id={id} className="input-sm" value={params.canton ?? ""} onChange={(e) => update({ canton: e.target.value })}>
+                  <option value="">{t("any")}</option>
+                  {(options?.cantons ?? []).map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+            </div>
         </div>
 
         {(playerId || filtered) && (
           <div className="filter-row">
             {playerId && (
               <button className="chip active" onClick={() => update({ player: "" })} aria-label={t("removePlayerFilter")}>
-                {t("playerFilter", { name: player.data?.name ?? `#${playerId}` })} <span aria-hidden>×</span>
+                {t("playerFilter", {
+                  name: player.data?.name ?? `#${playerId}`,
+                })}{" "}
+                <span aria-hidden>×</span>
               </button>
             )}
             {filtered && (
-              <button className="btn btn-ghost" onClick={() => update({ from: "", to: "", q: "", matchType: "", age: "", eventMin: "", eventMax: "", fieldMin: "", fieldMax: "", near: "", radius: "", canton: "", player: "", sort: "" })}>
+              <button className="btn btn-ghost" onClick={reset}>
                 {t("resetFilters")}
               </button>
             )}
@@ -271,6 +329,11 @@ export default function TournamentsPage() {
           {data.tournaments.length === 0 ? (
             <div className="state-screen small">
               <h3>{data.updated ? t("noTournaments") : t("noTournamentData")}</h3>
+              {data.updated && filtered && (
+                <button className="btn" onClick={reset}>
+                  {t("resetFilters")}
+                </button>
+              )}
             </div>
           ) : (
             <div className="tourn-list">
@@ -313,12 +376,14 @@ function ChipGroup({
   ids,
   selected,
   name,
+  title,
   onToggle,
 }: {
   label: string;
   ids: number[];
   selected: string | undefined;
   name: (id: number) => string;
+  title?: (id: number) => string | undefined;
   onToggle: (id: number) => void;
 }) {
   const set = new Set((selected ?? "").split(",").filter(Boolean).map(Number));
@@ -328,7 +393,7 @@ function ChipGroup({
       <span className="field-label">{label}</span>
       <div className="chips">
         {ids.map((id) => (
-          <button key={id} className={`chip${set.has(id) ? " active" : ""}`} aria-pressed={set.has(id)} onClick={() => onToggle(id)}>
+          <button key={id} className={`chip${set.has(id) ? " active" : ""}`} aria-pressed={set.has(id)} title={title?.(id)} onClick={() => onToggle(id)}>
             {name(id)}
           </button>
         ))}

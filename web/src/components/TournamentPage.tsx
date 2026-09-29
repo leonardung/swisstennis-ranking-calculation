@@ -5,7 +5,7 @@ import { playerHref, tournamentHref, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateTime, fmtInt } from "../format";
 import type { DrawMatch, DrawRound, TournamentDetail, TournamentEventDetail } from "../types";
-import { AsyncStatus, Card, CategoryBadge } from "./common";
+import { AsyncStatus, Card, CategoryBadge, Hint } from "./common";
 import { DrawNames, dateRange, eventKind, eventTitle, roundLabel } from "./tournamentUtil";
 
 export default function TournamentPage({ id, eventId }: { id: number; eventId: number | null }) {
@@ -137,8 +137,18 @@ function TournamentInfo({ tr }: { tr: TournamentDetail }) {
 
 function EventView({ event }: { event: TournamentEventDetail }) {
   const { t, locale } = useI18n();
+  // a date on every match only when they differ (one date for all is the day the draw was played or updated)
+  const showDate = new Set(event.draw?.rounds.flatMap((r) => r.matches.map((m) => m.date?.slice(0, 10) ?? ""))).size > 1;
   return (
     <div className="stack event-view" role="tabpanel">
+      {event.draw && event.draw.rounds.length > 0 && (
+        <Card title={t("draw")}>
+          {event.draw.rounds.some((r) => r.round > 0) && <Bracket rounds={event.draw.rounds.filter((r) => r.round > 0)} showDate={showDate} />}
+          {event.draw.rounds.some((r) => r.round === 0) && (
+            <PoolMatches matches={event.draw.rounds.filter((r) => r.round === 0).flatMap((r) => r.matches)} showDate={showDate} />
+          )}
+        </Card>
+      )}
       <Card
         title={t("registeredPlayers")}
         actions={
@@ -162,17 +172,19 @@ function EventView({ event }: { event: TournamentEventDetail }) {
             <table className="data reg-table">
               <thead>
                 <tr>
-                  <th className="num">#</th>
+                  <th className="num hide-phone">#</th>
                   <th>{t("player")}</th>
                   <th title={t("liveClassHint")}>{t("today")}</th>
                   <th>{t("official")}</th>
-                  <th className="num">C</th>
+                  <th className="num">
+                    <Hint label="C" text={t("cColHint")} align="end" />
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {event.players.map((p, i) => (
                   <tr key={p.personId ?? p.licence ?? i}>
-                    <td className="num muted">{i + 1}</td>
+                    <td className="num muted hide-phone">{i + 1}</td>
                     <th scope="row">
                       {p.personId != null ? <a href={playerHref(p.personId)}>{p.name}</a> : p.name}
                       {p.personId == null && p.licence && <small className="muted mono"> {p.licence}</small>}
@@ -191,59 +203,83 @@ function EventView({ event }: { event: TournamentEventDetail }) {
           </div>
         )}
       </Card>
-      {event.draw && event.draw.rounds.length > 0 && (
-        <Card title={t("draw")}>
-          {event.draw.rounds.every((r) => r.round === 0) ? (
-            <PoolMatches matches={event.draw.rounds.flatMap((r) => r.matches)} />
-          ) : (
-            <Bracket rounds={event.draw.rounds} />
-          )}
-        </Card>
-      )}
     </div>
   );
 }
 
-/** Rounds as columns, first round to the final; only this box scrolls sideways. */
-function Bracket({ rounds }: { rounds: DrawRound[] }) {
+/**
+ * Rounds as columns, first round to the final, on one grid so that each match sits between the two it follows from;
+ * only this box scrolls sideways. A match of round r (1 = final) is at slot / 2 of its 2^(r-1) places.
+ */
+function Bracket({ rounds, showDate }: { rounds: DrawRound[]; showDate: boolean }) {
   const { t } = useI18n();
+  const sorted = [...rounds].sort((a, b) => b.round - a.round);
+  const first = sorted[0];
+  const places = (r: number) => 2 ** (r - 1);
+  // a first round with byes (no two matches next to each other) takes the height of the next one
+  const firstIdx = new Set(first.matches.map((m) => Math.floor(m.slot / 2)));
+  const compact = first.round > 1 && ![...firstIdx].some((i) => firstIdx.has(i + 1));
+  const units = compact ? places(first.round) / 2 : places(first.round);
+  // quarter units, so a match of a compact first round can overhang its empty neighbours by half a place
+  const pad = compact ? 1 : 0;
+  const rows = units * 4 + 2 * pad;
   return (
     <div className="bracket-scroll" tabIndex={0} role="region" aria-label={t("draw")}>
-      <div className="bracket">
-        {rounds.map((r) => (
-          <section key={r.round} className="bracket-round">
-            <h4>{roundLabel(r.round, t)}</h4>
-            <ol className="bracket-matches">
-              {[...r.matches]
-                .sort((a, b) => a.slot - b.slot)
-                .map((m) => (
-                  <li key={m.slot}>
-                    <DrawMatchBox m={m} />
-                  </li>
-                ))}
-            </ol>
-          </section>
-        ))}
+      <div
+        className="bracket"
+        style={{
+          gridTemplateColumns: `repeat(${sorted.length}, var(--bracket-col))`,
+          gridTemplateRows: `auto repeat(${rows}, 1fr)`,
+        }}
+      >
+        {sorted.map((r, col) => {
+          const size = (units * 4) / places(r.round);
+          const span = Math.max(size, 4);
+          return (
+            <section key={r.round} className="bracket-round" aria-label={roundLabel(r.round, t)}>
+              <h4 style={{ gridColumn: col + 1, gridRow: 1 }}>{roundLabel(r.round, t)}</h4>
+              <ol className="bracket-matches">
+                {[...r.matches]
+                  .sort((a, b) => a.slot - b.slot)
+                  .map((m) => {
+                    const i = Math.floor(m.slot / 2);
+                    const start = pad + i * size + (size - span) / 2;
+                    return (
+                      <li
+                        key={m.slot}
+                        style={{
+                          gridColumn: col + 1,
+                          gridRow: `${start + 2} / span ${span}`,
+                        }}
+                      >
+                        <DrawMatchBox m={m} showDate={showDate} />
+                      </li>
+                    );
+                  })}
+              </ol>
+            </section>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 /** Matches outside a bracket (round 0: pools, round robin), by date. */
-function PoolMatches({ matches }: { matches: DrawMatch[] }) {
+function PoolMatches({ matches, showDate }: { matches: DrawMatch[]; showDate: boolean }) {
   const sorted = [...matches].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "") || a.slot - b.slot);
   return (
     <ul className="pool-matches">
       {sorted.map((m) => (
         <li key={m.slot}>
-          <DrawMatchBox m={m} />
+          <DrawMatchBox m={m} showDate={showDate} />
         </li>
       ))}
     </ul>
   );
 }
 
-function DrawMatchBox({ m }: { m: DrawMatch }) {
+function DrawMatchBox({ m, showDate }: { m: DrawMatch; showDate: boolean }) {
   const { t, locale } = useI18n();
   return (
     <div className="draw-match">
@@ -255,11 +291,11 @@ function DrawMatchBox({ m }: { m: DrawMatch }) {
         <DrawNames side={m.b} />
         {m.winner === 2 && <span className="sr-only"> ({t("winner")})</span>}
       </div>
-      {(m.score || m.walkover || m.date) && (
+      {(m.score || m.walkover || (showDate && m.date)) && (
         <div className="draw-score muted small">
           {m.score && <span className="mono">{m.score}</span>}
           {m.walkover && <span className="tag tag-walkover">{t("wo")}</span>}
-          {m.date && <span>{fmtDate(m.date.slice(0, 10), locale)}</span>}
+          {showDate && m.date && <span>{fmtDate(m.date.slice(0, 10), locale)}</span>}
         </div>
       )}
     </div>
