@@ -178,6 +178,7 @@ main.container {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 550; /* the same selected or not: switching does not shift the buttons */
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -188,7 +189,6 @@ main.container {
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow);
-  font-weight: 600;
 }
 .seg .count {
   color: var(--muted);
@@ -836,7 +836,7 @@ table {
 .tab {
   padding: 10px 16px;
   color: var(--text-2);
-  font-weight: 500;
+  font-weight: 600; /* the same selected or not: switching does not shift the tabs */
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   white-space: nowrap;
@@ -848,7 +848,6 @@ table {
 .tab.active {
   color: var(--text);
   border-bottom-color: var(--accent);
-  font-weight: 650;
 }
 
 /* Overview */
@@ -976,6 +975,7 @@ table {
   padding: 4px 12px;
   cursor: pointer;
   font-size: 13.5px;
+  font-weight: 500; /* the same selected or not: switching does not shift the chips */
 }
 .chip:hover {
   border-color: var(--accent);
@@ -983,7 +983,6 @@ table {
 .chip.active {
   border-color: var(--accent);
   background: var(--accent-soft);
-  font-weight: 600;
 }
 /* the cards of the simulator, one under the other */
 .simulator,
@@ -2689,7 +2688,7 @@ dialog.match-dialog::backdrop {
   padding: 5px 12px;
   border-radius: 6px;
   font-size: 13.5px;
-  font-weight: 550;
+  font-weight: 600; /* the same selected or not: switching does not shift the links */
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -2698,10 +2697,9 @@ dialog.match-dialog::backdrop {
   text-decoration: none;
 }
 .section-switch a.active {
-  background: var(--surface);
-  color: var(--text);
+  background: var(--accent);
+  color: #fff;
   box-shadow: var(--shadow);
-  font-weight: 650;
 }
 .section-switch a:focus-visible {
   outline: 2px solid var(--accent);
