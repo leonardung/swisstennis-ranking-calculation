@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../api";
 import { playerHref, useAsync, useDebounced, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
@@ -87,13 +87,12 @@ function MoveUpCard({ playerId }: { playerId: number }) {
 }
 
 // the backend's limits (see predict in web.py): made-up results are outcome:count:category:percentile
-const MAX_PER_ROW = 30;
 const MAX_RESULTS = 60;
 const MAX_VS = 30;
 
+/** One match against a typical opponent: a weak, medium or strong player of a class. */
 interface Hypo {
   win: boolean;
-  count: number;
   cls: string;
   percentile: number;
 }
@@ -103,11 +102,11 @@ function parseHypos(v: string): Hypo[] {
     .split(",")
     .map((x) => x.split(":"))
     .filter((p) => p.length === 4)
-    .map(([o, n, cls, q]) => ({ win: o !== "loss", count: Number(n) || 1, cls, percentile: Number(q) || 50 }));
+    // one row per match (older links give a count)
+    .flatMap(([o, n, cls, q]) => Array.from({ length: Math.min(Number(n) || 1, MAX_RESULTS) }, () => ({ win: o !== "loss", cls, percentile: Number(q) || 50 })));
 }
 
-// no row at all is "-" (an empty parameter shows the starting row)
-const formatHypos = (h: Hypo[]) => h.map((x) => `${x.win ? "win" : "loss"}:${x.count}:${x.cls}:${x.percentile}`).join(",") || "-";
+const formatHypos = (h: Hypo[]) => h.map((x) => `${x.win ? "win" : "loss"}:1:${x.cls}:${x.percentile}`).join(",");
 
 interface Vs {
   win: boolean;
@@ -135,13 +134,15 @@ function PredictCard({ player }: { player: PlayerDetail }) {
   const [param, setParam] = useUrlState("pred", "");
   const [rmParam, setRm] = useUrlState("rm", "");
   const [vsParam, setVs] = useUrlState("vs", "");
-  const rows = param ? parseHypos(param) : [{ win: true, count: 1, cls: own, percentile: 50 }];
+  const rows = param ? parseHypos(param) : [];
   const set = (h: Hypo[]) => setParam(formatHypos(h));
   const update = (i: number, change: Partial<Hypo>) => set(rows.map((r, j) => (j === i ? { ...r, ...change } : r)));
-  const total = rows.reduce((n, r) => n + r.count, 0);
+  const total = rows.length;
   const vs = parseVs(vsParam);
   const setVsList = (v: Vs[]) => setVs(formatVs(v));
   const removed = useMemo(() => new Set(rmParam.split(",").map(Number).filter((x) => x > 0)), [rmParam]);
+  // open at first when matches are removed (a shared link); then only the user opens or closes it
+  const [playedOpen, setPlayedOpen] = useState(removed.size > 0);
   const played = useAsync((s) => api.matches(player.id, 0, s), [player.id]);
   const list = played.data?.matches.filter(inCalculation) ?? [];
   const toggle = (id: number) => {
@@ -152,7 +153,7 @@ function PredictCard({ player }: { player: PlayerDetail }) {
 
   const tooMany = total + vs.length > MAX_RESULTS || vs.length > MAX_VS;
   const q = {
-    results: rows.length ? formatHypos(rows) : "",
+    results: formatHypos(rows),
     remove: [...removed].join(","),
     add: formatVs(vs),
   };
@@ -171,23 +172,24 @@ function PredictCard({ player }: { player: PlayerDetail }) {
       <p className="muted">{t("predictIntro")}</p>
       <FixedValueNote note={player.today?.note} />
 
+      {/* one list of added matches: against a specific player (both are recalculated) or a typical opponent of a class */}
       <h3 className="predict-sub">{t("predictHypoTitle")}</h3>
+      <p className="muted small">{t("predictVsIntro")}</p>
       <div className="predict-rows">
+        {vs.map((v, i) => (
+          <VsRow
+            key={`${i}-${v.id}`}
+            vs={v}
+            onChange={(win) => setVsList(vs.map((x, j) => (j === i ? { ...x, win } : x)))}
+            onRemove={() => setVsList(vs.filter((_, j) => j !== i))}
+          />
+        ))}
         {rows.map((r, i) => (
           <div key={i} className="predict-row">
             <select value={r.win ? "win" : "loss"} onChange={(e) => update(i, { win: e.target.value === "win" })} aria-label={t("result")}>
-              <option value="win">{t("predictWins")}</option>
-              <option value="loss">{t("predictLosses")}</option>
+              <option value="win">{t("win")}</option>
+              <option value="loss">{t("loss")}</option>
             </select>
-            <input
-              type="number"
-              min={1}
-              max={MAX_PER_ROW}
-              value={r.count}
-              aria-label={t("predictCount")}
-              onChange={(e) => update(i, { count: Math.min(MAX_PER_ROW, Math.max(1, Math.round(Number(e.target.value)) || 1)) })}
-            />
-            <span className="muted">×</span>
             <select value={r.cls} onChange={(e) => update(i, { cls: e.target.value })} aria-label={t("category")}>
               {CATEGORIES.map((c) => (
                 <option key={c} value={c}>
@@ -207,57 +209,53 @@ function PredictCard({ player }: { player: PlayerDetail }) {
             </button>
           </div>
         ))}
-        <button className="btn btn-ghost predict-add" onClick={() => set([...rows, { ...(rows[rows.length - 1] ?? { win: true, count: 1, cls: own, percentile: 50 }) }])}>
-          + {t("predictAdd")}
-        </button>
+        <div className="predict-add-bar">
+          {vs.length < MAX_VS && (
+            <>
+              <SearchBox className="sim-search predict-vs-search" placeholder={t("predictVsSearch")} gender={player.gender ?? undefined} onSelect={pickVs} />
+              <span className="muted small">{t("predictOr")}</span>
+            </>
+          )}
+          <button className="btn btn-ghost" onClick={() => set([...rows, { ...(rows[rows.length - 1] ?? { win: true, cls: own, percentile: 50 }) }])}>
+            {t("predictAdd")}
+          </button>
+        </div>
       </div>
 
-      <h3 className="predict-sub">{t("predictVsTitle")}</h3>
-      <p className="muted small">{t("predictVsIntro")}</p>
-      <div className="predict-rows">
-        {vs.map((v, i) => (
-          <VsRow
-            key={`${i}-${v.id}`}
-            vs={v}
-            onChange={(win) => setVsList(vs.map((x, j) => (j === i ? { ...x, win } : x)))}
-            onRemove={() => setVsList(vs.filter((_, j) => j !== i))}
-          />
-        ))}
-        {vs.length < MAX_VS && <SearchBox className="sim-search predict-vs-search" placeholder={t("predictVsSearch")} gender={player.gender ?? undefined} onSelect={pickVs} />}
-      </div>
-
-      <details className="predict-played" open={removed.size > 0 || undefined}>
+      <details
+        className="predict-played"
+        open={playedOpen}
+        onToggle={(e) => setPlayedOpen(e.currentTarget.open)}
+      >
         <summary>
           <h3 className="predict-sub">{t("predictPlayedTitle")}</h3>
           {removed.size > 0 && <span className="tag">{t("predictPlayedOut", { n: removed.size })}</span>}
         </summary>
-        <p className="muted small">{t("predictPlayedIntro")}</p>
+        <div className="predict-played-head">
+          {list.length > 0 && (
+            <button className="btn btn-ghost predict-add" onClick={() => setRm("")} disabled={removed.size === 0}>
+              {t("predictPlayedAll")}
+            </button>
+          )}
+          <p className="muted small">{t("predictPlayedIntro")}</p>
+        </div>
         {!played.data ? (
           <AsyncStatus {...played} />
         ) : list.length === 0 ? (
           <p className="muted">{t("predictPlayedNone")}</p>
         ) : (
-          <>
-            {removed.size > 0 && (
-              <button className="btn btn-ghost predict-add" onClick={() => setRm("")}>
-                {t("predictPlayedAll")}
-              </button>
-            )}
-            <ul className="played-list">
-              {list.map((m) => (
-                <PlayedRow key={m.id} m={m} kept={!removed.has(m.id)} onToggle={() => toggle(m.id)} />
-              ))}
-            </ul>
-          </>
+          <ul className="played-list">
+            {list.map((m) => (
+              <PlayedRow key={m.id} m={m} kept={!removed.has(m.id)} onToggle={() => toggle(m.id)} />
+            ))}
+          </ul>
         )}
       </details>
 
       {total > MAX_RESULTS && <p className="hint neg">{t("predictTooMany", { n: MAX_RESULTS })}</p>}
       {vs.length >= MAX_VS && <p className="hint neg">{t("predictVsTooMany", { n: MAX_VS })}</p>}
       <div className="predict-result">
-        {empty ? (
-          <p className="muted">{t("predictNothing")}</p>
-        ) : tooMany ? null : d ? (
+        {empty || tooMany ? null : d ? (
           <div className="table-wrap">
             <table className="data sim-table">
               <thead>

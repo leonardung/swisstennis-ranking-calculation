@@ -2018,8 +2018,7 @@ dialog.match-dialog::backdrop {
   align-items: center;
   gap: 8px;
 }
-.predict-row select,
-.predict-row input {
+.predict-row select {
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
@@ -2027,11 +2026,15 @@ dialog.match-dialog::backdrop {
   padding: 6px 10px;
   font-size: 14px;
 }
-.predict-row input {
-  width: 64px;
-}
 .predict-add {
   align-self: flex-start;
+}
+/* the player search and the typical-opponent button, under the added matches */
+.predict-add-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .predict-result {
   margin-top: 4px;
@@ -2060,13 +2063,9 @@ dialog.match-dialog::backdrop {
     flex-wrap: nowrap;
     gap: 5px;
   }
-  .predict-row select,
-  .predict-row input {
+  .predict-row select {
     padding: 6px 4px;
     min-width: 0;
-  }
-  .predict-row input {
-    width: 44px;
   }
   .predict-row .btn {
     padding: 6px 8px;
@@ -2084,7 +2083,7 @@ dialog.match-dialog::backdrop {
 .predict-row .predict-remove:hover {
   background: color-mix(in srgb, var(--neg) 12%, transparent);
 }
-/* simulation tab: the sections of the what-if, matches against players, played matches */
+/* simulation tab: the sections of the what-if (added matches, played matches) */
 .predict-sub {
   font-size: 14px;
   font-weight: 650;
@@ -2092,14 +2091,13 @@ dialog.match-dialog::backdrop {
 }
 .predict-vs-search {
   margin-top: 0;
-  width: 100%;
+  flex: 0 1 360px;
 }
 .predict-vs-name {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  flex: 1;
 }
 .predict-vs-name a {
   overflow: hidden;
@@ -2108,6 +2106,16 @@ dialog.match-dialog::backdrop {
 }
 .predict-played {
   margin: 8px 0 12px;
+}
+/* the "All" button, then the intro, on one line */
+.predict-played-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.predict-played-head p {
+  margin: 0;
 }
 .predict-played > summary {
   display: flex;
