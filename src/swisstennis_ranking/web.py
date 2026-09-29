@@ -1059,8 +1059,7 @@ class App:
         q: str | None = None,
         match_type: str | None = None,
         age: str | None = None,
-        event_min: str | None = None,
-        event_max: str | None = None,
+        event: str | None = None,
         field_min: str | None = None,
         field_max: str | None = None,
         near: str | None = None,
@@ -1077,7 +1076,7 @@ class App:
         the API contract). Filters are masks over the events table, no loop over its rows.
         when: upcoming (not over, at least one kept event takes registrations), live (not over,
         none does), past (over). The options are the values of the tournaments of `when` and the
-        date window, whatever the other filters."""
+        date window, whatever the other filters (all tournaments' when that window is empty)."""
         t = self.tournaments
         e = t.events
         if when not in TOURNAMENT_WHEN:
@@ -1106,9 +1105,12 @@ class App:
             keep &= e["canton"].isin([c.strip().upper() for c in canton.split(",")]).fillna(False).to_numpy(bool)
         if surface:
             keep &= e["surface"].isin([x.strip() for x in surface.split(",")]).fillna(False).to_numpy(bool)
-        bounds = _category_range(event_min, event_max, "event")
-        if bounds:
-            keep &= ((e["strong"] <= bounds[1]) & (e["weak"] >= bounds[0])).to_numpy(bool)
+        if event:
+            # events a player of this category can enter
+            if event.upper() not in CATEGORY_INDEX:
+                raise HTTPException(400, "event must be a category N1 to R9")
+            i = CATEGORY_INDEX[event.upper()]
+            keep &= ((e["strong"] <= i) & (e["weak"] >= i)).to_numpy(bool)
         if player is not None:
             regs = t.registrations
             ids = set(regs.loc[regs["personId"].eq(player).fillna(False).to_numpy(bool), "eventId"])
@@ -1158,7 +1160,8 @@ class App:
         return {
             "total": len(g),
             "tournaments": out,
-            "options": self._options(t, e[window]),
+            # an empty window (no tournament in these dates) keeps every filter to choose from
+            "options": self._options(t, e[window] if window.any() else e),
             "updated": None if t.updated is None else t.updated.isoformat(timespec="seconds"),
         }
 
@@ -1517,8 +1520,7 @@ def create_app(
         q: str | None = None,
         matchType: str | None = None,
         age: str | None = None,
-        eventMin: str | None = None,
-        eventMax: str | None = None,
+        event: str | None = None,
         fieldMin: str | None = None,
         fieldMax: str | None = None,
         near: str | None = None,
@@ -1532,7 +1534,7 @@ def create_app(
         surface: str | None = None,
     ):
         return app.tournament_list(
-            from_, to, q, matchType, age, eventMin, eventMax, fieldMin, fieldMax, near, radius, canton, player, sort, limit,
+            from_, to, q, matchType, age, event, fieldMin, fieldMax, near, radius, canton, player, sort, limit,
             offset, when, surface,
         )
 

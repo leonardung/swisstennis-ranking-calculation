@@ -104,6 +104,9 @@ def test_list_filters_and_options(client):
     assert r["options"] == {"matchTypes": [1, 2, 3], "ages": [{"id": 1, "kind": "actives"}], "surfaces": ["Terre battue"],
                             "cantons": ["BE", "VD"], "cities": ["Bern", "Lausanne"]}  # fmt: skip
     assert client.get("/api/tournaments", params={"age": "2"}).json()["options"] == r["options"]
+    # dates without any tournament: the filters stay, from all tournaments
+    empty = client.get("/api/tournaments", params={"from": "2099-01-01"}).json()
+    assert empty["total"] == 0 and empty["options"]["matchTypes"] and empty["options"]["surfaces"]
     assert r["updated"] is not None
     t200 = r["tournaments"][0]
     assert t200["players"] == 3 + 1 + 9 and t200["inRange"] is None and t200["distanceKm"] is None  # 2002: applicants
@@ -129,13 +132,11 @@ def test_list_filters_and_options(client):
     assert _ids(client.get("/api/tournaments", params={"q": "tc lausanne"})) == [100]  # organiser
     assert _ids(client.get("/api/tournaments", params={"canton": "vd,ZH"})) == [100]
     assert _ids(client.get("/api/tournaments", params={"age": "2"})) == []
-    # events overlapping R3..R2 (either order): 1001 (R9/R5) is out
-    for a, b in (("R3", "R2"), ("R2", "R3")):
-        got = client.get("/api/tournaments", params={"eventMin": a, "eventMax": b}).json()["tournaments"]
-        assert {t["id"]: [e["id"] for e in t["events"]] for t in got} == {200: [2001, 2002], 100: [1002]}
-    # only the weakest end: R6 and stronger
-    got = client.get("/api/tournaments", params={"eventMin": "R6"}).json()["tournaments"]
-    assert {t["id"]: [e["id"] for e in t["events"]] for t in got} == {200: [2001, 2002], 100: [1001, 1002]}
+    # events open to an R5: 2001 (R4/R1) is out; to an R6: the R9/R5 and the open one
+    got = client.get("/api/tournaments", params={"event": "r5"}).json()["tournaments"]
+    assert {t["id"]: [e["id"] for e in t["events"]] for t in got} == {200: [2002], 100: [1001, 1002]}
+    got = client.get("/api/tournaments", params={"event": "R6"}).json()["tournaments"]
+    assert {t["id"]: [e["id"] for e in t["events"]] for t in got} == {200: [2002], 100: [1001]}
     assert _ids(client.get("/api/tournaments", params={"player": 1})) == [100]
     assert _ids(client.get("/api/tournaments", params={"player": 1, "when": "past"})) == [300]
 
@@ -168,7 +169,7 @@ def test_list_in_range_distance_sorts_and_paging(client):
 
 
 @pytest.mark.parametrize("params", [
-    {"sort": "name"}, {"from": "2026-13-01"}, {"to": "tomorrow"}, {"eventMin": "X9"}, {"fieldMax": "R10"},
+    {"sort": "name"}, {"from": "2026-13-01"}, {"to": "tomorrow"}, {"event": "X9"}, {"fieldMax": "R10"},
     {"matchType": "a"}, {"near": "Nowhere"}, {"sort": "distance"}, {"sort": "inRange"}, {"when": "soon"},
 ])
 def test_list_rejects_bad_parameters(client, params):

@@ -17,8 +17,7 @@ const KEYS = [
   "matchType",
   "age",
   "surface",
-  "eventMin",
-  "eventMax",
+  "event",
   "fieldMin",
   "fieldMax",
   "near",
@@ -43,7 +42,7 @@ const PRESETS: [string, string][] = [
 ];
 const WHENS: TournamentWhen[] = ["upcoming", "live", "past"];
 // the filters behind "more filters" on a phone
-const MORE_KEYS: Key[] = ["matchType", "age", "surface", "eventMin", "eventMax", "fieldMin", "fieldMax", "near", "canton"];
+const MORE_KEYS: Key[] = ["matchType", "age", "surface", "event", "fieldMin", "fieldMax", "near", "canton"];
 // weakest first: a range reads "R9 … N1"
 const LEVELS = [...CATEGORIES].reverse();
 
@@ -199,7 +198,9 @@ export default function TournamentsPage() {
                 <option value="date">{t("sortDateAsc")}</option>
                 <option value="-date">{t("sortDateDesc")}</option>
                 <option value="players">{t("sortPlayers")}</option>
-                {fieldFilter && <option value="inRange">{t("sortInRange")}</option>}
+                <option value="inRange" disabled={!fieldFilter} title={fieldFilter ? undefined : t("sortInRangeHint")}>
+                  {t("sortInRange")}
+                </option>
                 {params.near && <option value="distance">{t("sortDistance")}</option>}
               </select>
             )}
@@ -234,18 +235,32 @@ export default function TournamentsPage() {
               onChange={(age) => update({ age })}
               numeric
             />
-            {(options?.surfaces?.length ?? 0) > 0 && (
+          </div>
+
+          {(options?.surfaces?.length ?? 0) > 0 && (
+            <div className="filter-row">
               <MultiSelect
                 label={t("surface")}
                 items={(options?.surfaces ?? []).map((s) => ({ value: s, label: surfaceLabel(s, lang) }))}
                 selected={params.surface}
                 onChange={(surface) => update({ surface })}
               />
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="filter-row">
-            <RangeField label={t("eventRange")} min={params.eventMin} max={params.eventMax} onChange={(eventMin, eventMax) => update({ eventMin, eventMax })} />
+            <Field label={t("eventRange")}>
+              {(id) => (
+                <select id={id} className="input-sm" value={params.event ?? ""} onChange={(e) => update({ event: e.target.value })}>
+                  <option value="">{t("any")}</option>
+                  {LEVELS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
             <RangeField
               label={t("fieldRange")}
               hint={t("fieldRangeHint")}
