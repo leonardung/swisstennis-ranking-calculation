@@ -281,6 +281,8 @@ function PoolMatches({ matches, showDate }: { matches: DrawMatch[]; showDate: bo
 
 function DrawMatchBox({ m, showDate }: { m: DrawMatch; showDate: boolean }) {
   const { t, locale } = useI18n();
+  // a match still to play always shows the day it is scheduled for (from the draw)
+  const day = m.date && (showDate || m.winner == null) ? m.date.slice(0, 10) : null;
   return (
     <div className="draw-match">
       <div className={`draw-side${m.winner === 1 ? " won" : ""}`}>
@@ -291,11 +293,11 @@ function DrawMatchBox({ m, showDate }: { m: DrawMatch; showDate: boolean }) {
         <DrawNames side={m.b} />
         {m.winner === 2 && <span className="sr-only"> ({t("winner")})</span>}
       </div>
-      {(m.score || m.walkover || (showDate && m.date)) && (
+      {(m.score || m.walkover || day) && (
         <div className="draw-score muted small">
           {m.score && <span className="mono">{m.score}</span>}
           {m.walkover && <span className="tag tag-walkover">{t("wo")}</span>}
-          {showDate && m.date && <span>{fmtDate(m.date.slice(0, 10), locale)}</span>}
+          {day && <span>{fmtDate(day, locale)}</span>}
         </div>
       )}
     </div>

@@ -13,7 +13,6 @@ window are replaced, rows outside it are kept, and tournaments of the window tha
 upstream are dropped only when the fetch looks complete (an outage must not wipe the data).
 """
 
-import io
 import json
 import re
 import threading
@@ -24,7 +23,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
-import pypdf
 import requests
 from tqdm import tqdm
 
@@ -248,22 +246,15 @@ def format_score(sets: list[tuple], flip: bool = False) -> str | None:
     return " ".join(f"{a}-{b}" for a, b in out) or None
 
 
-def draw_rows(
-    event_id: int, sides: list[dict], unknown: Counter | None = None, pools: bool = False, entries=None, people=None
-) -> list[dict]:
-    """Rows of draws.parquet for one event (round 0: not placed in a bracket, e.g. pools). Side a
-    is the side coming from the upper feeder (r+1, 2s), else the one with the lower personIds.
-    Results without round (doubles) are placed by the first round of the draw when `entries()`
-    gives it (see draw_entries; `people`: the registered players' names by personId), with the
-    missing matches whose sides are known (see place_by_entries); else by place_knockout when
-    they form a finished knockout (byes unknown: the slots may differ from the draw's)."""
+def draw_rows(event_id: int, sides: list[dict], unknown: Counter | None = None, pools: bool = False) -> list[dict]:
+    """Rows of draws.parquet for one event out of its results upstream (round 0: not placed in a
+    bracket, e.g. pools). Side a is the side coming from the upper feeder (r+1, 2s), else the one
+    with the lower personIds. Results without round (doubles without a draw, see json_draw_rows)
+    are placed by place_knockout when they form a finished knockout (byes unknown: the slots may
+    differ from the draw's)."""
     matches = merge_sides(sides, unknown)
     if matches and matches[0]["round"] is None:
-        first_round = None if pools or entries is None else entries()
-        todo = None if first_round is None else place_by_entries(matches, first_round, people or {})
-        if todo is not None:
-            matches += todo
-        elif pools or not place_knockout(matches):
+        if pools or not place_knockout(matches):
             for i, m in enumerate(matches):  # round robin or unfinished draw: unplaced
                 m["round"], m["slot"] = 0, i
     at = defaultdict(list)
@@ -274,9 +265,7 @@ def draw_rows(
     for m in matches:
         r, s = m["round"], m["slot"]
         t1, t2 = m["teams"]
-        if "first" in m:  # placed by the draw's first round
-            a, b = (t1, t2) if m["first"] == 0 else (t2, t1)
-        elif played(t2, r + 1, 2 * s) or played(t1, r + 1, 2 * s + 2):
+        if played(t2, r + 1, 2 * s) or played(t1, r + 1, 2 * s + 2):
             a, b = t2, t1
         elif played(t1, r + 1, 2 * s) or played(t2, r + 1, 2 * s + 2):
             a, b = t1, t2
@@ -296,132 +285,193 @@ def draw_rows(
     return rows
 
 
-# a first-round line of a draw PDF: "(1) (R5/R6) Last First / Last First", "(R8) Last First", "BYE"
-PDF_ENTRY = re.compile(r"(?:\(\d+\)\s+)?\([^()]{1,12}\)\s+(\S.*)")
+# the draw of a knockout event as mytennis shows it: a grid of cells, the first column the
+# entries, each later column the winners of the previous one between their two feeders
+DRAW_URL = "https://low-scalability.microservices.swisstennis.ch/tournaments/draw"
+# a first-round cell: "(1) (R5/R6) Last First", seed and classification(s) dropped
+DRAW_ENTRY = re.compile(r"(?:\(\d+\)\s+)?(?:\([^()]{1,12}\)\s+)?(\S.*)")
+DRAW_DATE = re.compile(r"(\d\d)/(\d\d)/(\d\d)(?:\s+(\d\d):(\d\d))?")
+SCORE_SET = re.compile(r"(\d+)/(\d+)")
 
 
-def draw_entries(text: str) -> list[list[str] | None] | None:
-    """The first round of a knockout draw from its PDF's text (layout mode): per position the
-    players' names ("Last First") or None for a bye. They are the lines' first cells at the left
-    margin (the later rounds are indented). None unless a power of 2 (not a knockout draw)."""
+def fetch_draw(event_id: int) -> dict | None:
+    """The draw of an event (see json_draw_rows); {} when there is none (pools, not drawn yet:
+    the service answers 204), None on failure."""
+    resp = _get(DRAW_URL, params={"eventId": event_id, "lang": "fr"})
+    try:
+        draw = resp.json() if resp is not None and resp.content else None
+    except ValueError:
+        draw = None
+    if resp is not None and not resp.content:  # 204: no draw
+        return {}
+    return draw if isinstance(draw, dict) else None
+
+
+def _clean(text) -> str:
+    return " ".join(str(text or "").replace("\xa0", " ").split()).removeprefix("/ ").strip()
+
+
+def _words(name: str) -> list[str]:
+    folded = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    return [w for w in re.split(r"[\s\-.]+", folded) if w]
+
+
+def _abbreviates(short: str, full: str) -> bool:
+    """"Von Flüe D." is "Von Flüe Dario" (the last word an initial)."""
+    s, f = _words(short), _words(full)
+    return bool(s) and len(f) >= len(s) and s[:-1] == f[: len(s) - 1] and f[len(s) - 1].startswith(s[-1])
+
+
+def _players(cell: dict) -> list[tuple[int | None, str]]:
+    """(personId, name as written) of the players of a cell; unlicensed players have no id."""
     out = []
-    for line in text.splitlines():
-        if not line.strip() or len(line) - len(line.lstrip()) > 3:
-            continue
-        cell = re.split(r"\s{2,}", line.strip())[0]
-        if cell == "BYE":
-            out.append(None)
-        elif m := PDF_ENTRY.fullmatch(cell):
-            out.append([x.strip() for x in m[1].split(" / ")])
-    n = len(out)
-    return out if n >= 2 and n & (n - 1) == 0 and any(out) else None
+    for i in (1, 2):
+        name = _clean(cell.get(f"name{i}"))
+        if name:
+            out.append((_int_or_none(cell.get(f"player{i}Number")), name))
+    return out
 
 
-def fetch_draw_entries(url: str) -> list[list[str] | None] | None:
-    """draw_entries of a draw PDF; None when it is not available (the servlet answers an HTML
-    page for archived tournaments) or not a knockout draw."""
-    resp = _get(url)
-    if resp is None or not resp.content.startswith(b"%PDF"):
+def _int_or_none(x) -> int | None:
+    try:
+        return int(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_score(text) -> tuple[str | None, bool]:
+    """A draw cell's score (the winner's view, "6/4 3/0") as "6-4 3-0", and whether it is a
+    walkover: "WO" alone ("WO 6/4 3/0", a retirement after these games, is a win as upstream)."""
+    text = _clean(text)
+    sets = " ".join(f"{a}-{b}" for a, b in SCORE_SET.findall(text))
+    return sets or None, not sets and bool(re.search(r"\bW\.?O\b", text, re.I))
+
+
+def parse_draw_date(text) -> pd.Timestamp | None:
+    """"29/09/26 17:15" (a match to play) -> Timestamp."""
+    m = DRAW_DATE.search(_clean(text))
+    if not m:
         return None
     try:
-        pages = pypdf.PdfReader(io.BytesIO(resp.content)).pages
-        return draw_entries("\n".join(p.extract_text(extraction_mode="layout") for p in pages))
-    except Exception:  # a broken PDF: keep the unplaced list
+        return pd.Timestamp(2000 + int(m[3]), int(m[2]), int(m[1]), int(m[4] or 0), int(m[5] or 0))
+    except ValueError:
         return None
 
 
-def _person_key(name: str | None) -> frozenset | None:
-    """A name's words, folded (accents, case): "Klaus Patrick" and "Patrick Klaus" agree."""
-    if not name:
+def json_draw_rows(event_id: int, draw: dict, people: dict[int, str] | None = None) -> list[dict] | None:
+    """Rows of draws.parquet from a draw (fetch_draw): the matches whose two sides are known,
+    played (winner, score from side a's view, walkover) or to play (no winner, the scheduled
+    date when given); byes give no row. Side a comes from the upper feeder. A cell of column
+    c + 1 sits between its two feeders of column c: it is matched to the nearest place, and its
+    player to the entries of its block by personId, else by the abbreviated name ("Rizzo S.").
+    `people`: personId -> name of the registered players (else the name of the draw). None when
+    the first column is not a power of 2 (not a knockout draw)."""
+    people = people or {}
+    cells = [c for c in draw.get("results") or [] if isinstance(c.get("position"), dict)]
+    col = lambda c: c["position"].get("column")  # noqa: E731
+    row = lambda c: c["position"].get("row") or 0  # noqa: E731
+    first = sorted((c for c in cells if col(c) == 1), key=row)
+    n = len(first)
+    if n < 2 or n & (n - 1):
         return None
-    folded = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
-    return frozenset(w for w in re.split(r"[\s\-.]+", folded) if w)
+    rounds = n.bit_length() - 1
+    places = [[row(c) for c in first]]
+    for _ in range(rounds):
+        prev = places[-1]
+        places.append([(prev[2 * j] + prev[2 * j + 1]) / 2 for j in range(len(prev) // 2)])
+    at = {}  # (k, j) -> the cell of the side that won match j of round k (1 = first)
+    for c in cells:
+        k = (col(c) or 0) - 1
+        if 1 <= k <= rounds:
+            j = min(range(len(places[k])), key=lambda j: abs(places[k][j] - row(c)))
+            if abs(places[k][j] - row(c)) <= 1.5 and ((k, j) not in at or _players(c)):
+                at[(k, j)] = c
+    entries = []  # per position: [(personId, name as written)] or None (bye)
+    for c in first:
+        players = [(p, DRAW_ENTRY.fullmatch(x)[1]) for p, x in _players(c)]
+        entries.append(None if not players or players[0][1].upper() == "BYE" else players)
+    sides = [
+        e and _team(*((p, people.get(p) or x) for p, x in e)) for e in entries
+    ]
 
+    def who(cell, lo, hi):
+        """The position in [lo, hi) of the side in the cell, None when unknown."""
+        players = _players(cell)
+        ids = {p for p, _ in players if p is not None}
+        found = [i for i in range(lo, hi) if entries[i] and ids & {p for p, _ in entries[i]}]
+        if not found and players:
+            found = [i for i in range(lo, hi) if entries[i] and len(entries[i]) == len(players)
+                     and all(_abbreviates(s, f) for (_, s), (_, f) in zip(players, entries[i]))]  # fmt: skip
+        return found[0] if len(found) == 1 else None
 
-def place_by_entries(matches: list[dict], entries: list, people: dict[int, str]) -> list[dict] | None:
-    """Give round and slot to the matches of a knockout from its first round (entries, e.g. from
-    the draw PDF): sides at positions p and q meet in round k (1 = first) where p and q first
-    fall into the same block of 2^k, slot 2 * (p >> k) (as in singleResults). Returns the matches
-    missing from the results whose two sides are known (a bye moves a side on): won by the side
-    that plays a later round (a result upstream does not have, e.g. with an unlicensed player),
-    else still to play (no winner). None when a side is not in the draw or two matches fall on
-    the same place. `people`: personId -> name, for sides without names."""
-    rounds = len(entries).bit_length() - 1
-    team_key = lambda names: frozenset(_person_key(x) for x in names)  # noqa: E731
-    position = {team_key(e): i for i, e in enumerate(entries) if e}
-    by_name = {_person_key(n): p for p, n in people.items() if n}
-    team_at, names_at, pos = {}, {}, {}
-    for m in matches:
-        for t in m["teams"]:
-            names = [n or people.get(p) for p, n in zip(t, m["names"][t])]
-            i = position.get(team_key(names)) if all(names) else None
-            if i is None or pos.get(t, i) != i:
-                return None
-            pos[t], team_at[i], names_at[i] = i, t, m["names"][t]
-    placed = {}
-    for m in matches:
-        p, q = (pos[t] for t in m["teams"])
-        k = (p ^ q).bit_length()
-        key = (rounds - k + 1, 2 * (p >> k))
-        if p == q or key in placed:
-            return None
-        placed[key] = m
-        m["round"], m["slot"], m["first"] = *key, 0 if p < q else 1
-    for i, e in enumerate(entries):  # the sides without results: personIds from the registrations
-        if e and i not in team_at:
-            ids = [by_name.get(_person_key(x)) for x in e]
-            team, names = _team(*zip(ids, [people.get(p) or x for p, x in zip(ids, e)]))
-            team_at[i], names_at[i] = team, names
-    last = defaultdict(int)  # position -> the last round (1 = first) where its side played
-    for m in matches:
-        for t in m["teams"]:
-            last[pos[t]] = max(last[pos[t]], rounds - m["round"] + 1)
-    # who holds each position of each round: a side (its position), None (bye), -1 (unknown)
-    holder, todo = [i if e else None for i, e in enumerate(entries)], []
+    holder = [None if e is None else i for i, e in enumerate(entries)]  # None: bye, -1: unknown
+    rows = []
     for k in range(1, rounds + 1):
         nxt = []
         for j in range(len(holder) // 2):
             x, y = holder[2 * j], holder[2 * j + 1]
-            m = placed.get((rounds - k + 1, 2 * j))
-            if m is not None:
-                x, y = (pos[t] for t in m["teams"])
-                if m["winner"] is not None:
-                    nxt.append(pos[m["winner"]])
-                    continue
-            elif x is None or y is None:  # a bye
+            cell = at.get((k, j))
+            won = who(cell, j << k, (j + 1) << k) if cell and _players(cell) else None
+            if x is None or y is None:  # a bye moves the other side on
                 nxt.append(y if x is None else x)
                 continue
-            on = [h for h in (x, y) if h is not None and h >= 0 and last[h] > k]  # won: plays later
-            nxt.append(on[0] if len(on) == 1 else -1)
-            if m is None and x >= 0 and y >= 0 and team_at[x] != team_at[y]:
-                teams = (team_at[x], team_at[y])
-                todo.append({"round": rounds - k + 1, "slot": 2 * j, "teams": teams, "first": 0,
-                             "winner": team_at[on[0]] if len(on) == 1 else None, "walkover": False, "sets": [],
-                             "date": None, "names": dict(zip(teams, (names_at[x], names_at[y])))})  # fmt: skip
+            nxt.append(won if won is not None else -1)
+            if x < 0 or y < 0:
+                continue
+            (a, a_names), (b, b_names) = sides[x], sides[y]
+            winner = 1 if won == x else 2 if won == y else None
+            score, walkover = parse_score(cell.get("score")) if winner else (None, False)
+            if score and winner == 2:
+                score = " ".join("-".join(s.split("-")[::-1]) for s in score.split())
+            pad = lambda t: list(t) + [None] * (2 - len(t))  # noqa: E731
+            rows.append({
+                "eventId": event_id, "round": rounds - k + 1, "slot": 2 * j,
+                "a1": pad(a)[0], "a2": pad(a)[1], "b1": pad(b)[0], "b2": pad(b)[1],
+                "aName": " / ".join(x or "?" for x in a_names), "bName": " / ".join(x or "?" for x in b_names),
+                "winner": winner, "walkover": walkover, "score": score,
+                "date": None if winner or cell is None else parse_draw_date(cell.get("court")),
+            })  # fmt: skip
         holder = nxt
-    return todo
+    return rows
 
 
 def fetch_draws(
-    client: Client, event_ids: list[int], pdfs: dict[int, str], people: dict[int, dict], unknown: Counter
-) -> pd.DataFrame:
-    """Draw rows of the events; pdfs: eventId -> draw PDF url (pools are not knockouts), people:
-    eventId -> {personId: name} of the registered players."""
-    rows = []
+    client: Client, event_ids: list[int], knockouts: set[int], people: dict[int, dict], unknown: Counter
+) -> tuple[pd.DataFrame, set[int]]:
+    """Draw rows of the events: the results upstream (Hasura) for the singles closed (with
+    results up to the final), else the draw shown by mytennis for the knockouts (`knockouts`: events with a
+    knockout draw sheet; the results upstream give the dates of its matches), else the results
+    upstream (pools, no draw). people: eventId -> {personId: name} of the registered players.
+    Also returns the events whose draw could not be fetched (their old rows are kept)."""
+    events = []
     batches = [event_ids[i : i + DRAW_BATCH] for i in range(0, len(event_ids), DRAW_BATCH)]
-    for batch in tqdm(batches, desc="draws", unit_scale=DRAW_BATCH):
-        for e in client.query(DRAWS_QUERY, {"ids": batch})["ioEvent"]:
-            url = pdfs.get(e["id"])
-            kw = {
-                "pools": "DisplayPools" in (url or ""),
-                "entries": None if url is None else lambda url=url: fetch_draw_entries(url),
-                "people": people.get(e["id"]),
-            }
-            if e["singleResults"]:
-                rows += draw_rows(e["id"], [single_side(r) for r in e["singleResults"]], unknown, **kw)
-            if e["doubleResults"]:
-                rows += draw_rows(e["id"], [double_side(r) for r in e["doubleResults"]], unknown, **kw)
-    return _typed(rows, DRAWS)
+    for batch in tqdm(batches, desc="results", unit_scale=DRAW_BATCH):
+        events += client.query(DRAWS_QUERY, {"ids": batch})["ioEvent"]
+    # the singles results carry round and slot; the doubles ones do not, and none come before
+    # the event is closed: the draw of mytennis gives them, and the matches missing upstream
+    # (e.g. with unlicensed players) when the singles results have no final
+    final = lambda e: any(r.get("key2") == 1 for r in e["singleResults"])  # noqa: E731
+    need = [e["id"] for e in events if e["id"] in knockouts and not final(e)]
+    with ThreadPoolExecutor(WORKERS) as pool:
+        grids = dict(zip(need, tqdm(pool.map(fetch_draw, need), total=len(need), desc="draws")))
+    # a failed request without results upstream: the old rows of the event are kept
+    failed = {e["id"] for e in events if e["id"] in grids and grids[e["id"]] is None and not e["doubleResults"]}
+    rows = []
+    for e in events:
+        sides = [single_side(r) for r in e["singleResults"]] + [double_side(r) for r in e["doubleResults"]]
+        drawn = grids.get(e["id"]) and json_draw_rows(e["id"], grids[e["id"]], people.get(e["id"]))
+        if drawn:
+            ids = lambda xs: frozenset(x for x in xs if x is not None)  # noqa: E731
+            dates = {ids(m["teams"][0] + m["teams"][1]): m["date"] for m in merge_sides(sides)} if sides else {}
+            for r in drawn:
+                date = dates.get(ids(r[c] for c in ("a1", "a2", "b1", "b2")))
+                if r["winner"] is not None and date is not None:
+                    r["date"] = date
+            rows += drawn
+        elif sides:
+            rows += draw_rows(e["id"], sides, unknown, pools=e["id"] not in knockouts)
+    print(f"{len(need)} draws fetched, {len(failed)} failed")
+    return _typed(rows, DRAWS), failed
 
 
 # --- tournaments and events (Hasura) ---------------------------------------------------------
@@ -747,21 +797,20 @@ def scrape_tournaments(data_dir: Path, all_: bool = False, draws_days: int = 14)
     tournaments["lat"], tournaments["lon"] = coords.str[0], coords.str[1]
     tournaments["updated"] = now
 
-    # draws of the tournaments in progress or ended in the last draws_days (all past ones with --all)
-    started_ = tournaments["dateBegin"] <= today
-    recent = started_ if all_ else started_ & (tournaments["dateEnd"] >= today - pd.Timedelta(days=draws_days))
+    # draws of the tournaments drawn or started, in progress or ended in the last draws_days (all
+    # past ones with --all)
+    drawn = (tournaments["dateBegin"] <= today) | (tournaments["drawingTime"] <= now)
+    recent = drawn if all_ else drawn & (tournaments["dateEnd"] >= today - pd.Timedelta(days=draws_days))
     draw_events = events.loc[events["tournamentId"].isin(tournaments.loc[recent, "tournamentId"]), "eventId"].tolist()
     unknown = Counter()
-    # the draw PDFs place the doubles (only while online: archived tournaments have none)
-    online = tournaments.loc[tournaments["dateEnd"] >= today - pd.Timedelta(days=draws_days), "tournamentId"]
-    urls = events.set_index("eventId")["pdfUrl"].dropna()
-    pdfs = urls[urls.index.isin(events.loc[events["tournamentId"].isin(online), "eventId"]) | urls.str.contains("DisplayPools")]
-    pdfs = pdfs.to_dict()
+    # the knockouts (not pools) with at least two applicants: the others have no draw to fetch
+    few = events["applicants"].fillna(2) < 2
+    knockouts = set(events.loc[~events["pdfUrl"].fillna("").str.contains("DisplayPools") & ~few, "eventId"])
     named = regs.dropna(subset=["personId"])
     people = defaultdict(dict)
     for eid, pid, first, last in zip(named["eventId"], named["personId"], named["firstname"], named["lastname"]):
         people[eid][int(pid)] = _name(first, last)
-    draws = fetch_draws(client, draw_events, pdfs, people, unknown)
+    draws, failed_draws = fetch_draws(client, draw_events, knockouts, people, unknown)
 
     # merge into the existing files
     old_t = _read(out / "tournaments.parquet", TOURNAMENTS)
@@ -784,7 +833,7 @@ def scrape_tournaments(data_dir: Path, all_: bool = False, draws_days: int = 14)
     events = upsert(old_e, events, "tournamentId", replaced)
     ok_events = events.loc[events["tournamentId"].isin(set(infos)), "eventId"]
     regs = upsert(old_r, regs, "eventId", ok_events)
-    draws = upsert(old_d, draws, "eventId", draw_events)
+    draws = upsert(old_d, draws, "eventId", set(draw_events) - failed_draws)
     regs = regs[regs["eventId"].isin(events["eventId"])]
     draws = draws[draws["eventId"].isin(events["eventId"])]
 

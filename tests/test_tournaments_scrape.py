@@ -77,50 +77,64 @@ def test_doubles_round_robin_stays_unplaced():
     assert [r["round"] for r in rows] == [0, 0, 0] and sorted(r["slot"] for r in rows) == [0, 1, 2]
 
 
-DRAW_PDF_TEXT = """Club Champion Trophy TC X (155860),                       29 Septembre 2026
-                                                            Page 1 / 1
-MD R1/R9 (Herrendoppel)
-TC X
-(1) (R5/R5) 1 N / 2 N
-                              1 N. / 2 N.
- BYE
-                                              1 N. / 2 N.
-(R7/R7) 3 N / 4 N                                 6/1
-                              3 N. / 4 N.
-(NC/R8) 5 N / 6 N              6/1
-(2) (R6/R6) 7 N / 8 N
-                              7 N. / 8 N.
-BYE                                             7 N. / 8 N.
-                                                   6/1
-(R9/R9) 9 N / 10 N
-                              9 N. / 10 N.
-(NC/NC) Zed Foo / Bar Baz      6/2 6/2
-"""
+def _cell(col, row, name1=None, pid1=None, name2=None, pid2=None, score=None, court=None):
+    c = {"position": {"column": col, "row": row}}
+    for k, v in (("name1", name1), ("player1Number", pid1), ("name2", name2), ("player2Number", pid2),
+                 ("score", score), ("court", court)):  # fmt: skip
+        if v is not None:
+            c[k] = v.replace(" ", "\xa0") if isinstance(v, str) else v
+    return c
 
 
-def test_draw_entries_from_the_pdf_text():
-    entries = t.draw_entries(DRAW_PDF_TEXT)
-    assert entries == [["1 N", "2 N"], None, ["3 N", "4 N"], ["5 N", "6 N"], ["7 N", "8 N"], None,
-                       ["9 N", "10 N"], ["Zed Foo", "Bar Baz"]]  # fmt: skip
-    assert t.draw_entries("MS R1/R9\n(R5) A B\n(R6) C D\n(R7) E F\n") is None  # 3: not a knockout draw
-
-
-def test_doubles_placed_by_the_draw_with_byes_and_missing_matches():
-    a, b, c, d, e = (1, 2), (3, 4), (5, 6), (7, 8), (9, 10)
-    sides = [_double(b, c, "S"), _double(a, b, "S"), _double(d, e, "S")]  # E beat F: not upstream
-    rows = t.draw_rows(9, sides, entries=lambda: t.draw_entries(DRAW_PDF_TEXT), people={9: "N 9", 10: "N 10"})
-    got = {(r["round"], r["slot"]): (r["a1"], r["b1"], r["winner"], r["aName"], r["bName"]) for r in rows}
+def test_draw_of_a_singles_event_in_progress():
+    # 8 places: first column at rows 1 3 | 7 9 | 13 15 | 19 21, winners between their feeders
+    draw = {"results": [
+        _cell(1, 1, "(1) (R5) Rizzo Stefano", 1), _cell(1, 3, "BYE"),
+        _cell(1, 7, "(R6) Ricci Renzo", 2), _cell(1, 9, "(NC) Varini Luca"),
+        _cell(1, 13, "(R6) Adamo Mario", 4), _cell(1, 15, "(R7) Cavadini Luigi", 5),
+        _cell(1, 19, "(R6) Nazzari Paolo", 6), _cell(1, 21, "BYE"),
+        _cell(2, 2, "Rizzo S.", 1), _cell(2, 8, "Varini L.", score="WO 6/4 3/0"),  # retired after 6-4 3-0
+        _cell(2, 14, court="30/09/26 18:00"), _cell(2, 20, "Nazzari P.", 6),
+        _cell(3, 5, "Rizzo S.", 1, score="6/1 6/0"),
+    ]}  # fmt: skip
+    rows = t.json_draw_rows(9, draw, {1: "Stefano Rizzo"})
+    got = {(r["round"], r["slot"]): (r["a1"], r["b1"], r["aName"], r["bName"], r["winner"], r["score"], r["walkover"])
+           for r in rows}  # fmt: skip
     assert got == {
-        (3, 2): (3, 5, 1, "N 3 / N 4", "N 5 / N 6"),
-        (2, 0): (1, 3, 1, "N 1 / N 2", "N 3 / N 4"),
-        (2, 2): (7, 9, 1, "N 7 / N 8", "N 9 / N 10"),
-        (3, 6): (9, None, 1, "N 9 / N 10", "Zed Foo / Bar Baz"),  # inferred: E plays the next round
-        (1, 0): (1, 7, None, "N 1 / N 2", "N 7 / N 8"),  # still to play
-    }
-    # no draw (or a draw that does not fit): the finished-knockout guess, else unplaced
-    rows = t.draw_rows(9, sides, entries=lambda: None)
-    assert [r["round"] for r in rows] == [0, 0, 0]
-    assert all(r["round"] == 0 for r in t.draw_rows(9, sides, entries=lambda: [["X Y"], ["Z W"]]))
+        (3, 2): (2, None, "Ricci Renzo", "Varini Luca", 2, "4-6 0-3", False),  # side a's view
+        (3, 4): (4, 5, "Adamo Mario", "Cavadini Luigi", None, None, False),  # to play
+        (2, 0): (1, None, "Stefano Rizzo", "Varini Luca", 1, "6-1 6-0", False),
+    }  # byes give no row, nor (2, 2): one side unknown yet
+    dates = {(r["round"], r["slot"]): r["date"] for r in rows}
+    assert dates[(3, 4)] == pd.Timestamp("2026-09-30 18:00") and dates[(2, 0)] is None
+
+
+def test_draw_of_a_doubles_event_by_abbreviated_names():
+    draw = {"results": [
+        _cell(1, 1, "(1) (R5/R5) Kieliger Thomas", 10, " / Schaub Mario", 11),
+        _cell(1, 3, "(NC/R8) Von Flüe Dario", None, " / Klaus Patrick", 13),
+        _cell(1, 7, "(R7/R7) Gloor Christian", 14, " / Liem Janik", 15),
+        _cell(1, 9, "(R8/R8) Odermatt Pirmin", 16, " / Hess Fabian", 17),
+        _cell(2, 2, "Von Flüe D.", None, " / Klaus P.", 13, score="WO"),
+        _cell(2, 8, "Odermatt P.", None, " / Hess F.", score="6/3 6/4"),  # no ids: by the names
+        _cell(3, 5, court="01/10/26 00:00"),
+    ]}  # fmt: skip
+    rows = {(r["round"], r["slot"]): r for r in t.json_draw_rows(9, draw)}
+    first = rows[(2, 0)]
+    assert (first["a1"], first["a2"], first["b1"], first["b2"]) == (10, 11, 13, None)
+    assert (first["winner"], first["walkover"], first["score"]) == (2, True, None)
+    assert first["bName"] == "Klaus Patrick / Von Flüe Dario"  # players ordered by personId
+    assert (rows[(2, 2)]["winner"], rows[(2, 2)]["score"]) == (2, "3-6 4-6")
+    final = rows[(1, 0)]
+    assert (final["a1"], final["b1"], final["winner"], final["date"]) == (13, 16, None, pd.Timestamp("2026-10-01"))
+
+
+def test_draw_helpers():
+    assert t.json_draw_rows(9, {"results": [_cell(1, r, f"(R5) P{r} X", r) for r in (1, 3, 5)]}) is None
+    assert t._abbreviates("Von Flüe D.", "Von Flue Dario") and not t._abbreviates("Von Flüe D.", "Von Flue Marco")
+    assert t._abbreviates("Simeone M.", "Simeone Marco Tullio")
+    assert t.parse_score("5/7 6/4 10/8") == ("5-7 6-4 10-8", False) and t.parse_score("WO") == (None, True)
+    assert t.parse_draw_date("29/09/26 17:15") == pd.Timestamp("2026-09-29 17:15") and t.parse_draw_date("") is None
 
 
 def test_age_info_from_the_category_texts():

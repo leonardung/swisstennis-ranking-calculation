@@ -991,7 +991,7 @@ class App:
         """The player(s) of side a or b of a draw row; doubles names are "X / Y"."""
         ids = [i for i in (_int(x[f"{side}1"]), _int(x[f"{side}2"])) if i is not None]
         name = _str(x[f"{side}Name"])
-        if not ids:  # players without licence (from the draw PDF)
+        if not ids:  # players without licence (from the draw)
             return [] if name is None else [self._person(None, n, live) for n in name.split(" / ")]
         names = (name or "").split(" / ") if len(ids) == 2 else [name]
         if len(names) != len(ids):
