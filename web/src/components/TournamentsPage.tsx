@@ -6,7 +6,7 @@ import { useI18n } from "../i18n";
 import { CATEGORIES, fmtDateTime, fmtInt } from "../format";
 import type { AgeInfo, TournamentListItem, TournamentOptions, TournamentWhen } from "../types";
 import { AsyncStatus, Spinner } from "./common";
-import { ageInfoOf, ageLabel, ageOrder, ageTitle, dateRange, eventTitle, matchTypeLabel, rangeLabel, surfaceLabel } from "./tournamentUtil";
+import { ageInfoOf, ageLabel, ageOrder, ageTitle, dateRange, eventKind, eventTitle, matchTypeLabel, rangeLabel, surfaceLabel } from "./tournamentUtil";
 
 /** The filters, kept in the query of the URL under the names of the API's parameters. */
 const KEYS = [
@@ -762,18 +762,21 @@ function TournamentCard({ tr, fieldRange }: { tr: TournamentListItem; fieldRange
           {fieldRange && tr.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(tr.inRange, locale), range: fieldRange })}</span>}
         </div>
       </header>
-      <ul className="tourn-events">
+      <ul className={`tourn-events${fieldRange ? " with-range" : ""}`}>
         {tr.events.map((e) => (
+          // one cell per column, even when empty, so that every row lines up
           <li key={e.id}>
-            <a href={tournamentHref(tr.id, e.id)} className="tourn-event-link">
-              <span className="tourn-event-kind">
-                {matchTypeLabel(e.matchType, t)} · {ageLabel(e.age, t, e.matchType, e.ageInfo)}
-              </span>
-              <span className="tourn-event-name">{eventTitle(e, t)}</span>
+            <a href={tournamentHref(tr.id, e.id)} className="tourn-event-name">
+              {eventTitle(e, t)}
             </a>
-            <span className="tourn-event-side">
-              <span title={t("registeredPlayers")}>{t("playersN", { n: fmtInt(e.players, locale) })}</span>
-              {fieldRange && e.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(e.inRange, locale), range: fieldRange })}</span>}
+            <span className="tourn-event-kind muted">{eventKind(e, t)}</span>
+            <span className="tourn-event-count" title={t("registeredPlayers")}>
+              {t("playersN", { n: fmtInt(e.players, locale) })}
+            </span>
+            <span className="tourn-event-count strong">
+              {fieldRange && e.inRange != null && t("inRangeN", { n: fmtInt(e.inRange, locale), range: fieldRange })}
+            </span>
+            <span className="tourn-event-tags">
               {e.registrationOpen && <span className="tag tag-open">{t("registrationOpen")}</span>}
               {e.hasDraw && <span className="tag tag-info">{t("hasDraw")}</span>}
             </span>
