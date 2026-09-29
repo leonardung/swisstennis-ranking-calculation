@@ -46,13 +46,24 @@ export default function TournamentsTab({ playerId }: { playerId: number }) {
       </Card>
 
       <Card title={<Hint label={t("suggestedTitle")} text={t("suggestedHint")} />}>
+        {d.clubs.length > 0 && (
+          <p className="muted small">
+            {t("aroundClubs", { clubs: d.clubs.map((c) => (c.city && !c.name?.includes(c.city) ? `${c.name} (${c.city})` : c.name)).join(", ") })}
+          </p>
+        )}
         {d.suggested.length === 0 ? (
           <p className="muted">{t("noSuggested")}</p>
         ) : (
           <ul className="entry-list">
             {d.suggested.map((r) => (
               <li key={r.event.id}>
-                <EntryHead entry={r} openTag={false} side={<span className="strong">{t("nearLevelN", { n: fmtInt(r.inRange, locale) })}</span>} />
+                <EntryHead entry={r} openTag={false} side={
+                    <>
+                      {r.tournament.distanceKm != null && <span className="muted">{t("distanceKm", { km: Math.round(r.tournament.distanceKm) })}</span>}
+                      <span className="strong">{t("nearLevelN", { n: fmtInt(r.inRange, locale) })}</span>
+                    </>
+                  }
+                />
               </li>
             ))}
           </ul>
@@ -197,21 +208,30 @@ function OutlookPanel({ playerId, eventId }: { playerId: number; eventId: number
           <table className="data outlook-rounds">
             <thead>
               <tr>
-                <th>{t("winsInARow")}</th>
+                <th>{t("outlookRound")}</th>
                 <th className="num">{t("reachChance")}</th>
-                <th className="num">{t("gainC")}</th>
+                <th className="num">
+                  <Hint label={t("gainC")} text={t("gainCHint")} align="end" />
+                </th>
               </tr>
             </thead>
             <tbody>
               {o.expected.rounds.map((r) => (
                 <tr key={r.round}>
-                  <td>{r.round}</td>
+                  <td>{roundLabel(r.round, t)}</td>
                   <td className="num">{fmtChance(r.reach)}</td>
                   <td className="num">
-                    <Delta value={r.gain} />
+                    <Delta value={r.ifOut} />
                   </td>
                 </tr>
               ))}
+              <tr>
+                <td>{t("titleWin")}</td>
+                <td className="num">{fmtChance(o.expected.title)}</td>
+                <td className="num">
+                  <Delta value={o.expected.ifTitle} />
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>

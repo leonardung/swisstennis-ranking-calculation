@@ -48,6 +48,8 @@ TOURNAMENT_REFRESH_HOURS = 2
 TOURNAMENT_LIMIT = 50
 TOURNAMENT_MAX_LIMIT = 200
 SUGGESTED_MAX = 20
+# suggested events: the weight of the field halves every SUGGESTED_HALF_KM from the player's club
+SUGGESTED_HALF_KM = 50
 TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "inRange")
 TOURNAMENT_WHEN = ("upcoming", "live", "past")
 AGE_KINDS = ("actives", "juniors", "seniors")  # the order of the age options
@@ -110,6 +112,9 @@ class State:
     chance: Callable[[pd.DataFrame], np.ndarray | None]
     # the chance before each result (rows of `matches`) of its player; NaN for walkovers
     match_chance: Callable[[pd.Index], pd.Series]
+    # the players' clubs (personId, clubId, club, city, lat, lon; see scrape.player_clubs), None
+    # before the first scrape that fetches them
+    clubs: pd.DataFrame | None = None
 
 
 def _fold(s: pd.Series) -> pd.Series:
@@ -121,6 +126,8 @@ def load_state(data_dir: Path) -> State:
     history = pd.read_parquet(data_dir / "history.parquet")
     matches = pd.read_parquet(data_dir / "matches.parquet")
     players = pd.read_parquet(data_dir / "players.parquet")
+    clubs_path = data_dir / "clubs.parquet"
+    clubs = pd.read_parquet(clubs_path) if clubs_path.exists() else None
     today = pd.Timestamp.now().normalize()
 
     period = evaluate.build_period(history, matches, players, today)
@@ -188,6 +195,7 @@ def load_state(data_dir: Path) -> State:
         player_rows=player_rows,
         number=number,
         people=people,
+        clubs=clubs,
         official_date=official_date,
         official_class=official["classification"],
         highlights=highlights.build(
@@ -1003,12 +1011,12 @@ class App:
         """Today's class of the player (row r of s.p), else his official one."""
         return r["class"] if r["on_list"] else s.official_class.get(r["personId"])
 
-    def _tournament_item(self, t: Tournaments, e: pd.Series, in_range=None) -> dict:
+    def _tournament_item(self, t: Tournaments, e: pd.Series, in_range=None, distance=None) -> dict:
         """A tournament (list summary without events) and one of its events."""
         tid = int(e["tournamentId"])
         tr = t.tournaments.loc[tid]
         return {
-            "tournament": {**_tournament_summary(tid, tr), "distanceKm": None, "players": int(tr["players"]), "inRange": None},
+            "tournament": {**_tournament_summary(tid, tr), "distanceKm": _num(distance, 1), "players": int(tr["players"]), "inRange": None},
             "event": _event_summary(t, e, in_range),
         }
 
@@ -1225,7 +1233,9 @@ class App:
         """The player's upcoming registrations, suggested events and past results (see the API
         contract). Suggested: upcoming singles of his gender, actives, registration open or
         unknown, his class within the event's bounds, ranked by the registered players within
-        one category of his class. Past: from the draws, "reached" is the round (1 = final) of
+        one category of his class (n) and the distance d to the closest of his clubs:
+        (n + 1) * 0.5^(d / SUGGESTED_HALF_KM); events without a place last; by n alone when his
+        clubs are unknown. Past: from the draws, "reached" is the round (1 = final) of
         his last match (whether he won it is in his last result), None outside a bracket (round 0:
         pools, round robin)."""
         s = self.s()
@@ -1259,7 +1269,10 @@ class App:
             )
             suggested = e[ok]
             suggested = suggested.assign(inRange=around(suggested["eventId"]))
-            suggested = suggested.sort_values(["inRange", "dateBegin", "eventId"], ascending=[False, True, True]).head(SUGGESTED_MAX)
+            suggested = suggested.assign(distance=self._club_distance(s, pid, suggested))
+            score = (suggested["inRange"] + 1) * 0.5 ** (suggested["distance"] / SUGGESTED_HALF_KM)
+            suggested = suggested.assign(score=score.fillna(0) if suggested["distance"].notna().any() else suggested["inRange"])
+            suggested = suggested.sort_values(["score", "dateBegin", "eventId"], ascending=[False, True, True]).head(SUGGESTED_MAX)
 
         d = t.draws[_played_by(t.draws, pid)]
         at = pd.Series(np.arange(len(e)), index=e["eventId"])
@@ -1288,9 +1301,31 @@ class App:
         past.sort(key=lambda p: (pd.isna(p[0]), -(p[0].value if pd.notna(p[0]) else 0)))
         return {
             "registered": [self._tournament_item(t, x, x["inRange"]) for _, x in registered.iterrows()],
-            "suggested": [{**self._tournament_item(t, x, x["inRange"]), "inRange": _int(x["inRange"])} for _, x in suggested.iterrows()],
+            "suggested": [
+                {**self._tournament_item(t, x, x["inRange"], x["distance"]), "inRange": _int(x["inRange"])}
+                for _, x in suggested.iterrows()
+            ],
             "past": [p for _, p in past],
+            "clubs": [{"name": _str(c["club"]), "city": _str(c["city"])} for _, c in self._clubs(s, pid).iterrows()],
         }
+
+    @staticmethod
+    def _clubs(s: State, pid: int) -> pd.DataFrame:
+        """The player's clubs with a place."""
+        if s.clubs is None:
+            return pd.DataFrame(columns=["club", "city", "lat", "lon"])
+        c = s.clubs[s.clubs["personId"].eq(pid).to_numpy(bool)]
+        return c.dropna(subset=["lat", "lon"])
+
+    def _club_distance(self, s: State, pid: int, e: pd.DataFrame) -> pd.Series:
+        """Per event, the distance in km from its tournament to the closest of the player's
+        clubs; NaN without a place (the event's or the clubs')."""
+        c = self._clubs(s, pid)
+        if c.empty or e.empty:
+            return pd.Series(np.nan, index=e.index)
+        lat, lon = e["lat"].to_numpy(float), e["lon"].to_numpy(float)
+        d = np.min([haversine(lat, lon, a, b) for a, b in zip(c["lat"], c["lon"])], axis=0)
+        return pd.Series(d, index=e.index)
 
     def outlook(self, pid: int, eid: int) -> dict:
         """The player's prospects in a singles event. Per registered opponent: today's W, the
@@ -1298,14 +1333,16 @@ class App:
         player's C by a win (gainWin) or a loss (lossLoss) against him: one pass of the formula
         with the player's results plus that one, the others' values fixed (as move_up).
 
-        Expected gain, a heuristic: a knockout draw of ceil(log2(field + 1)) rounds. The
-        opponent of the player's round k (1 = his first match) is the typical survivor of the
-        rounds before: the registered player at the 1 - 0.5^k quantile of W (the median of the
-        field, then of its stronger half, of its strongest quarter...). The chance to beat him is
-        the model's, else a logistic in the W difference, 1 / (1 + e^(W_opp - W)). The player
-        reaches round k+1 with reach_k times that chance; round k adds reach_k * (chance * C
-        change by the win + (1 - chance) * C change by the loss), both given the wins of the
-        rounds before, so the rounds sum to the expected change of C over the tournament."""
+        Expected gain, a heuristic: a knockout draw of R = ceil(log2(n)) rounds for the n
+        players (the player and the registered ones), its 2^R - n byes to the strongest by W.
+        The opponent of draw round j (1 = the first) is the typical survivor of the rounds
+        before: the registered player at the 1 - 0.5^j quantile of W (the median of the field,
+        then of its stronger half, of its strongest quarter...). The chance to beat him is the
+        model's, else a logistic in the W difference, 1 / (1 + e^(W_opp - W)). Per round the
+        player plays (from his first, after a bye or not): the chance to reach it and the change
+        of his C when he goes out there (the wins before plus that loss); then the title: its
+        chance and the change of C by winning every round. Expected gain: the sum of the
+        changes weighted by the chance of each outcome."""
         s = self.s()
         r = self._player(s, pid)
         t = self.tournaments
@@ -1354,23 +1391,28 @@ class App:
         ranked = sorted((w, i) for i, w in zip(ids, W) if not np.isnan(w))
         expected = None
         if ranked:
-            rounds, reach, gain, prior_w = [], 1.0, 0.0, []
-            for k in range(1, max(1, int(np.ceil(np.log2(len(ids) + 1)))) + 1):
-                w, i = ranked[min(int(round((1 - 0.5**k) * (len(ranked) - 1))), len(ranked) - 1)]
+            n = len(ids) + 1
+            R = max(1, int(np.ceil(np.log2(n))))
+            # a bye for the 2^R - n strongest: the player's seed is his place by W in the field
+            seed = int((W > r["W"]).sum())
+            first = 2 if seed < 2**R - n and R > 1 else 1
+            rounds, reach, gain, wins_w = [], 1.0, 0.0, []
+            for j in range(first, R + 1):
+                w, i = ranked[min(int(round((1 - 0.5**j) * (len(ranked) - 1))), len(ranked) - 1)]
                 p = chance.get(i, 1 / (1 + np.exp(w - r["W"])))
                 if pd.isna(p):
                     rounds = None
                     break
-                wins = np.ones(len(prior_w), bool)
-                base = c_with(r["w0"], own_w, own_win, prior_w, wins)
-                win_c = c_with(r["w0"], own_w, own_win, prior_w + [w], np.r_[wins, True]) - base
-                loss_c = c_with(r["w0"], own_w, own_win, prior_w + [w], np.r_[wins, False]) - base
-                g = reach * (p * win_c + (1 - p) * loss_c)
-                rounds.append({"round": k, "reach": _num(reach), "gain": _num(g)})
-                gain, reach = gain + g, reach * p
-                prior_w.append(w)
+                # out in this round: the wins before and this loss
+                out = c_with(r["w0"], own_w, own_win, wins_w + [w], np.r_[np.ones(len(wins_w), bool), False]) - C0
+                rounds.append({"round": R - j + 1, "reach": _num(reach), "ifOut": _num(out)})
+                gain += reach * (1 - p) * out
+                reach *= p
+                wins_w.append(w)
             if rounds is not None:
-                expected = {"gain": _num(gain), "rounds": rounds}
+                title = c_with(r["w0"], own_w, own_win, wins_w, np.ones(len(wins_w), bool)) - C0
+                gain += reach * title
+                expected = {"gain": _num(gain), "rounds": rounds, "title": _num(reach), "ifTitle": _num(title)}
         return {"field": field, "opponents": opponents, "expected": expected}
 
 

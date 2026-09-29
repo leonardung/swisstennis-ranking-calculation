@@ -4,6 +4,7 @@ Layout:
     data/raw/<personId>.json   one cached API response per player (makes scraping resumable)
     data/raw/season            the current official list when the cache was last completed
     data/players.parquet       currently licensed players (both genders, kontingent 0: foreigners)
+    data/clubs.parquet         their clubs with coordinates (personId, clubId, club, city, lat, lon)
     data/history.parquet       published ranking values per player and publication date
     data/matches.parquet       single results, one row per (player, match) from the player's view
 """
@@ -66,6 +67,20 @@ def fetch_players(client: Client) -> pd.DataFrame:
     )
     df["gender"] = df["gender"].map(GENDERS)
     return df.drop_duplicates("personId").reset_index(drop=True)
+
+
+def player_clubs(players: pd.DataFrame) -> pd.DataFrame:
+    """The clubs of the players (fetch_players' "clubs" column), one row per player and club:
+    personId, clubId, club, city, lat, lon."""
+    rows = [
+        {"personId": pid, "clubId": c["id"], "club": c.get("name"), "city": c.get("city"),
+         "lat": c.get("latitude"), "lon": c.get("longitude")}
+        for pid, clubs in zip(players["personId"], players["clubs"])
+        for c in (m.get("club") for m in (clubs if isinstance(clubs, list) else []))
+        if c and c.get("id") is not None
+    ]  # fmt: skip
+    df = pd.DataFrame(rows, columns=["personId", "clubId", "club", "city", "lat", "lon"])
+    return df.astype({"personId": "int64", "clubId": "int64", "lat": "float64", "lon": "float64"})
 
 
 def _fetch_player(client: Client, person_id: int, since: str, raw_dir: Path) -> None:
@@ -217,6 +232,8 @@ def scrape(data_dir: Path, since: str, workers: int, recent_days: int | None = N
         expire_cache(client, raw_dir, recent_days)
 
     players = fetch_players(client)
+    _write(player_clubs(players), data_dir, "clubs")
+    players = players.drop(columns="clubs")
     _write(players, data_dir, "players")
     print(f"{len(players)} licensed players ({players['gender'].value_counts().to_dict()})")
 

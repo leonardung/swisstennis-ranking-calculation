@@ -26,6 +26,7 @@ query PlayerList($offset: Int, $limit: Int, $where: lizenz_nehmer_bool_exp) {
     ranking
     kontingent
     person { id firstname lastname gender }
+    clubs { club { id name city latitude longitude } }
   }
 }"""
 

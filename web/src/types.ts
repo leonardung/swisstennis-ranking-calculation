@@ -474,6 +474,8 @@ export interface PlayerTournaments {
   registered: PlayerTournamentEntry[];
   suggested: (PlayerTournamentEntry & { inRange: number })[];
   past: (PlayerTournamentEntry & { reached: number | null; results: PastResult[] })[];
+  /** the player's clubs with a place: the suggestions are ranked around them */
+  clubs: { name: string | null; city: string | null }[];
 }
 
 export interface OutlookOpponent {
@@ -490,5 +492,11 @@ export interface Outlook {
   field: { count: number; medianW: number | null; topW: number | null; inRange: number | null };
   opponents: OutlookOpponent[];
   // null when no opponent has a value
-  expected: { gain: number | null; rounds: { round: number; reach: number; gain: number | null }[] } | null;
+  /** rounds the player plays (round: 1 = final), the chance to reach each and his change of C if he goes out there; title: its chance and change of C */
+  expected: {
+    gain: number | null;
+    rounds: { round: number; reach: number; ifOut: number | null }[];
+    title: number;
+    ifTitle: number | null;
+  } | null;
 }

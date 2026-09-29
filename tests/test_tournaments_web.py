@@ -76,7 +76,7 @@ def _state(chance=None):
         today=TODAY, p=p, number=pd.Series(p.index, index=p["personId"]), rows=rows, player_rows={0: np.array([0, 1])},
         people=pd.DataFrame({"name": [f"P{i}" for i in range(1, 7)]}, index=pd.Index(range(1, 7), name="personId")),
         official_class=pd.Series(["R4", "R2", "R4", "R7", "R3", "R5"], index=range(1, 7)),
-        chance=chance or (lambda q: None), official_date=TODAY, updated=TODAY.to_pydatetime(),
+        chance=chance or (lambda q: None), official_date=TODAY, clubs=None, updated=TODAY.to_pydatetime(),
         period=SimpleNamespace(start=TODAY - pd.Timedelta(days=365)),
     )
 
@@ -212,6 +212,19 @@ def test_player_registered_suggested_past(client):
     assert client.get("/api/players/99/tournaments").status_code == 404
 
 
+def test_suggested_around_the_clubs(client):
+    app = client.app.state.app
+    assert client.get("/api/players/1/tournaments").json()["clubs"] == []  # clubs unknown: by the field
+    # a club in Bern (the 2001 event) and one in Lausanne: the closest counts
+    app.state.clubs = pd.DataFrame({
+        "personId": [1, 1, 2], "clubId": [7, 8, 9], "club": ["TC Bern", "TC Lausanne", "TC X"],
+        "city": ["Bern", "Lausanne", "X"], "lat": [46.95, 46.52, 47.0], "lon": [7.46, 6.63, 8.0],
+    })  # fmt: skip
+    r = client.get("/api/players/1/tournaments").json()
+    assert r["clubs"] == [{"name": "TC Bern", "city": "Bern"}, {"name": "TC Lausanne", "city": "Lausanne"}]
+    assert [(x["event"]["id"], x["tournament"]["distanceKm"]) for x in r["suggested"]] == [(2001, 0.8)]
+
+
 def test_outlook_without_and_with_model(client):
     r = client.get("/api/players/1/tournaments/events/2001/outlook").json()
     assert r["field"] == {"count": 4, "medianW": 6.1, "topW": 7.4, "inRange": 3}
@@ -219,16 +232,22 @@ def test_outlook_without_and_with_model(client):
     top = r["opponents"][0]
     assert top["chance"] is None and top["gainWin"] > 0 > top["lossLoss"]
     assert r["opponents"][-1]["W"] is None and r["opponents"][-1]["gainWin"] is None
+    # 5 players: a draw of 8, byes for the 3 strongest; player 1 is the second: from the semi-finals
     rounds = r["expected"]["rounds"]
-    assert [x["round"] for x in rounds] == [1, 2, 3] and rounds[0]["reach"] == 1.0  # ceil(log2(5)) rounds
-    assert rounds[1]["reach"] < 1 and r["expected"]["gain"] == pytest.approx(sum(x["gain"] for x in rounds), abs=1e-2)
+    assert [x["round"] for x in rounds] == [2, 1] and rounds[0]["reach"] == 1.0 and rounds[1]["reach"] < 1
+    # C if out: a loss in the semi-final, a win then a loss in the final, two wins for the title
+    assert rounds[0]["ifOut"] < 0 < rounds[1]["ifOut"] < r["expected"]["ifTitle"]
     assert client.get("/api/players/1/tournaments/events/1002/outlook").status_code == 200  # not registered: fine
 
     app = client.app.state.app
     app.state = _state(chance=lambda q: np.full(len(q), 0.5))
     r = client.get("/api/players/1/tournaments/events/2001/outlook").json()
     assert r["opponents"][0]["chance"] == 0.5
-    assert [x["reach"] for x in r["expected"]["rounds"]] == [1.0, 0.5, 0.25]
+    ex = r["expected"]
+    assert [x["reach"] for x in ex["rounds"]] == [1.0, 0.5] and ex["title"] == 0.25
+    # each outcome by its chance: out in the semi-final 0.5, in the final 0.25, the title 0.25
+    out = [x["ifOut"] for x in ex["rounds"]]
+    assert ex["gain"] == pytest.approx(0.5 * out[0] + 0.25 * out[1] + 0.25 * ex["ifTitle"], abs=2e-3)
     assert client.get("/api/players/1/tournaments/events/2002/outlook").status_code == 400  # doubles
     assert client.get("/api/players/1/tournaments/events/9/outlook").status_code == 404
 
@@ -240,7 +259,7 @@ def test_missing_files_give_empty_results(tmp_path):
     r = c.get("/api/tournaments").json()
     assert r == {"total": 0, "tournaments": [], "options": {"matchTypes": [], "ages": [], "surfaces": [], "cantons": [], "cities": []}, "updated": None}
     assert c.get("/api/tournaments/1").status_code == 404
-    assert c.get("/api/players/1/tournaments").json() == {"registered": [], "suggested": [], "past": []}
+    assert c.get("/api/players/1/tournaments").json() == {"registered": [], "suggested": [], "past": [], "clubs": []}
     assert c.get("/api/meta").json()["tournaments"] == {"updated": None, "running": False, "lastError": None}
 
 

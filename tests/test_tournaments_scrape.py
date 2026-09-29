@@ -171,3 +171,16 @@ def test_upsert_and_keep_old():
     kept = t.keep_old(new, old, "id", ["v"], {2})
     assert kept["v"].tolist() == ["b", "d"]
 
+
+
+def test_player_clubs():
+    from swisstennis_ranking.scrape import player_clubs
+
+    players = pd.DataFrame({"personId": [1, 2, 3], "clubs": [
+        [{"club": {"id": 10, "name": "TC A", "city": "A", "latitude": 46.1, "longitude": 6.1}},
+         {"club": {"id": 11, "name": "TC B", "city": "B", "latitude": None, "longitude": None}}],
+        [], None,
+    ]})  # fmt: skip
+    c = player_clubs(players)
+    assert c["personId"].tolist() == [1, 1] and c["clubId"].tolist() == [10, 11]
+    assert c.loc[0, ["club", "lat", "lon"]].tolist() == ["TC A", 46.1, 6.1] and pd.isna(c.loc[1, "lat"])
