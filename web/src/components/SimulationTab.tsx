@@ -4,7 +4,7 @@ import { playerHref, useAsync, useDebounced, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { CATEGORIES, fmt3, fmtDate, fmtInt } from "../format";
 import type { Match, PlayerDetail } from "../types";
-import { AsyncStatus, Card, CategoryBadge, Delta, Hint, ResultPill, Spinner } from "./common";
+import { AsyncStatus, Card, CategoryBadge, Delta, FixedValueNote, Hint, ResultPill, Spinner } from "./common";
 import SearchBox from "./SearchBox";
 import { SimRow } from "./SimulatorTab";
 
@@ -169,6 +169,7 @@ function PredictCard({ player }: { player: PlayerDetail }) {
   return (
     <Card title={t("predictTitle")}>
       <p className="muted">{t("predictIntro")}</p>
+      <FixedValueNote note={player.today?.note} />
 
       <h3 className="predict-sub">{t("predictHypoTitle")}</h3>
       <div className="predict-rows">

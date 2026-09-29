@@ -725,7 +725,7 @@ class App:
                 {
                     "id": int(idx),
                     "date": x["date"].date().isoformat(),
-                    "tournament": _str(x["tournamentName"]),
+                    "tournament": stats.tournament_name(x["tournamentName"]),
                     "type": x["type"],
                     "opponent": {
                         **opponent,

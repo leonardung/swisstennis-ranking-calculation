@@ -135,3 +135,12 @@ export function Standing({ cls, rank }: { cls: string | null | undefined; rank?:
     </span>
   );
 }
+
+/** Why a what-if leaves the player's values unchanged: Swiss Tennis sets them (assigned value of a
+ * foreigner, classification of a new player). Nothing for a computed value. */
+export function FixedValueNote({ note }: { note: "assigned" | "classified" | null | undefined }) {
+  const { t } = useI18n();
+  if (!note) return null;
+  const reason = t(note === "assigned" ? "reasonAssigned" : "reasonClassified");
+  return <p className="hint hint-info">ⓘ {t("noteFixedSim", { reason })}</p>;
+}

@@ -189,3 +189,9 @@ def test_predict_removes_played_matches_and_adds_matches_against_players(tmp_pat
         with pytest.raises(HTTPException) as e:
             app.predict(1, **kw)
         assert e.value.status_code == 400, kw
+
+
+def test_tournament_name_drops_the_number():
+    assert stats.tournament_name("157652 47. Wohlensee-Cup") == "47. Wohlensee-Cup"
+    assert stats.tournament_name("IC 2L") == "IC 2L"
+    assert stats.tournament_name(None) is None

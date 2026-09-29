@@ -7,7 +7,7 @@ import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtChance, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
 import type { PlayerDetail, SimSide, SimState } from "../types";
-import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, Spinner } from "./common";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, FixedValueNote, Hint, Spinner } from "./common";
 import { MatchTable } from "./MatchListDialog";
 import SearchBox from "./SearchBox";
 
@@ -76,6 +76,7 @@ export default function SimulatorTab({ player }: { player: PlayerDetail }) {
     <div className="simulator">
       <Card title={t("simTitle")}>
         <p className="muted">{t("simIntro")}</p>
+        <FixedValueNote note={player.today?.note} />
         <SearchBox className="sim-search" placeholder={t("simSearch")} onSelect={pick} />
         {selfError && <p className="hint neg">{t("simSelf")}</p>}
         {chips(t("simRecent"), recent, (o) => fmtDate(o.lastDate, locale))}

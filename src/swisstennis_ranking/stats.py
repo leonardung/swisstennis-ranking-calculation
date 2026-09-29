@@ -1,5 +1,7 @@
 """Per-player match statistics (results, sets, games, tiebreaks, opponents) for the web UI."""
 
+import re
+
 import numpy as np
 import pandas as pd
 
@@ -187,7 +189,7 @@ def match_list(m: pd.DataFrame) -> list[dict]:
         out.append(
             {
                 "date": r["date"].date().isoformat(),
-                "tournament": _str(r["tournamentName"]),
+                "tournament": tournament_name(r["tournamentName"]),
                 "opponent": opponent,
                 "own": own,
                 "score": r["score"],
@@ -215,7 +217,7 @@ def career(m: pd.DataFrame) -> dict:
         opponent, own = at_the_time(r)
         return {
             "date": r["date"].date().isoformat(),
-            "tournament": _str(r["tournamentName"]),
+            "tournament": tournament_name(r["tournamentName"]),
             "opponent": opponent,
             "own": own,
             "score": r["score"],
@@ -254,7 +256,7 @@ def player_stats(m: pd.DataFrame) -> dict:
     def match_row(r) -> dict:
         return {
             "date": r["date"].date().isoformat(),
-            "tournament": _str(r["tournamentName"]),
+            "tournament": tournament_name(r["tournamentName"]),
             "opponent": {"id": _id(r["adversaryPersonId"]), "name": _name(r), "class": _str(r["opp_class"])},
             "opponent_value": _num(r["value"]),
             "score": r["score"],
@@ -326,6 +328,12 @@ def _num(v) -> float | None:
 
 def _str(v) -> str | None:
     return None if pd.isna(v) else str(v)
+
+
+def tournament_name(v) -> str | None:
+    """A tournament's name without the number Swiss Tennis puts in front ("157323 Club Champion
+    Trophy TC Marly"); interclub names ("IC 2L") as they are."""
+    return None if pd.isna(v) else re.sub(r"^\d+ ", "", str(v))
 
 
 def _name(r) -> str:
