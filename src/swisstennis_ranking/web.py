@@ -1080,10 +1080,12 @@ class App:
         end = e["dateEnd"].fillna(e["dateBegin"])
         today = pd.Timestamp.now().normalize()
         window = np.array(end < today if when == "past" else end >= today, bool)  # a writable copy
+        # tournaments held within the dates (a club championship running for months does not
+        # match a week of it)
         if from_:
-            window &= (end >= _date(from_, "from")).to_numpy(bool)
+            window &= (e["dateBegin"] >= _date(from_, "from")).to_numpy(bool)
         if to:
-            window &= (e["dateBegin"] <= _date(to, "to")).to_numpy(bool)
+            window &= (end <= _date(to, "to")).to_numpy(bool)
         keep = window.copy()
         for w in _fold(pd.Series([q or ""])).iloc[0].split():
             keep &= e["key"].str.contains(w, regex=False).to_numpy(bool)

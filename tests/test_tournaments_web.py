@@ -121,6 +121,8 @@ def test_list_filters_and_options(client):
     assert _ids(client.get("/api/tournaments", params={"surface": "Gazon,Terre battue"})) == [200, 100]
     assert _ids(client.get("/api/tournaments", params={"surface": "Gazon"})) == []
     assert _ids(client.get("/api/tournaments", params={"to": D(7).date().isoformat()})) == [200]
+    # only tournaments held within the dates, not the ones overlapping them
+    assert _ids(client.get("/api/tournaments", params={"from": D(4).date().isoformat(), "to": D(12).date().isoformat()})) == []
     one = client.get("/api/tournaments", params={"matchType": "2"}).json()["tournaments"]
     assert [(t["id"], [e["id"] for e in t["events"]]) for t in one] == [(100, [1002])]
     assert _ids(client.get("/api/tournaments", params={"q": "bern"})) == [200]
