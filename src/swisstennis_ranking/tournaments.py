@@ -13,6 +13,7 @@ window are replaced, rows outside it are kept, and tournaments of the window tha
 upstream are dropped only when the fetch looks complete (an outage must not wipe the data).
 """
 
+import html
 import json
 import re
 import threading
@@ -20,6 +21,7 @@ import time
 import unicodedata
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pandas as pd
@@ -64,6 +66,7 @@ TOURNAMENTS = {
     "email": "str",
     "phone": "str",
     "homePage": "str",
+    "news": "str",
     "lat": "float64",
     "lon": "float64",
     "updated": "datetime64[ns]",
@@ -555,6 +558,110 @@ def fetch_info(tournament_id: int) -> dict | None:
     return info if isinstance(info, dict) else None
 
 
+# the organiser's free text ("informations supplémentaires" on mytennis), public with a mytennis referer
+NEWS_URL = "https://comp.swisstennis.ch/advantage/servlet/DisplayNews"
+NEWS_TAGS = {"p", "div", "br", "b", "strong", "u", "i", "em", "ul", "ol", "li", "a"}
+NEWS_SKIP = {"head", "title", "style", "script", "xml", "object"}  # dropped with their content
+
+
+class _NewsCleaner(HTMLParser):
+    """Keeps the text and the NEWS_TAGS of an organiser's HTML, without attributes but a link's
+    http(s)/mailto href; the text is escaped, so the result is safe to show as HTML."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out: list[str] = []
+        self.open: list[str] = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in NEWS_SKIP:
+            self.skip += 1
+        elif self.skip or tag not in NEWS_TAGS:
+            return
+        elif tag == "br":
+            self.out.append("<br>")
+        elif tag == "a":
+            href = (dict(attrs).get("href") or "").strip()
+            if re.match(r"(https?:|mailto:)", href, re.I):
+                self.out.append(f'<a href="{html.escape(href)}" target="_blank" rel="noopener noreferrer">')
+            else:
+                self.out.append("<a>")
+            self.open.append(tag)
+        else:
+            self.out.append(f"<{tag}>")
+            self.open.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if tag == "br" and not self.skip:
+            self.out.append("<br>")
+
+    def handle_endtag(self, tag):
+        if tag in NEWS_SKIP:
+            self.skip = max(self.skip - 1, 0)
+        elif not self.skip and tag in self.open:  # closes what a missing end tag left open
+            while (t := self.open.pop()) != tag:
+                self.out.append(f"</{t}>")
+            self.out.append(f"</{tag}>")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.out.append(html.escape(data))
+
+    def result(self) -> str:
+        """The HTML without the empty lines around it."""
+        return "".join(_trim(self.out + [f"</{t}>" for t in reversed(self.open)])).strip()
+
+
+def _trim(tokens: list[str]) -> list[str]:
+    """Without the blanks (white space, <br>) at both ends, even inside elements, nor the elements
+    this leaves empty: tags are kept aside while walking in, dropped when their pair meets."""
+    blank = lambda x: x == "<br>" or not x.replace("\xa0", " ").strip()  # noqa: E731
+    name = lambda x: re.match(r"</?([a-z]+)", x)[1] if x.startswith("<") and x != "<br>" else None  # noqa: E731
+    lo, hi = 0, len(tokens)
+    head, tail = [], []  # opening tags passed at the start, closing ones at the end
+    while lo < hi:
+        x = tokens[lo]
+        if blank(x):
+            lo += 1
+        elif name(x) and not x.startswith("</"):
+            head.append(x)
+            lo += 1
+        elif head and x == f"</{name(head[-1])}>":  # an element holding only blanks
+            head.pop()
+            lo += 1
+        else:
+            break
+    while lo < hi:
+        x = tokens[hi - 1]
+        if blank(x):
+            hi -= 1
+        elif x.startswith("</"):
+            tail.append(x)
+            hi -= 1
+        elif tail and name(x) == name(tail[-1]) and not x.startswith("</"):
+            tail.pop()
+            hi -= 1
+        else:
+            break
+    return head + tokens[lo:hi] + tail[::-1]
+
+
+def clean_news(text: str) -> str | None:
+    """The allowed HTML of an organiser's text, None without any text."""
+    cleaner = _NewsCleaner()
+    cleaner.feed(text)
+    cleaner.close()
+    out = cleaner.result()
+    return out if re.sub(r"<[^>]*>|&nbsp;|\s", "", html.unescape(out).replace("\xa0", "")) else None
+
+
+def fetch_news(tournament_id: int) -> str | None | bool:
+    """The cleaned organiser's text of one tournament (None without one), False on failure."""
+    resp = _get(NEWS_URL, params={"tournament": f"Id{tournament_id}", "Lang": "F"}, headers={"Referer": "https://www.mytennis.ch/"})
+    return False if resp is None else clean_news(resp.text)
+
+
 def info_fields(info: dict) -> dict:
     """The tournament columns from a REST info (French texts)."""
     general, contact = info.get("generalInformation") or {}, info.get("contact") or {}
@@ -761,13 +868,15 @@ def scrape_tournaments(data_dir: Path, all_: bool = False, draws_days: int = 14)
     events = pd.DataFrame([e for t in raw for e in event_rows(t)])
     ids = tournaments["tournamentId"].tolist()
 
-    # REST info, in parallel (plain HTTP, no login)
+    # REST info and the organiser's text, in parallel (plain HTTP, no login)
     with ThreadPoolExecutor(WORKERS) as pool:
         fetched = list(tqdm(pool.map(fetch_info, ids), total=len(ids), desc="info"))
+        news = list(tqdm(pool.map(fetch_news, ids), total=len(ids), desc="news"))
     infos = {i: info for i, info in zip(ids, fetched) if info is not None}
     info_cols = pd.DataFrame([{"tournamentId": i, **info_fields(x)} for i, x in infos.items()])
     if len(info_cols):
         tournaments = tournaments.drop(columns=INFO_COLUMNS).merge(info_cols, on="tournamentId", how="left")
+    tournaments["news"] = [x if isinstance(x, str) else None for x in news]
     event_info, regs = {}, []
     for x in infos.values():
         e, r = info_events(x)
@@ -822,6 +931,7 @@ def scrape_tournaments(data_dir: Path, all_: bool = False, draws_days: int = 14)
     old_d = _read(out / "draws.parquet", DRAWS)
     failed = set(ids) - set(infos)
     tournaments = keep_old(tournaments, old_t, "tournamentId", INFO_COLUMNS, failed)
+    tournaments = keep_old(tournaments, old_t, "tournamentId", ["news"], {i for i, x in zip(ids, news) if x is False})
     failed_events = events.loc[events["tournamentId"].isin(failed), "eventId"]
     events = keep_old(events, old_e, "eventId", EVENT_INFO_COLUMNS, failed_events)
 

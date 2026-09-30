@@ -453,6 +453,8 @@ export interface TournamentDetail {
   email: string | null;
   phone: string | null;
   homePage: string | null;
+  /** the organiser's text: HTML reduced to text, emphasis, lists and links by the server */
+  news: string | null;
   mytennisUrl: string | null;
   events: TournamentEventDetail[];
 }

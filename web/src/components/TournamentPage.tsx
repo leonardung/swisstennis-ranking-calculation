@@ -1,7 +1,7 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { trackView } from "../analytics";
-import { playerHref, tournamentHref, useAsync } from "../hooks";
+import { playerHref, showModal, tournamentHref, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateTime, fmtInt } from "../format";
 import type { DrawMatch, DrawPlayer, DrawRound, TournamentDetail, TournamentEventDetail } from "../types";
@@ -113,7 +113,8 @@ function TournamentInfo({ tr }: { tr: TournamentDetail }) {
       </span>
     ),
   );
-  if (!items.length && !tr.selection) return null;
+  const [newsOpen, setNewsOpen] = useState(false);
+  if (!items.length && !tr.selection && !tr.news) return null;
   return (
     <Card className="tourn-info">
       {items.length > 0 && (
@@ -126,12 +127,48 @@ function TournamentInfo({ tr }: { tr: TournamentDetail }) {
           ))}
         </dl>
       )}
-      {tr.selection && (
-        <p className="small selection">
-          <strong>{t("selection")}:</strong> {tr.selection}
-        </p>
+      {(tr.selection || tr.news) && (
+        <div className="tourn-info-foot">
+          {tr.selection && (
+            <p className="small selection">
+              <strong>{t("selection")}:</strong> {tr.selection}
+            </p>
+          )}
+          {tr.news && (
+            <button className="btn news-button" onClick={() => setNewsOpen(true)}>
+              {t("news")}
+            </button>
+          )}
+        </div>
       )}
+      {newsOpen && tr.news && <NewsDialog html={tr.news} onClose={() => setNewsOpen(false)} />}
     </Card>
+  );
+}
+
+/** Popup with the organiser's text (HTML cleaned on the server: only text, emphasis, lists, line
+ * breaks and http/mailto links). */
+function NewsDialog({ html, onClose }: { html: string; onClose: () => void }) {
+  const { t } = useI18n();
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => showModal(dialog.current!), []);
+  const close = () => dialog.current?.close();
+  return (
+    <dialog
+      ref={dialog}
+      className="match-dialog"
+      aria-labelledby="news-dialog-title"
+      onClose={onClose}
+      onClick={(e) => e.target === dialog.current && close()}
+    >
+      <div className="match-dialog-head">
+        <h2 id="news-dialog-title">{t("news")}</h2>
+        <button className="btn btn-ghost" onClick={close} aria-label={t("close")}>
+          ✕
+        </button>
+      </div>
+      <div className="match-dialog-body news-text" dangerouslySetInnerHTML={{ __html: html }} />
+    </dialog>
   );
 }
 

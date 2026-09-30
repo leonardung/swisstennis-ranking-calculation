@@ -2384,6 +2384,34 @@ dialog.match-dialog::backdrop {
 .tourn-info {
   margin-bottom: 16px;
 }
+/* the organiser's text, in a popup opened from the info card */
+.tourn-info-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-top: 10px;
+}
+.tourn-info-foot .selection {
+  margin: 0;
+}
+.news-button {
+  margin-left: auto;
+}
+.news-text {
+  padding: 12px 20px 20px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.news-text p {
+  margin: 0 0 8px;
+}
+.news-text ul,
+.news-text ol {
+  margin: 4px 0 8px;
+  padding-left: 22px;
+}
 .info-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

@@ -26,7 +26,7 @@ def _tables(tdir):
         "tournamentId": tid, "name": name, "city": city, "canton": canton, "dateBegin": D(b), "dateEnd": D(e),
         "drawingTime": D(b - 2), "statusId": 5, "competitionCategoryId": 1, "surface": "Terre battue", "place": None,
         "category": None, "selection": None, "entryFee": "40", "organiser": "TC " + city, "email": None, "phone": None,
-        "homePage": None, "lat": lat, "lon": lon, "updated": TODAY,
+        "homePage": None, "news": "<b>Balles</b> Dunlop" if city == "Bern" else None, "lat": lat, "lon": lon, "updated": TODAY,
     }
     _write(tdir, "tournaments", [
         t(100, "Open Lausanne", "Lausanne", "VD", 10, 15, 46.52, 6.63),
@@ -180,6 +180,7 @@ def test_detail_players_and_draw(client):
     r = client.get("/api/tournaments/200").json()
     assert r["mytennisUrl"] == "https://www.mytennis.ch/fr/tournois/200"
     assert r["surface"] == "Terre battue" and r["drawingTime"] == D(1).date().isoformat()
+    assert r["news"] == "<b>Balles</b> Dunlop" and client.get("/api/tournaments/100").json()["news"] is None
     ev = r["events"][0]
     assert ev["id"] == 2001 and ev["draw"] is None and ev["applicants"] == 9
     assert ev["pdfUrl"] is None  # not drawn yet

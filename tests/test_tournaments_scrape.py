@@ -184,3 +184,18 @@ def test_player_clubs():
     c = player_clubs(players)
     assert c["personId"].tolist() == [1, 1] and c["clubId"].tolist() == [10, 11]
     assert c.loc[0, ["club", "lat", "lon"]].tolist() == ["TC A", 46.1, 6.1] and pd.isna(c.loc[1, "lat"])
+
+
+def test_clean_news():
+    raw = (
+        '<html><head><title>News</title><style>b{}</style></head><body><div onclick="x()"><u><b>Lieu :</b></u></div>'
+        '<p>a<script>bad()</script><a href="javascript:x()">l</a> <a href="https://tc.ch" style="c">tc</a><b>z<i>q</p>'
+        '<img src=x><xml><w:x>word</w:x></xml>&lt;t&gt;<br/></body></html>'
+    )
+    assert t.clean_news(raw) == (
+        '<div><u><b>Lieu :</b></u></div><p>a<a>l</a> '
+        '<a href="https://tc.ch" target="_blank" rel="noopener noreferrer">tc</a><b>z<i>q</i></b></p>&lt;t&gt;'  # no trailing <br>
+    )
+    assert t.clean_news("<html><head><title>News</title></head><body><div><br></div>&nbsp;</body></html>") is None
+    # blank lines at both ends go, even inside elements
+    assert t.clean_news("<div><br></div><div><b>x</b>\r\n<div><br></div> <div>&nbsp;</div><br></div>") == "<div><b>x</b></div>"

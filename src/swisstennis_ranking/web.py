@@ -63,8 +63,8 @@ TOURNAMENT_TABLES = {
         "dateBegin": "datetime64[ns]", "dateEnd": "datetime64[ns]", "drawingTime": "datetime64[ns]",
         "statusId": "int64", "competitionCategoryId": "Int64", "surface": "string", "place": "string",
         "category": "string", "selection": "string", "entryFee": "string", "organiser": "string",
-        "email": "string", "phone": "string", "homePage": "string", "lat": "float64", "lon": "float64",
-        "updated": "datetime64[ns]",
+        "email": "string", "phone": "string", "homePage": "string", "news": "string", "lat": "float64",
+        "lon": "float64", "updated": "datetime64[ns]",
     },
     "events": {
         "eventId": "int64", "tournamentId": "int64", "matchTypeId": "int64", "ageCategoryId": "int64",
@@ -1176,6 +1176,7 @@ class App:
             **_tournament_summary(tid, r),
             "drawingTime": _day(r["drawingTime"]),
             **{k: _str(r[k]) for k in ("surface", "place", "category", "selection", "entryFee", "organiser", "email", "phone", "homePage")},
+            "news": _str(r["news"]),  # the organiser's text, HTML already cleaned by the scraper
             "mytennisUrl": MYTENNIS_URL.format(tid),
             "events": [
                 {
