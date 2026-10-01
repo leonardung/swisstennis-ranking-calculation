@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -112,6 +112,8 @@ class State:
     chance: Callable[[pd.DataFrame], np.ndarray | None]
     # the chance before each result (rows of `matches`) of its player; NaN for walkovers
     match_chance: Callable[[pd.Index], pd.Series]
+    # the official list rows (personId, date, W, C, classification, rank) of these players
+    lists_of: Callable[[Iterable[int]], pd.DataFrame]
     # the players' clubs (personId, clubId, club, city, lat, lon; see scrape.player_clubs), None
     # before the first scrape that fetches them
     clubs: pd.DataFrame | None = None
@@ -159,16 +161,27 @@ def load_state(data_dir: Path) -> State:
     match_rows = matches.groupby("personId").indices
     model = _winprob_model(data_dir)
     born = winprob.people(players)
+    # slim tables indexed by player, built once: scanning or selecting rows of the full tables
+    # (millions of rows, string columns) took seconds per request
+    slim_lists = history[["personId", "date", "W", "C", "classification", "rank"]]
+    list_rows = slim_lists.groupby("personId").indices
+    results = winprob.results(matches)
+    result_rows = results.groupby("personId").indices
+
+    def rows_of(table: pd.DataFrame, index: dict, ids: Iterable[int]) -> pd.DataFrame:
+        return table.iloc[np.concatenate([index.get(i, np.array([], int)) for i in ids] + [np.array([], int)])]
+
+    def lists_of(ids: Iterable[int]) -> pd.DataFrame:
+        return rows_of(slim_lists, list_rows, ids)
 
     def chance(q: pd.DataFrame, played: bool = False) -> np.ndarray | None:
         if model is None:
             return None
         ids = pd.unique(pd.concat([q["personId"], q["opp"]]))
-        pos = np.concatenate([match_rows.get(i, np.array([], int)) for i in ids] + [np.array([], int)])
-        return model.chance(q, winprob.results(matches.iloc[pos]), history, born, played)
+        return model.chance(q, rows_of(results, result_rows, ids), lists_of(ids), born, played)
 
     def match_chance(rows: pd.Index) -> pd.Series:
-        q = winprob.results(matches.loc[rows])
+        q = results.loc[results.index.intersection(rows)]
         c = chance(q, played=True)
         return pd.Series(np.nan if c is None else c, index=q.index).reindex(rows)
 
@@ -189,6 +202,7 @@ def load_state(data_dir: Path) -> State:
         history=history,
         matches=matches,
         match_rows=match_rows,
+        lists_of=lists_of,
         period=period,
         p=p,
         rows=rows,
@@ -265,6 +279,33 @@ def match_deltas(w0: float, opp_w: np.ndarray, win: np.ndarray) -> tuple[np.ndar
         Wj, Cj = values(keep)
         dW[j], dC[j] = W - Wj, C - Cj
     return dW, dC
+
+
+def c_progress(w0: float, opp_w: np.ndarray, win: np.ndarray, dates: np.ndarray) -> list[tuple]:
+    """(date, C, gains) after each day with results, counting only the results up to that day
+    (the discarded losses chosen again each time), opponents valued as in the last pass. gains:
+    (row, C with minus C without that row, None for a discarded loss) for the rows of that day,
+    the day's discarded losses kept: taking a result out could otherwise bring a discarded loss
+    back and make a loss look like a gain."""
+
+    def c(keep: np.ndarray, counted: np.ndarray | None = None) -> float:
+        k = np.zeros(keep.sum(), int)
+        W, R = ranking.single_pass(np.array([w0]), k, opp_w[keep], win[keep], None if counted is None else counted[keep])
+        return W[0] + R[0]
+
+    out = []
+    for d in np.unique(dates):
+        keep = dates <= d
+        counted = np.ones(len(win), bool)
+        counted[keep] = win[keep] | ranking.counted_losses(np.zeros(keep.sum(), int), opp_w[keep], win[keep], 1)
+        C = c(keep)
+        gains = []
+        for j in np.flatnonzero(dates == d):
+            without = keep.copy()
+            without[j] = False
+            gains.append((j, C - c(without, counted) if counted[j] else None))
+        out.append((d, C, gains))
+    return out
 
 
 def c_with(w0: float, opp_w: np.ndarray, win: np.ndarray, extra_w, extra_win) -> float:
@@ -706,7 +747,7 @@ class App:
         start, end = seasons[season]
         m = m[(m["date"] >= start) & (m["date"] < end)]
         # with_categories() renumbers the rows: keep the row of each result in `matches`
-        m = stats.with_categories(m.assign(row=m.index), s.history, pid).set_index("row")
+        m = self._with_categories(s, m.assign(row=m.index), pid).set_index("row")
         m = m.sort_values("date", ascending=False, kind="stable")
 
         current = season == 0
@@ -763,6 +804,35 @@ class App:
                 "next_official": next_official.date().isoformat(),
             },
             "matches": out,
+            "progress": self._progress(s, r, rows, start) if current else None,
+        }
+
+    def _progress(self, s: State, r: pd.Series, rows: pd.DataFrame, start: pd.Timestamp) -> dict:
+        """The player's C through today's window (from his start value), and the lowest C of each
+        category (bar the last) among today's ranked players of his gender."""
+        match = rows["match"].to_numpy()
+        dates = s.matches.loc[match, "date"].dt.normalize().to_numpy()
+        steps = c_progress(r["w0"], rows["opp_w"].to_numpy(), rows["win"].to_numpy(), dates)
+        # the formula's values (a foreigner's fixed value aside), held until today
+        points = [(start, r["w0"], []), *steps]
+        points.append((s.today, points[-1][1], []))
+        g = s.p[evaluate.ranked(s.p) & (s.p["gender"] == r["gender"])]
+        lowest = g.groupby("class")["C"].min()
+        # the rank a value gets on today's list: 1 + the other ranked players above it
+        others = np.sort(g.loc[g.index != r.name, "C"].to_numpy())
+        return {
+            "points": [
+                {
+                    "date": pd.Timestamp(d).date().isoformat(),
+                    "C": _num(c),
+                    "rank": None if pd.isna(c) else int(len(others) - np.searchsorted(others, round(c, 3), side="right") + 1),
+                    "matches": [{"id": int(match[j]), "delta_C": _num(dc)} for j, dc in gains],
+                }
+                for d, c, gains in points
+            ],
+            "thresholds": [
+                {"class": c, "C": _num(lowest[c])} for c in evaluate.CATEGORIES[:-1] if c in lowest.index
+            ],
         }
 
     def simulate(self, pid: int, oid: int) -> dict:
@@ -906,6 +976,11 @@ class App:
             levels.append({"class": cls, "opponents": opponents})
         return {"class": _str(r["class"]), "target": target, "C": _num(r["C"]), "need": _num(need), "max_wins": MOVE_UP_MAX_WINS, "levels": levels}
 
+    def _with_categories(self, s: State, m: pd.DataFrame, pid: int) -> pd.DataFrame:
+        """stats.with_categories() from the lists of the player and his opponents only."""
+        ids = [pid, *m["adversaryPersonId"].dropna().astype(int).unique().tolist()]
+        return stats.with_categories(m, s.lists_of(ids), pid)
+
     def _own_rows(self, s: State, r: pd.Series) -> tuple[np.ndarray, np.ndarray]:
         """The opponents' W and the outcomes of the player's (row r of s.p) results today."""
         rows = s.rows.iloc[s.player_rows.get(r.name, np.array([], int))]
@@ -925,7 +1000,7 @@ class App:
             if not range_.isdigit():
                 raise HTTPException(400, "range must be window, all or a year")
             m = m[m["date"].dt.year == int(range_)]
-        return stats.with_categories(m, s.history, pid), years
+        return self._with_categories(s, m, pid), years
 
     def player_stats(self, pid: int, range_: str) -> dict:
         m, years = self._stats_matches(pid, range_)
@@ -957,7 +1032,7 @@ class App:
         else:
             m = highlights.board_matches(m, s.today, key)
         m = stats.describe(m)
-        return stats.match_list(stats.with_categories(m, s.history, pid))
+        return stats.match_list(self._with_categories(s, m, pid))
 
     def highlights(self) -> dict:
         return self.s().highlights
@@ -967,7 +1042,7 @@ class App:
         self._player(s, pid)
         m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
         m = stats.describe(evaluate.dedupe(m[m["adversaryPersonId"] == oid]))
-        return stats.match_list(stats.with_categories(m, s.history, pid))
+        return stats.match_list(self._with_categories(s, m, pid))
 
     def career(self, pid: int) -> dict:
         m, _ = self._stats_matches(pid, "all")

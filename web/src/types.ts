@@ -122,12 +122,22 @@ export interface Season {
   end: string;
 }
 
+/** C after a day with results, the rank it gets on today's list, and the C each result of that day brings (null: a discarded loss) */
+export interface ProgressPoint {
+  date: string;
+  C: number | null;
+  rank: number | null;
+  matches: { id: number; delta_C: number | null }[];
+}
+
 export interface MatchesResponse {
   /** 0: today's window (what each match counts); 1, 2...: the year windows before it */
   season: number;
   seasons: Season[];
   window: { start: string; end: string; next_official: string };
   matches: Match[];
+  /** today's window only: C after each day with results, and the lowest C of each category */
+  progress: { points: ProgressPoint[]; thresholds: { class: string; C: number | null }[] } | null;
 }
 
 export interface SimState {

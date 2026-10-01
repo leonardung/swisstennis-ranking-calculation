@@ -37,11 +37,12 @@ def counted_losses(player: np.ndarray, opp_w: np.ndarray, win: np.ndarray, n_pla
 
 
 def single_pass(
-    w0: np.ndarray, player: np.ndarray, opp_w: np.ndarray, win: np.ndarray
+    w0: np.ndarray, player: np.ndarray, opp_w: np.ndarray, win: np.ndarray, counted: np.ndarray | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
-    """One pass of the formula given fixed opponent values. Returns (W, R) per player."""
+    """One pass of the formula given fixed opponent values. Returns (W, R) per player.
+    counted: which losses count (default: all but the discarded ones, see counted_losses)."""
     n = len(w0)
-    loss = counted_losses(player, opp_w, win, n)
+    loss = counted_losses(player, opp_w, win, n) if counted is None else counted & ~win
     pos = np.log(np.exp(w0) + np.bincount(player, weights=np.exp(opp_w) * win, minlength=n))
     neg = np.log(np.exp(-w0) + np.bincount(player, weights=np.exp(-opp_w) * loss, minlength=n))
     return (pos - neg) / 2, (pos + neg) / 6

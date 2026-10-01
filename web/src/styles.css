@@ -2201,6 +2201,18 @@ dialog.match-dialog::backdrop {
   margin-top: 2px;
 }
 
+.progress-tip-match .delta,
+.progress-tip-gain {
+  margin-left: auto;
+  padding-left: 8px;
+}
+.progress-tip-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- Tournaments ---------- */
 .sr-only {
   position: absolute;

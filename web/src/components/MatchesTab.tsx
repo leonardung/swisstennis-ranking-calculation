@@ -4,6 +4,7 @@ import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtChance, fmtDate, fmtDateShort } from "../format";
 import type { Match, Season } from "../types";
+import ProgressChart from "./ProgressChart";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, ResultPill, Standing } from "./common";
 
 type Filter = "all" | "wins" | "losses" | "not_counted" | "dropping";
@@ -150,6 +151,7 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
         </p>
       )}
       {!st.data && <AsyncStatus {...st} />}
+      {st.data?.season === season && st.data.progress && <ProgressChart progress={st.data.progress} matches={st.data.matches} />}
       {!past && (
       <div className="summary-bar">
         <div className="summary-item">

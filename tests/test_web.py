@@ -23,6 +23,31 @@ def test_match_deltas_are_values_with_minus_without():
     assert dW[0] > 0 and dW[1] < 0
 
 
+
+def test_c_progress_counts_the_results_up_to_each_day():
+    opp_w, win = np.array([8.0, 7.0, 9.0]), np.array([True, False, True])
+    d = np.array(["2026-03-01", "2026-01-01", "2026-03-01"], dtype="datetime64[D]")
+    steps = web.c_progress(7.5, opp_w, win, d)
+    assert [str(x) for x, _, _ in steps] == ["2026-01-01", "2026-03-01"]
+    assert [j for j, _ in steps[1][2]] == [0, 2]  # the rows of that day, each with its gain
+    without = ranking.single_pass(np.array([7.5]), np.zeros(2, int), opp_w[[1, 2]], win[[1, 2]])
+    assert steps[1][2][0][1] == pytest.approx(steps[1][1] - without[0][0] - without[1][0])
+    W, R = ranking.single_pass(np.array([7.5]), np.zeros(1, int), opp_w[[1]], win[[1]])
+    W_all, R_all = ranking.single_pass(np.array([7.5]), np.zeros(3, int), opp_w, win)
+    assert steps[0][1] == pytest.approx(W[0] + R[0])
+    assert steps[1][1] == pytest.approx(W_all[0] + R_all[0])
+
+
+def test_c_progress_keeps_the_discarded_losses_of_the_day():
+    # the 6th result discards the weakest loss: taking out the other loss must not bring it back
+    opp_w = np.array([5.0, 9.0, 6.0, 6.0, 6.0, 6.0])
+    win = np.array([False, False, True, True, True, True])
+    d = np.array(["2026-01-01"] * 6, dtype="datetime64[D]")
+    (_, C, gains), = web.c_progress(7.0, opp_w, win, d)
+    g = dict(gains)
+    assert g[0] is None  # discarded
+    assert g[1] < 0 and all(g[j] > 0 for j in range(2, 6))
+
 def _results(scores, codes):
     rows = []
     for (s1, s2, s3), code in zip(scores, codes):
@@ -165,7 +190,7 @@ def _league_app(tmp_path):
         today=today, updated=None, history=history, matches=matches, match_rows=None, period=period, p=p, rows=calc,
         player_rows=calc.groupby("player").indices, number=pd.Series(p.index, index=p["personId"]), people=people,
         official_date=today, official_class=pd.Series(dtype=object), highlights={}, chance=lambda q: None,
-        match_chance=None,
+        match_chance=None, lists_of=None,
     )
     return app, matches
 
