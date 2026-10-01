@@ -92,6 +92,11 @@ Analytics (self-hosted [Umami](https://umami.is), optional):
 It records page views (home, `/player/<id>/<tab>` titled with the player's name) and the events
 `simulate` (player, opponent) and `language`, with no cookies.
 
+Loading times: the app measures each page view in the visitors' browsers (from the click, or the
+start of the page load, until the page's data is shown) and each API request on the server, and
+keeps them 90 days in `data/perf.sqlite`. Set `PERF_TOKEN` in `.env` (`openssl rand -hex 32`) and
+open `/perf` to see the count, avg, p50, p95 and p99 per page; without it the report is off.
+
 Without Docker: `uv run swisstennis-ranking serve --port 8000` (API at `/api`, UI from
 `web/dist`: `cd web && npm ci && npm run build`; `npm run dev` for development, proxying `/api`
 to port 8000).

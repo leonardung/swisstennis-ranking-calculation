@@ -16,6 +16,7 @@ import type {
   TournamentList,
   PlayerTournaments,
 } from "./types";
+import { timedRequest } from "./perf";
 
 /** Error carrying the HTTP status so callers can distinguish 404 / 503 ("loading"). */
 export class ApiError extends Error {
@@ -39,6 +40,15 @@ export function clearCache(): void {
 
 async function get<T>(path: string, signal?: AbortSignal, useCache = true): Promise<T> {
   if (useCache && cache.has(path)) return cache.get(path) as T;
+  const data = await timedRequest(fetchJson<T>(path, signal));
+  if (useCache) {
+    if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
+    cache.set(path, data);
+  }
+  return data;
+}
+
+async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, { signal, headers: { Accept: "application/json" } });
@@ -56,12 +66,7 @@ async function get<T>(path: string, signal?: AbortSignal, useCache = true): Prom
     }
     throw new ApiError(res.status, detail);
   }
-  const data = (await res.json()) as T;
-  if (useCache) {
-    if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
-    cache.set(path, data);
-  }
-  return data;
+  return (await res.json()) as T;
 }
 
 export const api = {

@@ -95,7 +95,8 @@ export type Route =
   | { page: "home" }
   | { page: "player"; id: number; tab: Tab }
   | { page: "tournaments" }
-  | { page: "tournament"; id: number; eventId: number | null };
+  | { page: "tournament"; id: number; eventId: number | null }
+  | { page: "perf" };
 
 export function parsePath(path: string): Route {
   const m = /^\/player\/(\d+)(?:\/([a-z0-9]+))?\/?$/.exec(path);
@@ -105,6 +106,7 @@ export function parsePath(path: string): Route {
     return { page: "player", id: Number(m[1]), tab };
   }
   if (/^\/tournaments\/?$/.test(path)) return { page: "tournaments" };
+  if (/^\/perf\/?$/.test(path)) return { page: "perf" };
   const t = /^\/tournament\/(\d+)(?:\/(\d+))?\/?$/.exec(path);
   if (t) return { page: "tournament", id: Number(t[1]), eventId: t[2] ? Number(t[2]) : null };
   return { page: "home" };

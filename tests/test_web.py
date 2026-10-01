@@ -129,6 +129,27 @@ def test_feedback_is_stored_rate_limited_and_drops_bots(tmp_path):
     assert json.loads(lines[0]) | {"time": None} == {**msg, "email": None, "time": None}
 
 
+
+def test_perf_samples_and_api_times_are_summarised_behind_a_token(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.create_app(tmp_path, None, None))
+    for ms in (100, 200, 300, 400):
+        assert client.post("/api/perf", json={"kind": "navigation", "page": "player/matches", "ms": ms}).status_code == 204
+    assert client.post("/api/perf", json={"kind": "navigation", "page": "<script>", "ms": 1}).status_code == 422
+    assert client.post("/api/perf", json={"kind": "other", "page": "home", "ms": 1}).status_code == 422
+    client.get("/api/config")  # timed by the server
+    assert client.get("/api/perf").status_code == 404  # no token set: no report
+    monkeypatch.setenv("PERF_TOKEN", "secret")
+    assert client.get("/api/perf").status_code == 401
+    assert client.get("/api/perf", headers={"Authorization": "Bearer nope"}).status_code == 401
+    rows = client.get("/api/perf", headers={"Authorization": "Bearer secret"}).json()["rows"]
+    by = {(r["kind"], r["page"]): r for r in rows}
+    assert by[("navigation", "player/matches")] | {"p95": 0, "p99": 0} == {
+        "kind": "navigation", "page": "player/matches", "n": 4, "avg": 250, "p50": 250, "p95": 0, "p99": 0
+    }
+    assert by[("api", "/api/config")]["n"] == 1
+
 def test_matches_of_a_statistic():
     m = _results(
         [((7, 6), (3, 6), (10, 8)), ((6, 0), (6, 7), (4, 6)), ((-1, -1), (-1, -1), (-1, -1)), ((6, 4), (7, 5), (-1, -1))],

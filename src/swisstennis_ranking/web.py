@@ -4,6 +4,7 @@ Today's list is the monthly list at today's date in predict mode (see evaluate.b
 is computed at startup and again after every nightly scrape.
 """
 
+import hmac
 import json
 import os
 import re
@@ -17,21 +18,25 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import evaluate, highlights, ranking, stats, winprob
+from .perf import PerfLog
 from .tournaments import locate
 
 # a nightly scrape refetches the players with a result dated in these last days
 RECENT_DAYS = 45
 # feedback messages accepted per visitor (IP) per hour
 FEEDBACK_PER_HOUR = 5
+# page loading times accepted per visitor (IP) per hour
+PERF_PER_HOUR = 600
 # "what do I need to move up": wins counted up to this many, against these percentiles of W
 MOVE_UP_MAX_WINS = 15
 MOVE_UP_PERCENTILES = (25, 50, 75)
@@ -88,6 +93,32 @@ class Feedback(BaseModel):
     page: str | None = Field(None, max_length=300)
     # hidden field of the form: only bots fill it in
     website: str | None = None
+
+
+class PerfSample(BaseModel):
+    """A page view timed by the browser: from the navigation (initial: from the start of the
+    page load) until its data is shown."""
+
+    kind: Literal["initial", "navigation"]
+    page: str = Field(pattern=r"^(home|tournaments?|perf|player/[a-z]{1,12})$")
+    ms: float = Field(ge=0, le=120_000)
+
+
+class RateLimit:
+    """At most `per_hour` calls per visitor (IP) in any hour; more raise 429."""
+
+    def __init__(self, per_hour: int):
+        self.per_hour = per_hour
+        self.lock = threading.Lock()
+        self.times: dict[str, list[float]] = {}
+
+    def hit(self, ip: str) -> None:
+        now = time.time()
+        with self.lock:
+            recent = [t for t in self.times.get(ip, []) if now - t < 3600]
+            if len(recent) >= self.per_hour:
+                raise HTTPException(429, "too many requests, try again later")
+            self.times[ip] = recent + [now]
 
 
 @dataclass
@@ -491,8 +522,10 @@ class App:
         # the ranking scrape (and training) and the tournament scrape never run at the same time
         self.scrape_lock = threading.Lock()
         self.tournaments = load_tournaments(data_dir / TOURNAMENT_DIR)
+        self.feedback_limit = RateLimit(FEEDBACK_PER_HOUR)
         self.feedback_lock = threading.Lock()
-        self.feedback_times: dict[str, list[float]] = {}
+        self.perf_limit = RateLimit(PERF_PER_HOUR)
+        self.perf = PerfLog(data_dir / "perf.sqlite")
 
     # --- lifecycle ---------------------------------------------------------------------------
 
@@ -598,12 +631,8 @@ class App:
         """Append a visitor's message to data/feedback.jsonl (bots are dropped silently)."""
         if f.website:
             return
-        now = time.time()
+        self.feedback_limit.hit(ip)
         with self.feedback_lock:
-            recent = [t for t in self.feedback_times.get(ip, []) if now - t < 3600]
-            if len(recent) >= FEEDBACK_PER_HOUR:
-                raise HTTPException(429, "too many messages, try again later")
-            self.feedback_times[ip] = recent + [now]
             entry = {"time": datetime.now().isoformat(timespec="seconds"), **f.model_dump(exclude={"website"})}
             with open(self.data_dir / "feedback.jsonl", "a", encoding="utf-8") as out:
                 out.write(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -1528,6 +1557,11 @@ class SinglePageApp(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
+def _ip(request: Request) -> str:
+    # behind the Cloudflare tunnel every request comes from cloudflared
+    return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
+
+
 def create_app(
     data_dir: Path, static_dir: Path | None, scrape_time: str | None, tournament_hours: float | None = None
 ) -> FastAPI:
@@ -1541,6 +1575,7 @@ def create_app(
     async def lifespan(_):
         app.start()
         yield
+        app.perf.flush()
 
     api = FastAPI(title="Tennis Radar", lifespan=lifespan)
     api.state.app = app  # for tests
@@ -1551,12 +1586,37 @@ def create_app(
         url, website = os.environ.get("UMAMI_SCRIPT_URL"), os.environ.get("UMAMI_WEBSITE_ID")
         return {"analytics": {"script": url, "website_id": website} if url and website else None}
 
+    @api.middleware("http")
+    async def time_api(request: Request, call_next):
+        """The response time of each API request, by route (/api/players/{pid}/matches)."""
+        start = time.perf_counter()
+        response = await call_next(request)
+        route = request.scope.get("route")
+        path = getattr(route, "path", "")
+        if request.method == "GET" and path.startswith("/api/") and path != "/api/perf" and response.status_code < 400:
+            app.perf.add("api", path, (time.perf_counter() - start) * 1000)
+        return response
+
     @api.post("/api/feedback", status_code=204)
     def feedback(f: Feedback, request: Request):
-        # behind the Cloudflare tunnel every request comes from cloudflared
-        ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
-        app.feedback(f, ip)
+        app.feedback(f, _ip(request))
         return Response(status_code=204)
+
+    @api.post("/api/perf", status_code=204)
+    def perf_sample(sample: PerfSample, request: Request):
+        app.perf_limit.hit(_ip(request))
+        app.perf.add(sample.kind, sample.page, sample.ms)
+        return Response(status_code=204)
+
+    @api.get("/api/perf")
+    def perf_summary(days: float = Query(7, gt=0, le=90), authorization: str | None = Header(None)):
+        # the report needs PERF_TOKEN (Authorization: Bearer <token>); without one it is off
+        token = os.environ.get("PERF_TOKEN")
+        if not token:
+            raise HTTPException(404, "Not Found")
+        if not hmac.compare_digest((authorization or "").encode(), f"Bearer {token}".encode()):
+            raise HTTPException(401, "wrong token")
+        return {"days": days, "rows": app.perf.summary(days)}
 
     @api.get("/api/meta")
     def meta():

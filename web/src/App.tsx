@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, clearCache } from "./api";
 import { trackEvent, trackView } from "./analytics";
-import { useAsync, useRoute } from "./hooks";
+import { useAsync, useRoute, type Route } from "./hooks";
+import { startPageTiming } from "./perf";
 import { I18nContext, loadLang, makeT, saveLang, type I18n, type Lang } from "./i18n";
 import Header from "./components/Header";
 import Home from "./components/Home";
 import PlayerPage from "./components/PlayerPage";
 import TournamentsPage from "./components/TournamentsPage";
 import TournamentPage from "./components/TournamentPage";
+import PerfPage from "./components/PerfPage";
 import { BackendLoading } from "./components/common";
 
 export default function App() {
@@ -66,8 +68,13 @@ export default function App() {
 
   const route = useRoute();
   // each navigation counts, even to the same page (another query: a fresh filter state)
-  const nav = useRef({ route, n: 0 });
-  if (nav.current.route !== route) nav.current = { route, n: nav.current.n + 1 };
+  // t0: when the page started (0 = the page load), for its loading time
+  const nav = useRef({ route, n: 0, t0: 0 });
+  if (nav.current.route !== route) nav.current = { route, n: nav.current.n + 1, t0: performance.now() };
+
+  useEffect(() => {
+    if (route.page !== "perf") startPageTiming(perfPage(route), nav.current.n ? "navigation" : "initial", nav.current.t0);
+  }, [route]);
 
   useEffect(() => {
     if (route.page === "home") {
@@ -90,6 +97,8 @@ export default function App() {
           <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : route.page === "tournaments" ? (
           <TournamentsPage key={`${nav.current.n}-${dataVersion}-${tournamentsVersion}`} />
+        ) : route.page === "perf" ? (
+          <PerfPage />
         ) : route.page === "tournament" ? (
           <TournamentPage key={`${route.id}-${dataVersion}-${tournamentsVersion}`} id={route.id} eventId={route.eventId} />
         ) : (
@@ -102,4 +111,9 @@ export default function App() {
       </footer>
     </I18nContext.Provider>
   );
+}
+
+/** The page of a route in the loading times: the player pages by tab, no ids. */
+function perfPage(route: Route): string {
+  return route.page === "player" ? `player/${route.tab}` : route.page;
 }
