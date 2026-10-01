@@ -1127,6 +1127,27 @@ class App:
             "cities": sorted(e.loc[e["lat"].notna(), "city"].dropna().astype(str).unique().tolist()),
         }
 
+    def tournament_search(self, q: str, limit: int) -> list[dict]:
+        """Tournaments whose name, city or organiser contain every word of q: words starting a
+        name part first, then the coming ones (soonest first), then the past ones (latest first)."""
+        t = self.tournaments.tournaments
+        words = _fold(pd.Series([q])).iloc[0].split()
+        if not words or t.empty:
+            return []
+        hit = np.ones(len(t), bool)
+        for w in words:
+            hit &= t["key"].str.contains(w, regex=False).to_numpy(bool)
+        found = t[hit]
+        starts = sum(found["key"].str.contains(r"(?:^| )" + re.escape(w)).astype(int) for w in words)
+        today = pd.Timestamp.now().normalize()
+        past = (found["dateEnd"].fillna(found["dateBegin"]) < today).to_numpy()
+        # coming: soonest first; past: latest first
+        order = np.where(past, -found["dateBegin"].astype("int64"), found["dateBegin"].astype("int64"))
+        found = found.assign(starts=starts, past=past, order=order).sort_values(
+            ["starts", "past", "order"], ascending=[False, True, True]
+        )[:limit]
+        return [_tournament_summary(tid, r) for tid, r in found.iterrows()]
+
     def tournament_list(
         self,
         from_: str | None = None,
@@ -1613,6 +1634,10 @@ def create_app(
             from_, to, q, matchType, age, event, fieldMin, fieldMax, near, radius, canton, player, sort, limit,
             offset, when, surface,
         )
+
+    @api.get("/api/tournaments/search")
+    def tournament_search(q: str, limit: int = Query(20, ge=1, le=100)):
+        return app.tournament_search(q, limit)
 
     @api.get("/api/tournaments/{tid}")
     def tournament(tid: int):

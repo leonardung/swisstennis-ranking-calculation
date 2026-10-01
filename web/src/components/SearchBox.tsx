@@ -1,9 +1,10 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { useDebounced } from "../hooks";
-import { useI18n } from "../i18n";
-import type { PlayerSummary } from "../types";
+import { useI18n, type MsgKey } from "../i18n";
+import type { PlayerSummary, TournamentHit } from "../types";
 import { CategoryBadge } from "./common";
+import { dateRange } from "./tournamentUtil";
 
 interface Props {
   onSelect: (p: PlayerSummary) => void;
@@ -16,10 +17,92 @@ interface Props {
   gender?: string;
 }
 
-export default function SearchBox({ onSelect, placeholder, autoFocus, className = "", clearOnSelect = true, gender }: Props) {
+/** Search for a player by name or licence. */
+export default function SearchBox({ gender, ...props }: Props) {
+  const { t } = useI18n();
+  return (
+    <Combobox<PlayerSummary>
+      {...props}
+      search={(q, signal) => api.search(q, 20, signal, gender)}
+      deps={[gender]}
+      placeholder={props.placeholder ?? t("searchPlaceholder")}
+      noResults="searchNoResults"
+      renderItem={(p) => (
+        <>
+          <span className={`gender g-${p.gender}`} title={p.gender === "F" ? t("women") : t("men")}>
+            {p.gender === "F" ? "♀" : "♂"}
+          </span>
+          <span className="search-name">
+            <strong>{p.name}</strong>
+            {p.licence && <small className="muted mono">{p.licence}</small>}
+          </span>
+          <span className="search-cats">
+            {/* no official category: today's alone, without "– →" */}
+            {(p.class_official || !p.class_today) && <CategoryBadge cls={p.class_official} size="sm" />}
+            {p.class_official && p.class_today && p.class_today !== p.class_official && (
+              <>
+                <span className="muted">→</span>
+                <CategoryBadge cls={p.class_today} size="sm" />
+              </>
+            )}
+            {!p.class_official && p.class_today && <CategoryBadge cls={p.class_today} size="sm" />}
+          </span>
+        </>
+      )}
+    />
+  );
+}
+
+/** Search for a tournament by name, city or organiser. */
+export function TournamentSearchBox({ onSelect, className }: { onSelect: (t: TournamentHit) => void; className?: string }) {
+  const { t, locale } = useI18n();
+  return (
+    <Combobox<TournamentHit>
+      onSelect={onSelect}
+      className={className}
+      search={(q, signal) => api.tournamentSearch(q, 20, signal)}
+      placeholder={t("searchTournamentPlaceholder")}
+      noResults="searchNoTournament"
+      renderItem={(x) => (
+        <span className="search-name">
+          <strong>{x.name}</strong>
+          <small className="muted">
+            {[x.city, dateRange(x.dateBegin, x.dateEnd, locale)].filter(Boolean).join(" · ")}
+          </small>
+        </span>
+      )}
+    />
+  );
+}
+
+interface ComboProps<T extends { id: number }> {
+  search: (q: string, signal: AbortSignal) => Promise<T[]>;
+  /** values besides the query the search depends on */
+  deps?: unknown[];
+  renderItem: (item: T) => ReactNode;
+  onSelect: (item: T) => void;
+  placeholder: string;
+  noResults: MsgKey;
+  autoFocus?: boolean;
+  className?: string;
+  clearOnSelect?: boolean;
+}
+
+/** A search input with a list of results to pick from (keyboard and mouse). */
+function Combobox<T extends { id: number }>({
+  search,
+  deps = [],
+  renderItem,
+  onSelect,
+  placeholder,
+  noResults,
+  autoFocus,
+  className = "",
+  clearOnSelect = true,
+}: ComboProps<T>) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<PlayerSummary[]>([]);
+  const [results, setResults] = useState<T[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -36,7 +119,7 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
     }
     const ctrl = new AbortController();
     setBusy(true);
-    api.search(debounced, 20, ctrl.signal, gender).then(
+    search(debounced, ctrl.signal).then(
       (r) => {
         setResults(r);
         setActive(0);
@@ -50,7 +133,8 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
       },
     );
     return () => ctrl.abort();
-  }, [debounced, gender]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debounced, ...deps]);
 
   // close on outside click
   useEffect(() => {
@@ -67,7 +151,7 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
     el?.scrollIntoView({ block: "nearest" });
   }, [active]);
 
-  const choose = (p: PlayerSummary) => {
+  const choose = (p: T) => {
     onSelect(p);
     setOpen(false);
     if (clearOnSelect) {
@@ -99,7 +183,7 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
   let status: string | null = null;
   if (query.trim().length < 2) status = t("searchHint");
   else if (busy && results.length === 0) status = t("searchSearching");
-  else if (!busy && debounced === query.trim() && results.length === 0) status = t("searchNoResults");
+  else if (!busy && debounced === query.trim() && results.length === 0) status = t(noResults);
 
   return (
     <div className={`search ${className}`} ref={rootRef}>
@@ -114,7 +198,7 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
         aria-controls={listId}
         aria-autocomplete="list"
         aria-activedescendant={showList && results[active] ? `${listId}-${active}` : undefined}
-        placeholder={placeholder ?? t("searchPlaceholder")}
+        placeholder={placeholder}
         value={query}
         autoFocus={autoFocus}
         onChange={(e) => {
@@ -144,24 +228,7 @@ export default function SearchBox({ onSelect, placeholder, autoFocus, className 
                     choose(p);
                   }}
                 >
-                  <span className={`gender g-${p.gender}`} title={p.gender === "F" ? t("women") : t("men")}>
-                    {p.gender === "F" ? "♀" : "♂"}
-                  </span>
-                  <span className="search-name">
-                    <strong>{p.name}</strong>
-                    {p.licence && <small className="muted mono">{p.licence}</small>}
-                  </span>
-                  <span className="search-cats">
-                    {/* no official category: today's alone, without "– →" */}
-                    {(p.class_official || !p.class_today) && <CategoryBadge cls={p.class_official} size="sm" />}
-                    {p.class_official && p.class_today && p.class_today !== p.class_official && (
-                      <>
-                        <span className="muted">→</span>
-                        <CategoryBadge cls={p.class_today} size="sm" />
-                      </>
-                    )}
-                    {!p.class_official && p.class_today && <CategoryBadge cls={p.class_today} size="sm" />}
-                  </span>
+                  {renderItem(p)}
                 </li>
               ))}
             </ul>

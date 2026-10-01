@@ -378,6 +378,9 @@ export interface TournamentSummary {
   surface?: string | null;
 }
 
+/** a tournament found by name (GET /api/tournaments/search) */
+export type TournamentHit = Pick<TournamentSummary, "id" | "name" | "city" | "canton" | "dateBegin" | "dateEnd">;
+
 export interface TournamentListItem extends TournamentSummary {
   events: TournamentEvent[];
 }

@@ -283,3 +283,10 @@ def test_scrape_reloads_only_the_tournaments(tmp_path):
     assert len(app.tournaments.events) == 5 and app.state is state
     assert app.tournament_scrape["running"] is False and app.tournament_scrape["last_run"] is not None
     assert app.scrape["last_run"] is None
+
+
+def test_search_by_name_coming_soonest_first_then_past(client):
+    ids = lambda q: [t["id"] for t in client.get("/api/tournaments/search", params={"q": q}).json()]  # noqa: E731
+    assert ids("tc") == [200, 100, 300]  # organisers "TC <city>": all of them
+    assert ids("zur") == [300] and ids("lau OPEN") == [100] and ids(" ") == []
+    assert client.get("/api/tournaments/search", params={"q": "bern"}).json()[0]["name"] == "Cup Bern"

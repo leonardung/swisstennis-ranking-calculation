@@ -1,8 +1,8 @@
-import { navigate, playerHref } from "../hooks";
+import { navigate, playerHref, tournamentHref } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmtDate, fmtDateTime } from "../format";
 import type { Meta } from "../types";
-import SearchBox from "./SearchBox";
+import SearchBox, { TournamentSearchBox } from "./SearchBox";
 import FeedbackButton from "./FeedbackButton";
 
 export default function Header({
@@ -34,7 +34,12 @@ export default function Header({
             {t("navTournaments")}
           </a>
         </nav>
-        {showSearch && <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />}
+        {showSearch &&
+          (inTournaments ? (
+            <TournamentSearchBox className="header-search" onSelect={(x) => navigate(tournamentHref(x.id))} />
+          ) : (
+            <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />
+          ))}
         <div className="header-side">
           {meta && (
             <div className="freshness" title={freshnessTitle()}>

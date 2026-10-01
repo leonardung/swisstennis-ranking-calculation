@@ -12,6 +12,7 @@ import type {
   SimulateResponse,
   Stats,
   TournamentDetail,
+  TournamentHit,
   TournamentList,
   PlayerTournaments,
 } from "./types";
@@ -70,6 +71,8 @@ export const api = {
       `/api/players/search?q=${encodeURIComponent(q)}&limit=${limit}${gender ? `&gender=${gender}` : ""}`,
       signal,
     ),
+  tournamentSearch: (q: string, limit = 20, signal?: AbortSignal) =>
+    get<TournamentHit[]>(`/api/tournaments/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
   player: (id: number, signal?: AbortSignal) =>
     get<PlayerDetail>(`/api/players/${id}`, signal),
   matches: (id: number, season: number, signal?: AbortSignal) =>
