@@ -139,13 +139,19 @@ def upsets(matches: pd.DataFrame, history: pd.DataFrame, start: pd.Timestamp, to
 
 
 def placed_players(
-    history: pd.DataFrame, matches: pd.DataFrame, players: pd.DataFrame, date: pd.Timestamp, cache: Path
+    history: pd.DataFrame,
+    matches: pd.DataFrame,
+    players: pd.DataFrame,
+    date: pd.Timestamp,
+    cache: Path,
+    data_time: float = 0,
 ) -> pd.Index:
     """Players whose category on the official list of `date` Swiss Tennis set instead of the
     formula: new players, players classified by evaluation (Art. 6.1) and foreigners, as the
-    list's reproduction finds them. Saved to `cache` (the reproduction takes seconds and a
-    published list does not change)."""
-    if cache.exists():
+    list's reproduction finds them. Saved to `cache` (the reproduction takes seconds), used while
+    newer than the data (`data_time`, a file time): a scrape can complete the list's players
+    (their quota flag, results) after the list is out."""
+    if cache.exists() and cache.stat().st_mtime >= data_time:
         return pd.Index(pd.read_parquet(cache)["personId"])
     p = evaluate.evaluate(evaluate.build_period(history, matches, players, date), predict=False)
     ids = p.loc[p["classified"] | p["foreign"], ["personId"]]

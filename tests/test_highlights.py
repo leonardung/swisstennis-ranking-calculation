@@ -103,3 +103,14 @@ def test_board_matches_of_the_longest_match_tiebreak():
         (1, 2, "2026-03-01", "S", ((6, 4), (6, 4))),
     ])
     assert list(highlights.board_matches(m, TODAY, "longest_super_tiebreak")["date"]) == [pd.Timestamp("2026-01-01")]
+
+
+def test_placed_players_cache_older_than_the_data_is_rebuilt(tmp_path, monkeypatch):
+    cache = tmp_path / "placed_2026-04-01.parquet"
+    pd.DataFrame({"personId": [3, 5]}).to_parquet(cache)
+    p = pd.DataFrame({"personId": [7, 8, 9], "classified": [True, False, False], "foreign": [False, True, False]})
+    monkeypatch.setattr(highlights.evaluate, "build_period", lambda *a: None)
+    monkeypatch.setattr(highlights.evaluate, "evaluate", lambda period, predict: p)
+    later = cache.stat().st_mtime + 1
+    assert highlights.placed_players(None, None, None, pd.Timestamp("2026-04-01"), cache, later).tolist() == [7, 8]
+    assert pd.read_parquet(cache)["personId"].tolist() == [7, 8]

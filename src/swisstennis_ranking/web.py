@@ -251,7 +251,12 @@ def load_state(data_dir: Path) -> State:
             official_date,
             lists[-2] if len(lists) > 1 else None,
             highlights.placed_players(
-                history, matches, players, official_date, data_dir / f"placed_{official_date.date()}.parquet"
+                history,
+                matches,
+                players,
+                official_date,
+                data_dir / f"placed_{official_date.date()}.parquet",
+                max((data_dir / f"{name}.parquet").stat().st_mtime for name in ("history", "matches", "players")),
             ),
             today,
             match_gain,
