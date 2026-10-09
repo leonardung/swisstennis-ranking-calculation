@@ -95,9 +95,26 @@ def test_analytics_config_needs_script_and_website(monkeypatch, tmp_path):
     monkeypatch.setenv("UMAMI_SCRIPT_URL", "https://stats.example.com/radar.js")
     assert client.get("/api/config").json() == {"analytics": None, "moved_to": None}
     monkeypatch.setenv("UMAMI_WEBSITE_ID", "abc")
-    monkeypatch.setenv("MOVED_TO", "https://new.example.com")
     assert client.get("/api/config").json() == {
         "analytics": {"script": "https://stats.example.com/radar.js", "website_id": "abc"},
+        "moved_to": None,
+    }
+
+
+def test_old_address_gets_moved_banner_and_its_own_website(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(web.create_app(tmp_path, None, None))
+    monkeypatch.setenv("UMAMI_SCRIPT_URL", "https://stats.example.com/radar.js")
+    monkeypatch.setenv("UMAMI_WEBSITE_ID", "new-site")
+    monkeypatch.setenv("MOVED_TO", "https://new.example.com")
+    monkeypatch.setenv("MOVED_FROM", "old.example.com")
+    monkeypatch.setenv("MOVED_FROM_UMAMI_WEBSITE_ID", "old-site")
+    new = client.get("/api/config", headers={"Host": "new.example.com"}).json()
+    assert new == {"analytics": {"script": "https://stats.example.com/radar.js", "website_id": "new-site"}, "moved_to": None}
+    old = client.get("/api/config", headers={"Host": "old.example.com"}).json()
+    assert old == {
+        "analytics": {"script": "https://stats.example.com/radar.js", "website_id": "old-site"},
         "moved_to": "https://new.example.com",
     }
 

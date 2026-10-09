@@ -14,7 +14,7 @@ function hiddenNow(): boolean {
   }
 }
 
-/** On the old address (MOVED_TO on the server): the site has moved, and the button opens the same
+/** On the old address (MOVED_FROM on the server): the site has moved, and the button opens the same
  * page at the new address. Nobody is redirected without clicking. */
 export default function MovedBanner() {
   const { t } = useI18n();

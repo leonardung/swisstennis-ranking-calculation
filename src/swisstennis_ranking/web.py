@@ -1586,13 +1586,16 @@ def create_app(
     api.state.app = app  # for tests
 
     @api.get("/api/config")
-    def config():
+    def config(request: Request):
+        # the old address (MOVED_FROM, served by this app too): a banner links to MOVED_TO, and its
+        # visits are counted as their own Umami website (MOVED_FROM_UMAMI_WEBSITE_ID)
+        moved = bool(os.environ.get("MOVED_FROM")) and request.url.hostname == os.environ["MOVED_FROM"]
         # Umami tracker, loaded by the UI when both are set
-        url, website = os.environ.get("UMAMI_SCRIPT_URL"), os.environ.get("UMAMI_WEBSITE_ID")
+        url = os.environ.get("UMAMI_SCRIPT_URL")
+        website = os.environ.get("MOVED_FROM_UMAMI_WEBSITE_ID" if moved else "UMAMI_WEBSITE_ID")
         return {
             "analytics": {"script": url, "website_id": website} if url and website else None,
-            # the site's new address: a banner links to it (the old address, while it still runs)
-            "moved_to": os.environ.get("MOVED_TO") or None,
+            "moved_to": (os.environ.get("MOVED_TO") or None) if moved else None,
         }
 
     @api.middleware("http")

@@ -97,9 +97,10 @@ start of the page load, until the page's data is shown) and each API request on 
 keeps them 90 days in `data/perf.sqlite`. Set `PERF_TOKEN` in `.env` (`openssl rand -hex 32`) and
 open `/perf` to see the count, avg, p50, p95 and p99 per page; without it the report is off.
 
-Moving to a new address: run the old one with `MOVED_TO=https://<new address>` in `.env`, and a
-banner on every page links to the same page at the new address (nobody is redirected without
-clicking).
+Moving to a new address: route the old hostname to the same app and set `MOVED_TO=https://<new
+address>` and `MOVED_FROM=<old hostname>` in `.env`. On the old address a banner on every page
+links to the same page at the new one (nobody is redirected without clicking), and its visits
+count as the Umami website `MOVED_FROM_UMAMI_WEBSITE_ID`.
 
 Without Docker: `uv run swisstennis-ranking serve --port 8000` (API at `/api`, UI from
 `web/dist`: `cd web && npm ci && npm run build`; `npm run dev` for development, proxying `/api`
