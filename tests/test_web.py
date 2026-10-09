@@ -93,10 +93,12 @@ def test_analytics_config_needs_script_and_website(monkeypatch, tmp_path):
 
     client = TestClient(web.create_app(tmp_path, None, None))  # no lifespan: no data loaded
     monkeypatch.setenv("UMAMI_SCRIPT_URL", "https://stats.example.com/radar.js")
-    assert client.get("/api/config").json() == {"analytics": None}
+    assert client.get("/api/config").json() == {"analytics": None, "moved_to": None}
     monkeypatch.setenv("UMAMI_WEBSITE_ID", "abc")
+    monkeypatch.setenv("MOVED_TO", "https://new.example.com")
     assert client.get("/api/config").json() == {
-        "analytics": {"script": "https://stats.example.com/radar.js", "website_id": "abc"}
+        "analytics": {"script": "https://stats.example.com/radar.js", "website_id": "abc"},
+        "moved_to": "https://new.example.com",
     }
 
 

@@ -5,6 +5,7 @@ import { useAsync, useRoute, type Route } from "./hooks";
 import { startPageTiming } from "./perf";
 import { I18nContext, loadLang, makeT, saveLang, type I18n, type Lang } from "./i18n";
 import Header from "./components/Header";
+import MovedBanner from "./components/MovedBanner";
 import Home from "./components/Home";
 import PlayerPage from "./components/PlayerPage";
 import TournamentsPage from "./components/TournamentsPage";
@@ -90,6 +91,7 @@ export default function App() {
         showSearch={route.page !== "home"}
         inTournaments={route.page === "tournaments" || route.page === "tournament"}
       />
+      <MovedBanner />
       <main className="container">
         {meta.backendLoading && !meta.data ? (
           <BackendLoading />

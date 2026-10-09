@@ -1,6 +1,8 @@
 /** Umami analytics, enabled by the server's /api/config (UMAMI_SCRIPT_URL, UMAMI_WEBSITE_ID).
  * Page views are sent by hand, once a player page knows its title. */
 
+import { appConfig } from "./config";
+
 type Payload = Record<string, string | number>;
 type Umami = { track: (event: unknown, data?: Payload) => void };
 type Call = (u: Umami) => void;
@@ -15,8 +17,7 @@ function send(call: Call): void {
 
 export async function initAnalytics(): Promise<void> {
   try {
-    const res = await fetch("/api/config");
-    const cfg = (await res.json()).analytics as { script: string; website_id: string } | null;
+    const cfg = (await appConfig).analytics;
     if (!cfg) throw new Error("disabled");
     const s = document.createElement("script");
     s.defer = true;

@@ -1589,7 +1589,11 @@ def create_app(
     def config():
         # Umami tracker, loaded by the UI when both are set
         url, website = os.environ.get("UMAMI_SCRIPT_URL"), os.environ.get("UMAMI_WEBSITE_ID")
-        return {"analytics": {"script": url, "website_id": website} if url and website else None}
+        return {
+            "analytics": {"script": url, "website_id": website} if url and website else None,
+            # the site's new address: a banner links to it (the old address, while it still runs)
+            "moved_to": os.environ.get("MOVED_TO") or None,
+        }
 
     @api.middleware("http")
     async def time_api(request: Request, call_next):
