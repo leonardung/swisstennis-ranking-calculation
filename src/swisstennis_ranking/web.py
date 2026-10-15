@@ -5,6 +5,7 @@ is computed at startup and again after every nightly scrape.
 """
 
 import hmac
+import html
 import json
 import os
 import re
@@ -27,7 +28,7 @@ from pydantic import BaseModel, Field
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import evaluate, highlights, ranking, stats, winprob
+from . import evaluate, highlights, mail, ranking, stats, winprob
 from .perf import PerfLog
 from .tournaments import locate
 
@@ -665,6 +666,24 @@ class App:
             entry = {"time": datetime.now().isoformat(timespec="seconds"), **f.model_dump(exclude={"website"})}
             with open(self.data_dir / "feedback.jsonl", "a", encoding="utf-8") as out:
                 out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        client_id, to = os.environ.get("MS_CLIENT_ID"), os.environ.get("FEEDBACK_MAIL_TO")
+        if client_id and to:  # told by email, without making the visitor wait
+            threading.Thread(target=self._mail_feedback, args=(client_id, to, entry), daemon=True).start()
+
+    def _mail_feedback(self, client_id: str, to: str, entry: dict) -> None:
+        """The feedback by email (MS_CLIENT_ID, FEEDBACK_MAIL_TO; see mail.py); a failure is only
+        printed: the message is already in feedback.jsonl."""
+        rows = "".join(
+            f"<tr><th align='left'>{label}</th><td>{html.escape(str(entry[k]))}</td></tr>"
+            for k, label in (("name", "Name"), ("email", "Email"), ("page", "Page"), ("time", "Time"))
+            if entry.get(k)
+        )
+        body = f"<p style='white-space:pre-wrap'>{html.escape(entry['message'])}</p><table>{rows}</table>"
+        first = " ".join(entry["message"].split())[:60]
+        try:
+            mail.send(client_id, mail.cache_path(self.data_dir), to, f"Tennis Radar feedback: {first}", body, entry.get("email"))
+        except Exception as e:  # noqa: BLE001
+            print(f"feedback email not sent: {e!r}", file=sys.stderr, flush=True)
 
     def meta(self) -> dict:
         s = self.s()

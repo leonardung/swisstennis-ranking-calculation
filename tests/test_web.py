@@ -130,6 +130,33 @@ def test_ui_paths_get_index_but_api_paths_404(tmp_path):
     assert client.get("/api/nothing").status_code == 404
 
 
+def test_feedback_is_emailed(tmp_path, monkeypatch):
+    import threading
+
+    from fastapi.testclient import TestClient
+
+    sent = []
+    done = threading.Event()
+
+    def fake_send(client_id, cache_file, to, subject, body, reply_to=None):
+        sent.append((client_id, to, subject, body, reply_to))
+        done.set()
+
+    monkeypatch.setattr(web.mail, "send", fake_send)
+    client = TestClient(web.create_app(tmp_path, None, None))
+    msg = {"message": "Super <b>site</b>\nmerci", "name": "Leo", "email": "leo@example.ch", "page": "/clubs"}
+    assert client.post("/api/feedback", json=msg).status_code == 204
+    assert not sent  # not configured: stored only
+    monkeypatch.setenv("MS_CLIENT_ID", "app")
+    monkeypatch.setenv("FEEDBACK_MAIL_TO", "me@example.ch")
+    assert client.post("/api/feedback", json=msg).status_code == 204
+    assert done.wait(5)
+    client_id, to, subject, body, reply_to = sent[0]
+    assert (client_id, to, reply_to) == ("app", "me@example.ch", "leo@example.ch")
+    assert subject == "Tennis Radar feedback: Super <b>site</b> merci"
+    assert "Super &lt;b&gt;site&lt;/b&gt;" in body and "<b>site" not in body and "/clubs" in body  # the visitor's text escaped
+
+
 def test_feedback_is_stored_rate_limited_and_drops_bots(tmp_path):
     import json
 

@@ -53,6 +53,9 @@ def main() -> None:
 
     sub.add_parser("periods", help="list publication dates found in the ranking history")
 
+    sub.add_parser("mail-login", help="sign in to the Outlook mailbox that sends the feedback emails (MS_CLIENT_ID)")
+    sub.add_parser("mail-test", help="send a test email to FEEDBACK_MAIL_TO")
+
     e = sub.add_parser("evaluate", help="compute a list and compare it with the published one")
     e.add_argument("--date", help="list date (default: latest published)")
     e.add_argument(
@@ -89,6 +92,21 @@ def main() -> None:
         from .winprob import train
 
         train(args.data)
+        return
+
+    if args.command in ("mail-login", "mail-test"):
+        from . import mail
+
+        client_id, to = os.environ.get("MS_CLIENT_ID"), os.environ.get("FEEDBACK_MAIL_TO")
+        if not client_id:
+            raise SystemExit("Set MS_CLIENT_ID (the app registration's Application (client) ID) first")
+        if args.command == "mail-login":
+            print(f"Signed in as {mail.login(client_id, mail.cache_path(args.data))}.")
+        elif not to:
+            raise SystemExit("Set FEEDBACK_MAIL_TO first")
+        else:
+            mail.send(client_id, mail.cache_path(args.data), to, "Tennis Radar test email", "<p>Feedback emails can be sent.</p>")
+            print(f"Test email sent to {to}.")
         return
 
     if args.command == "serve":
