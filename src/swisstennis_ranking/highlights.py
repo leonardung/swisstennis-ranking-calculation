@@ -27,6 +27,8 @@ RATIOS = {
 # upsets and movers are filtered by gender and by group: the winner's / the starting category
 GROUPS = {"N1-R3": CATEGORIES[:7], "R4-R9": CATEGORIES[7:]}
 LEVEL = {c: i for i, c in enumerate(CATEGORIES)}
+# the junior filter of the highlights: its key, the licence's age category
+AGES = {"U18": "18&U", "U16": "16&U", "U14": "14&U", "U12": "12&U", "U10": "10&U"}
 
 
 def list_at(history: pd.DataFrame, date: pd.Timestamp) -> pd.DataFrame:
@@ -225,13 +227,14 @@ def build(
     today: pd.Timestamp,
     match_gain: Callable[[int, int], float | None],
     match_chance: Callable[[pd.Index], pd.Series],
-) -> dict:
-    """The highlights as JSON. `today_list` is today's calculated list (index personId: class,
-    rank, C); `people` has name and gender (index personId); `placed` are the players whose
-    category on the official list Swiss Tennis set (left out of last season's movers);
-    `match_gain(personId, row)` is the C a result (its row in `matches`) brings today;
-    `match_chance(rows)` the winner's chance before those results (NaN without a model): the
-    week's upsets come the least expected first."""
+) -> dict[str, dict]:
+    """The highlights as JSON, by age: "" for everyone, else one of AGES (the players of that
+    junior category today). `today_list` is today's calculated list (index personId: class,
+    rank, C); `people` has name, gender and age (the licence's age category; index personId);
+    `placed` are the players whose category on the official list Swiss Tennis set (left out of
+    last season's movers); `match_gain(personId, row)` is the C a result (its row in `matches`)
+    brings today; `match_chance(rows)` the winner's chance before those results (NaN without a
+    model): the week's upsets come the least expected first."""
     genders = [g for g in ("M", "F") if (people["gender"] == g).any()]
 
     official = list_at(history, official_date).rename(columns={"classification": "class"})
@@ -310,45 +313,35 @@ def build(
     def part(d: pd.DataFrame, g: str, grp: str) -> pd.DataFrame:
         return d[(d["gender"] == g) & (group.reindex(d.index) == grp).to_numpy(bool)]
 
-    boards = {
-        g: {
-            grp: {
-                **{key: ratio_board(part(board, g, grp), *cols) for key, cols in RATIOS.items()},
-                "streak": streak_board(part(board, g, grp)),
-                "longest_super_tiebreak": mtb_board(part(board, g, grp)),
-                "biggest_upset": upset_board(part(big, g, grp)),
-            }
-            for grp in GROUPS
-        }
-        for g in genders
-    }
-
     week = today - pd.Timedelta(days=today.weekday())  # this Monday
     start = week - pd.Timedelta(days=7)
     up = upsets(matches, history, start, today)
     up = up[up["personId"].isin(people.index)]
     up = up.assign(chance=match_chance(pd.Index(up["row"])).to_numpy())
     up = up.sort_values("chance", kind="stable", na_position="last")
-    up = _top(up.assign(gender=up["personId"].map(people["gender"]), group=up["own_class"].map(group_of)))
-    upset_rows = [
-        {
-            "gender": r["gender"],
-            "group": r["group"],
-            "date": r["date"].date().isoformat(),
-            "winner": {**_person(people, r["personId"]), "class": r["own_class"], "W": _num(r["own_W"])},
-            "loser": _loser(r),
-            "levels": int(r["levels"]),
-            "score": r["score"],
-            "C": _num(match_gain(int(r["personId"]), r["row"])),
-            "chance": _num(r["chance"]),
-        }
-        for _, r in up.iterrows()
-    ]
+    up = up.assign(gender=up["personId"].map(people["gender"]), group=up["own_class"].map(group_of))
 
-    def mover_rows(before: pd.DataFrame, after: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> list[dict]:
+    def upset_rows(up: pd.DataFrame) -> list[dict]:
+        return [
+            {
+                "gender": r["gender"],
+                "group": r["group"],
+                "date": r["date"].date().isoformat(),
+                "winner": {**_person(people, r["personId"]), "class": r["own_class"], "W": _num(r["own_W"])},
+                "loser": _loser(r),
+                "levels": int(r["levels"]),
+                "score": r["score"],
+                "C": _num(match_gain(int(r["personId"]), r["row"])),
+                "chance": _num(r["chance"]),
+            }
+            for _, r in _top(up).iterrows()
+        ]
+
+    def mover_table(before: pd.DataFrame, after: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> pd.DataFrame:
         d = movers(before[["class", "rank", "C"]], after[["class", "rank", "C"]]).join(people[["name", "gender"]], how="inner")
-        d = _top(d.assign(group=d["class_from"].map(group_of)))
-        d = d.join(record(matches, start, end)).fillna({"won": 0, "lost": 0})
+        return d.assign(group=d["class_from"].map(group_of)).join(record(matches, start, end)).fillna({"won": 0, "lost": 0})
+
+    def mover_rows(d: pd.DataFrame) -> list[dict]:
         return [
             {
                 "gender": r["gender"],
@@ -361,17 +354,42 @@ def build(
                 "won": int(r["won"]),
                 "lost": int(r["lost"]),
             }
-            for pid, r in d.iterrows()
+            for pid, r in _top(d).iterrows()
         ]
 
-    movers_json = {"today": {"from": official_date.date().isoformat(), "to": today.date().isoformat(), "players": mover_rows(official, today_list, official_date, today + pd.Timedelta(days=1))}}
+    # (from, to, movers) of today's list and of last season
+    mover_lists = {"today": (official_date, today, mover_table(official, today_list, official_date, today + pd.Timedelta(days=1)))}
     if previous_date is not None:
         previous = list_at(history, previous_date).rename(columns={"classification": "class"})
         earned = official[~official.index.isin(placed)]
-        movers_json["season"] = {"from": previous_date.date().isoformat(), "to": official_date.date().isoformat(), "players": mover_rows(previous, earned, previous_date, official_date)}
+        mover_lists["season"] = (previous_date, official_date, mover_table(previous, earned, previous_date, official_date))
 
-    return {
-        "leaderboards": {"since": since(today).date().isoformat(), "min_played": {key: n for key, (_, _, n) in RATIOS.items()}, "players": boards},
-        "upsets": {"from": start.date().isoformat(), "to": today.date().isoformat(), "matches": upset_rows},
-        "movers": movers_json,
-    }
+    def view(keep: pd.Index | None) -> dict:
+        """The highlights of the players in `keep` (None: everyone)."""
+
+        def of(d: pd.DataFrame, ids: pd.Series | pd.Index) -> pd.DataFrame:
+            return d if keep is None else d[ids.isin(keep)]
+
+        boards = {
+            g: {
+                grp: {
+                    **{key: ratio_board(part(of(board, board.index), g, grp), *cols) for key, cols in RATIOS.items()},
+                    "streak": streak_board(part(of(board, board.index), g, grp)),
+                    "longest_super_tiebreak": mtb_board(part(of(board, board.index), g, grp)),
+                    "biggest_upset": upset_board(part(of(big, big.index), g, grp)),
+                }
+                for grp in GROUPS
+            }
+            for g in genders
+        }
+        return {
+            "leaderboards": {"since": since(today).date().isoformat(), "min_played": {key: n for key, (_, _, n) in RATIOS.items()}, "players": boards},
+            "upsets": {"from": start.date().isoformat(), "to": today.date().isoformat(), "matches": upset_rows(of(up, up["personId"]))},
+            "movers": {
+                k: {"from": a.date().isoformat(), "to": b.date().isoformat(), "players": mover_rows(of(d, d.index))}
+                for k, (a, b, d) in mover_lists.items()
+            },
+        }
+
+    age = people["age"] if "age" in people else pd.Series(index=people.index, dtype=object)
+    return {"": view(None), **{k: view(age.index[age == cat]) for k, cat in AGES.items()}}

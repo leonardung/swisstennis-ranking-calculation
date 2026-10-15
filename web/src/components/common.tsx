@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { ApiError } from "../api";
+import { useUrlState } from "../hooks";
 import { useI18n } from "../i18n";
 import { categoryIndex, categoryMove, fmtDelta, fmtInt, signClass } from "../format";
 import type { How, Result } from "../types";
@@ -143,4 +144,85 @@ export function FixedValueNote({ note }: { note: "assigned" | "classified" | nul
   if (!note) return null;
   const reason = t(note === "assigned" ? "reasonAssigned" : "reasonClassified");
   return <p className="hint hint-info">ⓘ {t("noteFixedSim", { reason })}</p>;
+}
+
+/** A segmented control: one of a few options. */
+export function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+  return (
+    <div className="seg" role="group">
+      {options.map(([k, label]) => (
+        <button key={k} className={value === k ? "active" : ""} onClick={() => onChange(k)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export interface Sort<K extends string> {
+  key: K;
+  desc: boolean;
+}
+
+/** A table's sort kept in the URL (?param=key-desc or key-asc): the sort, and a header cell that
+ * sorts by its column (a second click reverses; `desc`: the first click's direction).
+ * `onSort`: called on a click (e.g. back to the first page). */
+export function useSort<K extends string>(
+  param: string,
+  initial: Sort<K>,
+  onSort?: () => void,
+): [Sort<K>, (key: K, label: ReactNode, opts?: { className?: string; desc?: boolean }) => ReactNode] {
+  const [value, setValue] = useUrlState(param, `${initial.key}-${initial.desc ? "desc" : "asc"}`);
+  const [key, dir] = value.split("-");
+  const sort: Sort<K> = { key: key as K, desc: dir !== "asc" };
+  const th = (k: K, label: ReactNode, { className = "", desc = true }: { className?: string; desc?: boolean } = {}) => {
+    const on = sort.key === k;
+    const next = on ? !sort.desc : desc;
+    return (
+      <th className={`sortable ${className}`} aria-sort={on ? (sort.desc ? "descending" : "ascending") : undefined}>
+        <button type="button" className="sort-btn" onClick={() => {
+            setValue(`${k}-${next ? "desc" : "asc"}`);
+            onSort?.();
+          }}
+        >
+          {label}
+          <span className="sort-arrow" aria-hidden>
+            {on ? (sort.desc ? "▼" : "▲") : ""}
+          </span>
+        </button>
+      </th>
+    );
+  };
+  return [sort, th];
+}
+
+/** The rows sorted by `value` (numbers or texts), missing values last either way. */
+export function sortRows<T>(rows: T[], value: (r: T) => number | string | null | undefined, desc: boolean): T[] {
+  const dir = desc ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    if (va == null || vb == null) return va == null ? (vb == null ? 0 : 1) : -1;
+    const c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return c * dir;
+  });
+}
+
+/** Previous / next for a list shown `limit` at a time from `offset`, with "21–40 / 831". */
+export function Pager({ offset, limit, total, onChange }: { offset: number; limit: number; total: number; onChange: (offset: number) => void }) {
+  const { t, locale } = useI18n();
+  if (total <= limit) return null;
+  return (
+    <nav className="pager" aria-label={t("pages")}>
+      <button className="btn" disabled={offset <= 0} onClick={() => onChange(Math.max(0, offset - limit))}>
+        ‹ {t("previous")}
+      </button>
+      <span className="muted">
+        {fmtInt(offset + 1, locale)}–{fmtInt(Math.min(offset + limit, total), locale)} / {fmtInt(total, locale)}
+      </span>
+      <button className="btn" disabled={offset + limit >= total} onClick={() => onChange(offset + limit)}>
+        {t("next")} ›
+      </button>
+    </nav>
+  );
 }

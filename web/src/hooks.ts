@@ -91,11 +91,16 @@ export const TABS: Tab[] = ["overview", "matches", "h2h", "simulation", "stats",
 /** tabs renamed since: old links still open the right one */
 const OLD_TABS: Record<string, Tab> = { simulator: "h2h" };
 
+export type ClubTab = "players" | "tournaments";
+export const CLUB_TABS: ClubTab[] = ["players", "tournaments"];
+
 export type Route =
   | { page: "home" }
   | { page: "player"; id: number; tab: Tab }
   | { page: "tournaments" }
   | { page: "tournament"; id: number; eventId: number | null }
+  | { page: "clubs" }
+  | { page: "club"; id: number; tab: ClubTab }
   | { page: "perf" };
 
 export function parsePath(path: string): Route {
@@ -107,6 +112,9 @@ export function parsePath(path: string): Route {
   }
   if (/^\/tournaments\/?$/.test(path)) return { page: "tournaments" };
   if (/^\/perf\/?$/.test(path)) return { page: "perf" };
+  if (/^\/clubs\/?$/.test(path)) return { page: "clubs" };
+  const c = /^\/club\/(\d+)(?:\/(tournaments))?\/?$/.exec(path);
+  if (c) return { page: "club", id: Number(c[1]), tab: c[2] ? "tournaments" : "players" };
   const t = /^\/tournament\/(\d+)(?:\/(\d+))?\/?$/.exec(path);
   if (t) return { page: "tournament", id: Number(t[1]), eventId: t[2] ? Number(t[2]) : null };
   return { page: "home" };
@@ -114,6 +122,10 @@ export function parsePath(path: string): Route {
 
 export function playerHref(id: number, tab?: Tab): string {
   return tab && tab !== "overview" ? `/player/${id}/${tab}` : `/player/${id}`;
+}
+
+export function clubHref(id: number, tab?: ClubTab): string {
+  return tab === "tournaments" ? `/club/${id}/tournaments` : `/club/${id}`;
 }
 
 export function tournamentHref(id: number, eventId?: number | null): string {

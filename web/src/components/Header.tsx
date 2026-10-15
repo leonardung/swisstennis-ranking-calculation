@@ -2,18 +2,18 @@ import { navigate, playerHref, tournamentHref } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmtDate, fmtDateTime } from "../format";
 import type { Meta } from "../types";
-import SearchBox, { TournamentSearchBox } from "./SearchBox";
+import SearchBox, { ClubSearchBox, TournamentSearchBox } from "./SearchBox";
 import FeedbackButton from "./FeedbackButton";
 
-export default function Header({
-  meta,
-  showSearch,
-  inTournaments = false,
-}: {
-  meta: Meta | null;
-  showSearch: boolean;
-  inTournaments?: boolean;
-}) {
+export type Section = "players" | "tournaments" | "clubs";
+
+const SECTIONS: [Section, string, "navPlayers" | "navTournaments" | "navClubs"][] = [
+  ["players", "/", "navPlayers"],
+  ["tournaments", "/tournaments", "navTournaments"],
+  ["clubs", "/clubs", "navClubs"],
+];
+
+export default function Header({ meta, showSearch, section }: { meta: Meta | null; showSearch: boolean; section: Section }) {
   const { t, lang, setLang, locale } = useI18n();
   const scrape = meta?.scrape;
   return (
@@ -27,16 +27,17 @@ export default function Header({
           </span>
         </a>
         <nav className="section-switch" aria-label={t("navSections")}>
-          <a href="/" className={inTournaments ? "" : "active"} aria-current={inTournaments ? undefined : "true"}>
-            {t("navPlayers")}
-          </a>
-          <a href="/tournaments" className={inTournaments ? "active" : ""} aria-current={inTournaments ? "true" : undefined}>
-            {t("navTournaments")}
-          </a>
+          {SECTIONS.map(([s, href, label]) => (
+            <a key={s} href={href} className={section === s ? "active" : ""} aria-current={section === s ? "true" : undefined}>
+              {t(label)}
+            </a>
+          ))}
         </nav>
         {showSearch &&
-          (inTournaments ? (
+          (section === "tournaments" ? (
             <TournamentSearchBox className="header-search" onSelect={(x) => navigate(tournamentHref(x.id))} />
+          ) : section === "clubs" ? (
+            <ClubSearchBox className="header-search" />
           ) : (
             <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />
           ))}

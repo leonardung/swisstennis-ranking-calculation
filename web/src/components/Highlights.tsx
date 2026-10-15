@@ -3,8 +3,8 @@ import { api } from "../api";
 import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtChance, fmtDate } from "../format";
-import type { BoardKey, BoardRow, Highlights as Data, HlGroup, PersonRef } from "../types";
-import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint } from "./common";
+import type { BoardKey, BoardRow, Highlights as Data, HlAge, HlGroup, PersonRef } from "../types";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Hint, Seg } from "./common";
 import MatchListDialog, { opens, type MatchQuery } from "./MatchListDialog";
 
 const SHOWN = 5;
@@ -13,6 +13,8 @@ const GENDERS: [string, MsgKey][] = [
   ["F", "women"],
 ];
 const GROUPS: HlGroup[] = ["N1-R3", "R4-R9"];
+// each junior category on its own (the licence's today), not cumulative
+const AGES: HlAge[] = ["U18", "U16", "U14", "U12", "U10"];
 // board, title, explanation shown on the title (ratios: the minimum played, filled in)
 const BOARDS: [BoardKey, MsgKey, MsgKey][] = [
   ["longest_super_tiebreak", "hlLongestSuperTiebreak", "hlLongestSuperTiebreakHelp"],
@@ -29,18 +31,6 @@ const BOARD_ROWS = [BOARDS.slice(0, 3), BOARDS.slice(3)];
 interface Filter {
   gender: string;
   group: HlGroup;
-}
-
-function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
-  return (
-    <div className="seg" role="group">
-      {options.map(([k, label]) => (
-        <button key={k} className={value === k ? "active" : ""} onClick={() => onChange(k)}>
-          {label}
-        </button>
-      ))}
-    </div>
-  );
 }
 
 function GenderSeg({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -252,7 +242,9 @@ function Leaderboards({ data, filter }: { data: Data["leaderboards"]; filter: Fi
 
 export default function Highlights() {
   const { t } = useI18n();
-  const st = useAsync((s) => api.highlights(s), []);
+  const [ageParam, setAge] = useUrlState("age", "");
+  const age = (AGES as string[]).includes(ageParam) ? ageParam : "";
+  const st = useAsync((s) => api.highlights(age, s), [age]);
   const [gender, setGender] = useUrlState("g", "M");
   const [group, setGroup] = useUrlState("group", GROUPS[0]);
   const filter: Filter = { gender, group: (GROUPS as string[]).includes(group) ? (group as HlGroup) : GROUPS[0] };
@@ -264,7 +256,6 @@ export default function Highlights() {
   const [openParam, setOpenParam] = useUrlState("more", "");
   const open = openParam === "1";
   const toggle = () => setOpenParam(open ? "" : "1");
-  if (!st.data) return <AsyncStatus {...st} />;
   return (
     <>
       <div className="hl-filter">
@@ -276,12 +267,24 @@ export default function Highlights() {
             onChange={(group) => setFilter({ ...filter, group })}
           />
         </div>
+        <select className="hl-age" value={age} onChange={(e) => setAge(e.target.value)} aria-label={t("hlAge")} title={t("hlAgeHelp")}>
+          <option value="">{t("hlAllAges")}</option>
+          {AGES.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
       </div>
-      <div className="highlights">
-        <Upsets data={st.data.upsets} filter={filter} open={open} toggle={toggle} />
-        <Movers data={st.data.movers} filter={filter} open={open} toggle={toggle} />
-        <Leaderboards data={st.data.leaderboards} filter={filter} />
-      </div>
+      {st.data ? (
+        <div className="highlights">
+          <Upsets data={st.data.upsets} filter={filter} open={open} toggle={toggle} />
+          <Movers data={st.data.movers} filter={filter} open={open} toggle={toggle} />
+          <Leaderboards data={st.data.leaderboards} filter={filter} />
+        </div>
+      ) : (
+        <AsyncStatus {...st} />
+      )}
     </>
   );
 }

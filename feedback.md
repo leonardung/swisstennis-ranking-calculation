@@ -143,6 +143,11 @@ the same account.
 After signing up, the user picks their player ("me") and a display name, both changeable in
 settings. The account also enables notifications later (B).
 
+**Filters default to "me":** once a signed-in user has picked their player, every filter starts
+on that player's categories: the home highlights' gender, level group (N1–R3 / R4–R9) and junior
+age category, and the Tournaments page's gender, age and level range. The user can still change
+them; the change only lasts for the page (no saved filter state beyond "me").
+
 **Only on tennis-radar.ch:** the old address keeps working read-only, without accounts. No login
 button, and the account API answers 404 there. The new deployment (`~/tennis-radar`) turns
 accounts on with a setting in its `.env`. When one app serves both hostnames, a request whose host
@@ -158,14 +163,19 @@ accounts are on the new one. So the two deployments don't need to share data.
 
 ## Suggested order
 
-1. **3 + 2**: quick highlights fixes. *Done 2026-10-15, not deployed yet.*
+1. **3 + 2**: quick highlights fixes. *Done and deployed 2026-10-15.*
 2. **A**: club page. A concrete use case (interclubs, every spring) and good for word of mouth
-   within clubs; no account needed.
+   within clubs; no account needed. *Done 2026-10-15: `/club/<id>`, clubs in the header and home
+   search, the player's clubs linked on their page, a men / women switch and an interclub age
+   filter (45+ includes the older seniors, 16&U the younger juniors).*
 3. **Accounts** (tennis-radar.ch only): login, "me", settings.
 4. **C + B**: on top of accounts, the "open to me" tournament filter and favourites with the
    "My players" card.
-5. **4**: juniors filter.
-6. **1**: map.
+5. **4**: juniors filter. *Done 2026-10-15: an age select (All, U18 … U10) next to the home
+   filters, applied to every card; `/api/highlights?age=U14`, each age precomputed.*
+6. **1**: map. *Done 2026-10-15: a List / Map switch on the Tournaments page (swisstopo grey
+   national map, Leaflet loaded only with the map, one marker per place with a popup); the map
+   shows every matching tournament, not only the page.*
 7. **Notifications**, only if favourites get used.
 
 ## Decisions (2026-10-15)

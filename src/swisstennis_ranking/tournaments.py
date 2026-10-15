@@ -35,6 +35,7 @@ from .stats import WALKOVER_LOSS, WALKOVER_WIN
 
 INFO_URL = "https://low-scalability.microservices.swisstennis.ch/tournaments/info"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 # Nominatim's usage policy asks for an identifying User-Agent and at most one request per second.
 USER_AGENT = "swisstennis-ranking/1.0 (tournament locations; +https://github.com/leonardung)"
 
@@ -57,6 +58,7 @@ TOURNAMENTS = {
     "drawingTime": "datetime64[ns]",
     "statusId": "int64",
     "competitionCategoryId": "Int64",
+    "clubId": "Int64",  # the organising club (None for an association's tournament)
     "surface": "str",
     "place": "str",
     "category": "str",
@@ -511,6 +513,7 @@ def tournament_row(t: dict) -> dict:
         "drawingTime": t["drawingTime"],
         "statusId": t["tournamentStatusId"],
         "competitionCategoryId": (t.get("competitionCategory") or {}).get("id"),
+        "clubId": (t.get("club") or {}).get("id"),
     }
 
 
@@ -724,26 +727,55 @@ _nominatim_last = 0.0
 _cache_lock = threading.Lock()  # read-modify-write of geocode.json
 
 
-def nominatim(query: str) -> list | None | bool:
-    """[lat, lon] of Nominatim's first hit in Switzerland or Liechtenstein, None when there is
-    none, False on a network or server error (not to be cached)."""
+def _nominatim(url: str, params: dict) -> list | dict | None:
+    """Nominatim's JSON answer, at most one request per second; None on a network or server error."""
     global _nominatim_last
     with _nominatim_lock:
         time.sleep(max(0.0, _nominatim_last + 1 - time.monotonic()))
-        resp = _get(
-            NOMINATIM_URL,
-            retries=1,
-            params={"q": query, "countrycodes": "ch,li", "format": "json", "limit": 1},
-            headers={"User-Agent": USER_AGENT},
-        )
+        resp = _get(url, retries=1, params={**params, "format": "json"}, headers={"User-Agent": USER_AGENT})
         _nominatim_last = time.monotonic()
     try:
-        hits = resp.json() if resp is not None else None
+        return resp.json() if resp is not None else None
     except ValueError:  # an error page
-        hits = None
+        return None
+
+
+def nominatim(query: str) -> list | None | bool:
+    """[lat, lon] of Nominatim's first hit in Switzerland or Liechtenstein, None when there is
+    none, False on a network or server error (not to be cached)."""
+    hits = _nominatim(NOMINATIM_URL, {"q": query, "countrycodes": "ch,li", "limit": 1})
     if not isinstance(hits, list):
         return False
     return [float(hits[0]["lat"]), float(hits[0]["lon"])] if hits else None
+
+
+def canton_at(lat: float, lon: float) -> str | None | bool:
+    """The canton ("VD"; "FL" for Liechtenstein) at a point, None outside both countries, False
+    on a network or server error (not to be cached)."""
+    hit = _nominatim(NOMINATIM_REVERSE_URL, {"lat": lat, "lon": lon, "zoom": 5, "addressdetails": 1})
+    if not isinstance(hit, dict):
+        return False
+    address = hit.get("address") or {}
+    if address.get("country_code") == "li":
+        return "FL"
+    code = address.get("ISO3166-2-lvl4") or ""
+    return code[3:] if code.startswith("CH-") else None
+
+
+def club_cantons(clubs: pd.DataFrame, cache_path: Path) -> pd.DataFrame:
+    """The clubs (scrape.player_clubs) with the canton at their coordinates, cached by point in
+    cache_path (the first run asks Nominatim about each club, one per second)."""
+    cache = _load_cache(cache_path)
+    points = clubs[["lat", "lon"]].dropna().drop_duplicates()
+    keys = {(lat, lon): f"{lat:.5f},{lon:.5f}" for lat, lon in points.itertuples(index=False)}
+    try:
+        for (lat, lon), key in tqdm(keys.items(), desc="club cantons", unit="club"):
+            if key not in cache and (canton := canton_at(lat, lon)) is not False:
+                cache[key] = canton
+    finally:
+        _save_cache(cache, cache_path)
+    canton = [cache.get(keys.get((lat, lon), "")) for lat, lon in zip(clubs["lat"], clubs["lon"])]
+    return clubs.assign(canton=pd.Series(canton, index=clubs.index, dtype="object"))
 
 
 def _load_cache(cache_path: Path) -> dict:

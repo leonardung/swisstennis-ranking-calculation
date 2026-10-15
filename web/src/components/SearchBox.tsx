@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
-import { useDebounced } from "../hooks";
+import { clubHref, navigate, useDebounced } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
-import type { PlayerSummary, TournamentHit } from "../types";
+import type { ClubHit, PlayerSummary, TournamentHit } from "../types";
 import { CategoryBadge } from "./common";
 import { dateRange } from "./tournamentUtil";
 
@@ -27,29 +27,62 @@ export default function SearchBox({ gender, ...props }: Props) {
       deps={[gender]}
       placeholder={props.placeholder ?? t("searchPlaceholder")}
       noResults="searchNoResults"
-      renderItem={(p) => (
-        <>
-          <span className={`gender g-${p.gender}`} title={p.gender === "F" ? t("women") : t("men")}>
-            {p.gender === "F" ? "♀" : "♂"}
-          </span>
-          <span className="search-name">
-            <strong>{p.name}</strong>
-            {p.licence && <small className="muted mono">{p.licence}</small>}
-          </span>
-          <span className="search-cats">
-            {/* no official category: today's alone, without "– →" */}
-            {(p.class_official || !p.class_today) && <CategoryBadge cls={p.class_official} size="sm" />}
-            {p.class_official && p.class_today && p.class_today !== p.class_official && (
-              <>
-                <span className="muted">→</span>
-                <CategoryBadge cls={p.class_today} size="sm" />
-              </>
-            )}
-            {!p.class_official && p.class_today && <CategoryBadge cls={p.class_today} size="sm" />}
-          </span>
-        </>
-      )}
+      renderItem={(p) => <PlayerItem p={p} />}
     />
+  );
+}
+
+function PlayerItem({ p }: { p: PlayerSummary }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <span className={`gender g-${p.gender}`} title={p.gender === "F" ? t("women") : t("men")}>
+        {p.gender === "F" ? "♀" : "♂"}
+      </span>
+      <span className="search-name">
+        <strong>{p.name}</strong>
+        {p.licence && <small className="muted mono">{p.licence}</small>}
+      </span>
+      <span className="search-cats">
+        {/* no official category: today's alone, without "– →" */}
+        {(p.class_official || !p.class_today) && <CategoryBadge cls={p.class_official} size="sm" />}
+        {p.class_official && p.class_today && p.class_today !== p.class_official && (
+          <>
+            <span className="muted">→</span>
+            <CategoryBadge cls={p.class_today} size="sm" />
+          </>
+        )}
+        {!p.class_official && p.class_today && <CategoryBadge cls={p.class_today} size="sm" />}
+      </span>
+    </>
+  );
+}
+
+/** Search for a club by name, city or number. */
+export function ClubSearchBox({ className, autoFocus }: { className?: string; autoFocus?: boolean }) {
+  const { t } = useI18n();
+  return (
+    <Combobox<ClubHit>
+      className={className}
+      autoFocus={autoFocus}
+      onSelect={(x) => navigate(clubHref(x.id))}
+      search={(q, signal) => api.clubSearch(q, 20, signal)}
+      placeholder={t("searchClubPlaceholder")}
+      noResults="searchNoClub"
+      renderItem={(x) => <ClubItem c={x} />}
+    />
+  );
+}
+
+export function ClubItem({ c }: { c: ClubHit }) {
+  const { t } = useI18n();
+  return (
+    <span className="search-name">
+      <strong>{c.name}</strong>
+      <small className="muted">
+        {[c.city, `n° ${c.id}`, t("clubPlayersCount", { n: c.players })].filter(Boolean).join(" · ")}
+      </small>
+    </span>
   );
 }
 
@@ -217,7 +250,7 @@ function Combobox<T extends { id: number }>({
             <ul id={listId} role="listbox" ref={listRef}>
               {results.map((p, i) => (
                 <li
-                  key={p.id}
+                  key={i}
                   id={`${listId}-${i}`}
                   role="option"
                   aria-selected={i === active}

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { api } from "../api";
 import { trackView } from "../analytics";
-import { playerHref, TABS, useAsync, type Tab } from "../hooks";
+import { clubHref, playerHref, TABS, useAsync, type Tab } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtInt } from "../format";
 import { AsyncStatus, CategoryBadge } from "./common";
@@ -85,6 +85,11 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
               </span>
             )}
             <span>{p.gender === "F" ? t("women") : t("men")}</span>
+            {p.clubs?.map((c) => (
+              <a key={c.id} href={clubHref(c.id)}>
+                {c.name}
+              </a>
+            ))}
           </div>
         </div>
         <div className="player-quick">

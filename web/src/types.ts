@@ -73,9 +73,45 @@ export interface PlayerDetail {
   name: string;
   licence: string | null;
   gender: Gender;
+  /** the clubs of the player's current licence (older servers: missing) */
+  clubs?: ClubRef[];
   official: OfficialRanking | null;
   today: TodayRanking | null;
   history: HistoryPoint[];
+}
+
+export interface ClubRef {
+  id: number;
+  name: string | null;
+}
+
+/** a club found by name or city (GET /api/clubs/search) */
+export interface ClubHit extends ClubRef {
+  city: string | null;
+  /** of its own tournaments, else of the nearest tournament venue (only in the list of every club) */
+  canton?: string | null;
+  /** players with a current licence there */
+  players: number;
+}
+
+export interface ClubPlayer {
+  id: number;
+  name: string;
+  gender: Gender | null;
+  /** the licence's age category (A, 18&U, 45+, ...) */
+  age: string | null;
+  official: { class: string | null; rank: number | null; C: number | null } | null;
+  today: { class: string | null; rank: number | null; C: number | null; W: number | null } | null;
+}
+
+export interface ClubDetail {
+  id: number;
+  name: string | null;
+  city: string | null;
+  /** the strongest first (today's C, else the official one) */
+  players: ClubPlayer[];
+  /** the tournaments the club organises, the latest first */
+  tournaments: (Omit<TournamentSummary, "distanceKm" | "inRange">)[];
 }
 
 /** Category and rank on the list in force at a match. */
@@ -305,6 +341,8 @@ export interface Upset {
 }
 
 export type HlGroup = "N1-R3" | "R4-R9";
+/** the junior filter of the highlights ("" = everyone) */
+export type HlAge = "" | "U18" | "U16" | "U14" | "U12" | "U10";
 
 export interface ListPoint {
   class: string;
@@ -394,9 +432,17 @@ export interface TournamentOptions {
   cities: string[];
 }
 
+/** a tournament on the map */
+export interface TournamentPlace extends Omit<TournamentSummary, "distanceKm" | "players" | "inRange"> {
+  lat: number;
+  lon: number;
+}
+
 export interface TournamentList {
   total: number;
   tournaments: TournamentListItem[];
+  /** every matching tournament with a place, asked with places=true */
+  places?: TournamentPlace[];
   options: TournamentOptions;
   updated: string | null;
 }

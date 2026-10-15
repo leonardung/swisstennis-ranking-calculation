@@ -10,6 +10,8 @@ import Home from "./components/Home";
 import PlayerPage from "./components/PlayerPage";
 import TournamentsPage from "./components/TournamentsPage";
 import TournamentPage from "./components/TournamentPage";
+import ClubPage from "./components/ClubPage";
+import ClubsPage from "./components/ClubsPage";
 import PerfPage from "./components/PerfPage";
 import { BackendLoading } from "./components/common";
 
@@ -88,8 +90,14 @@ export default function App() {
     <I18nContext.Provider value={i18n}>
       <Header
         meta={meta.data}
-        showSearch={route.page !== "home"}
-        inTournaments={route.page === "tournaments" || route.page === "tournament"}
+        showSearch={route.page !== "home" && route.page !== "clubs"}
+        section={
+          route.page === "tournaments" || route.page === "tournament"
+            ? "tournaments"
+            : route.page === "clubs" || route.page === "club"
+              ? "clubs"
+              : "players"
+        }
       />
       <MovedBanner />
       <main className="container">
@@ -99,6 +107,10 @@ export default function App() {
           <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : route.page === "tournaments" ? (
           <TournamentsPage key={`${nav.current.n}-${dataVersion}-${tournamentsVersion}`} />
+        ) : route.page === "clubs" ? (
+          <ClubsPage />
+        ) : route.page === "club" ? (
+          <ClubPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : route.page === "perf" ? (
           <PerfPage />
         ) : route.page === "tournament" ? (

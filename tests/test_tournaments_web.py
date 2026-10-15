@@ -166,6 +166,10 @@ def test_list_in_range_distance_sorts_and_paging(client):
     r = client.get("/api/tournaments", params={"limit": 1, "offset": 1}).json()
     assert r["total"] == 2 and [t["id"] for t in r["tournaments"]] == [100]
     assert len(client.get("/api/tournaments", params={"limit": 1000}).json()["tournaments"]) == 2  # clamped
+    # the map: every matching tournament with a place, whatever the page
+    r = client.get("/api/tournaments", params={"limit": 1, "places": "true"}).json()
+    assert [(x["id"], x["city"]) for x in r["places"]] == [(200, "Bern"), (100, "Lausanne")] and r["places"][1]["lat"]
+    assert "places" not in client.get("/api/tournaments").json()
 
 
 @pytest.mark.parametrize("params", [

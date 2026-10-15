@@ -260,3 +260,54 @@ def test_tournament_name_drops_the_number():
     assert stats.tournament_name("157652 47. Wohlensee-Cup") == "47. Wohlensee-Cup"
     assert stats.tournament_name("IC 2L") == "IC 2L"
     assert stats.tournament_name(None) is None
+
+
+def test_club_search_and_club_players(tmp_path):
+    import dataclasses
+
+    from fastapi import HTTPException
+
+    app, _ = _league_app(tmp_path)
+    s = app.state
+    clubs = pd.DataFrame({"personId": [1, 2, 5, 3, 3], "clubId": [10, 10, 10, 20, 10],
+                          "club": ["TC Sion", "TC Sion", "TC Sion", "TC Sierre", "TC Sion"], "city": ["Sion", "Sion", "Sion", "Sierre", "Sion"],
+                          "canton": "VS"})
+    club_list = clubs.groupby("clubId").agg(name=("club", "first"), city=("city", "first"), canton=("canton", "first"), players=("personId", "nunique"))
+    club_list["key"] = web._fold(club_list["name"] + " " + club_list["city"]) + " " + club_list.index.astype(str)
+    lists = s.history[["personId", "date", "W", "C", "classification", "rank"]]
+    app.state = dataclasses.replace(s, clubs=clubs, club_list=club_list, official_date=pd.Timestamp("2025-04-01"),
+                                    people=s.people.assign(age=["A", "18&U", "45+", "A", "A"], licence=None),
+                                    lists_of=lambda ids: lists[lists["personId"].isin(list(ids))])
+    assert [c["id"] for c in app.club_search("si", 10)] == [10, 20]  # "Sion" and "Sierre": the bigger first
+    assert [c["id"] for c in app.club_search("sierre", 10)] == [20] and app.club_search(" ", 10) == []
+    assert [c["id"] for c in app.club_search("20", 10)] == [20] and [c["id"] for c in app.club_search("1", 10)] == [10]  # the number
+    assert [(c["name"], c["canton"]) for c in app.clubs()] == [("TC Sierre", "VS"), ("TC Sion", "VS")]
+    c = app.club(10)
+    assert (c["name"], c["city"]) == ("TC Sion", "Sion")
+    # the strongest first by today's C; each player once
+    by_c = sorted(c["players"], key=lambda x: -x["today"]["C"])
+    assert [x["id"] for x in c["players"]] == [x["id"] for x in by_c] and sorted(x["id"] for x in c["players"]) == [1, 2, 3, 5]
+    one = next(x for x in c["players"] if x["id"] == 2)
+    assert one["official"] == {"class": "R4", "rank": 2, "C": 5.0} and one["age"] == "18&U" and one["gender"] == "M"
+    assert app.player(1)["clubs"] == [{"id": 10, "name": "TC Sion"}]
+    assert c["tournaments"] == []  # no tournament data
+    app.tournaments.tournaments = pd.DataFrame({
+        "name": ["Old", "New", "Other"], "city": "Sion", "canton": "VS", "dateBegin": pd.to_datetime(["2025-01-01", "2025-07-01", "2025-08-01"]),
+        "dateEnd": pd.to_datetime(["2025-01-02", "2025-07-02", "2025-08-02"]), "statusId": 2, "surface": None, "players": [8, 16, 4],
+        "clubId": pd.array([10, 10, 20], dtype="Int64"),
+    }, index=pd.Index([1, 2, 3], name="tournamentId"))
+    assert [(x["id"], x["players"]) for x in app.club(10)["tournaments"]] == [(2, 16), (1, 8)]  # the latest first
+    with pytest.raises(HTTPException) as e:
+        app.club(99)
+    assert e.value.status_code == 404
+
+
+def test_highlights_by_age(tmp_path):
+    from fastapi import HTTPException
+
+    app, _ = _league_app(tmp_path)
+    app.state.highlights = {"": {"all": 1}, "U14": {"u14": 1}}
+    assert app.highlights() == {"all": 1} and app.highlights("U14") == {"u14": 1}
+    with pytest.raises(HTTPException) as e:
+        app.highlights("U99")
+    assert e.value.status_code == 400

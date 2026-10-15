@@ -1,11 +1,14 @@
-import { useEffect, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { api, ApiError } from "../api";
 import { trackView } from "../analytics";
 import { tournamentHref, useAsync, useDebounced } from "../hooks";
 import { useI18n } from "../i18n";
 import { CATEGORIES, fmtDateTime, fmtInt } from "../format";
 import type { AgeInfo, TournamentListItem, TournamentOptions, TournamentWhen } from "../types";
-import { AsyncStatus, Spinner } from "./common";
+import { AsyncStatus, Pager, Seg, Spinner } from "./common";
+
+// Leaflet only loads with the map
+const TournamentMap = lazy(() => import("./TournamentMap"));
 import { ageInfoOf, ageLabel, ageOrder, ageTitle, dateRange, eventKind, eventTitle, matchTypeLabel, rangeLabel, surfaceLabel } from "./tournamentUtil";
 
 /** The filters, kept in the query of the URL under the names of the API's parameters. */
@@ -26,6 +29,7 @@ const KEYS = [
   "player",
   "sort",
   "offset",
+  "view", // "map": the map instead of the list (not an API parameter)
 ] as const;
 type Key = (typeof KEYS)[number];
 type Params = Partial<Record<Key, string>>;
@@ -69,9 +73,10 @@ function apiQuery(p: Params): string {
   const q = new URLSearchParams();
   for (const k of KEYS) {
     const v = p[k];
-    if (!v || (k === "radius" && !p.near)) continue;
+    if (!v || k === "view" || (k === "radius" && !p.near)) continue;
     q.set(k, v);
   }
+  if (p.view === "map") q.set("places", "true");
   if (p.near && !p.radius) q.set("radius", DEFAULT_RADIUS);
   q.set("limit", String(LIMIT));
   return q.toString();
@@ -114,6 +119,7 @@ export default function TournamentsPage() {
   const fieldFilter = !!(params.fieldMin || params.fieldMax);
   const fieldRange = rangeLabel(params.fieldMin || LEVELS[0], params.fieldMax || LEVELS[LEVELS.length - 1]);
   const offset = Number(params.offset) || 0;
+  const mapView = params.view === "map";
   const data = st.data;
   // the server could not place the "near" text
   const placeError = !!params.near && st.error instanceof ApiError && st.error.status === 400 && /place|city/i.test(st.error.message);
@@ -126,10 +132,10 @@ export default function TournamentsPage() {
   const whenHref = (w: TournamentWhen) => (w === "upcoming" ? "/tournaments" : `/tournaments?when=${w}`);
   const whenLabel = { upcoming: t("whenUpcoming"), live: t("whenLive"), past: t("whenPast") };
 
-  const filtered = KEYS.some((k) => k !== "offset" && k !== "sort" && k !== "when" && params[k]);
+  const filtered = KEYS.some((k) => k !== "offset" && k !== "sort" && k !== "when" && k !== "view" && params[k]);
   const reset = () => {
     const clear: Params = {};
-    for (const k of KEYS) if (k !== "when") clear[k] = "";
+    for (const k of KEYS) if (k !== "when" && k !== "view") clear[k] = "";
     update(clear);
   };
   // the filters below the first row: open on a wide screen or when one is set, behind a button on a phone
@@ -369,8 +375,29 @@ export default function TournamentsPage() {
             <div className="toolbar">
               <span className="muted">{t("tournamentsCount", { n: fmtInt(data.total, locale) })}</span>
               {st.loading && <Spinner />}
+              <span className="toolbar-end">
+                <Seg
+                  value={mapView ? "map" : "list"}
+                  options={[
+                    ["list", t("viewList")],
+                    ["map", t("viewMap")],
+                  ]}
+                  onChange={(v) => update({ view: v === "map" ? "map" : "", offset: params.offset })}
+                />
+              </span>
             </div>
-            {data.tournaments.length === 0 ? (
+            {mapView && data.tournaments.length > 0 ? (
+              data.places ? (
+                <Suspense fallback={<Spinner />}>
+                  <TournamentMap places={data.places} />
+                  {data.places.length < data.total && (
+                    <p className="hint small">{t("mapUnplaced", { n: data.total - data.places.length })}</p>
+                  )}
+                </Suspense>
+              ) : (
+                <Spinner />
+              )
+            ) : data.tournaments.length === 0 ? (
               <div className="state-screen small">
                 <h3>{data.updated ? t("noTournaments") : t("noTournamentData")}</h3>
                 {data.updated && filtered && (
@@ -386,19 +413,7 @@ export default function TournamentsPage() {
                 ))}
               </div>
             )}
-            {data.total > LIMIT && (
-              <nav className="pager" aria-label={t("pages")}>
-                <button className="btn" disabled={offset <= 0} onClick={() => update({ offset: String(Math.max(0, offset - LIMIT)) })}>
-                  ‹ {t("previous")}
-                </button>
-                <span className="muted">
-                  {fmtInt(offset + 1, locale)}–{fmtInt(Math.min(offset + LIMIT, data.total), locale)} / {fmtInt(data.total, locale)}
-                </span>
-                <button className="btn" disabled={offset + LIMIT >= data.total} onClick={() => update({ offset: String(offset + LIMIT) })}>
-                  {t("next")} ›
-                </button>
-              </nav>
-            )}
+            {!mapView && <Pager offset={offset} limit={LIMIT} total={data.total} onChange={(o) => update({ offset: String(o) })} />}
           </div>
         )}
       </div>

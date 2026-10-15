@@ -1,5 +1,7 @@
 import type {
   Career,
+  ClubDetail,
+  ClubHit,
   ListedMatch,
   Highlights,
   MatchesResponse,
@@ -99,7 +101,12 @@ export const api = {
     ),
   boardMatches: (key: string, id: number, signal?: AbortSignal) =>
     get<ListedMatch[]>(`/api/highlights/${key}/${id}`, signal),
-  highlights: (signal?: AbortSignal) => get<Highlights>("/api/highlights", signal),
+  highlights: (age: string, signal?: AbortSignal) =>
+    get<Highlights>(`/api/highlights${age ? `?age=${age}` : ""}`, signal),
+  clubs: (signal?: AbortSignal) => get<ClubHit[]>("/api/clubs", signal),
+  clubSearch: (q: string, limit = 20, signal?: AbortSignal) =>
+    get<ClubHit[]>(`/api/clubs/search?q=${encodeURIComponent(q)}&limit=${limit}`, signal),
+  club: (id: number, signal?: AbortSignal) => get<ClubDetail>(`/api/clubs/${id}`, signal),
   simulate: (player: number, opponent: number, signal?: AbortSignal) =>
     get<SimulateResponse>(`/api/simulate?player=${player}&opponent=${opponent}`, signal),
   /** `query` is a URL query string without "?" (the filters of the tournaments page). */

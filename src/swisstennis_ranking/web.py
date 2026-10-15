@@ -66,7 +66,7 @@ TOURNAMENT_TABLES = {
     "tournaments": {
         "tournamentId": "int64", "name": "string", "city": "string", "canton": "string",
         "dateBegin": "datetime64[ns]", "dateEnd": "datetime64[ns]", "drawingTime": "datetime64[ns]",
-        "statusId": "int64", "competitionCategoryId": "Int64", "surface": "string", "place": "string",
+        "statusId": "int64", "competitionCategoryId": "Int64", "clubId": "Int64", "surface": "string", "place": "string",
         "category": "string", "selection": "string", "entryFee": "string", "organiser": "string",
         "email": "string", "phone": "string", "homePage": "string", "news": "string", "lat": "float64",
         "lon": "float64", "updated": "datetime64[ns]",
@@ -136,7 +136,9 @@ class State:
     people: pd.DataFrame  # index personId: name, licence, gender, key (search text)
     official_date: pd.Timestamp
     official_class: pd.Series  # personId -> category on the official list in force
-    highlights: dict  # home page: leaderboards, upsets of the week, biggest movers (JSON)
+    # home page by age ("" or a key of highlights.AGES): leaderboards, upsets of the week,
+    # biggest movers (JSON)
+    highlights: dict[str, dict]
     # win probability of personId against opp in matches (personId, opp, date, type); None
     # without a trained model
     # (hypothetical: the mean of both models, see winprob.Model.chance)
@@ -148,6 +150,9 @@ class State:
     # the players' clubs (personId, clubId, club, city, lat, lon; see scrape.player_clubs), None
     # before the first scrape that fetches them
     clubs: pd.DataFrame | None = None
+    # the clubs, index clubId (the club's number): name, city, players (with a current licence),
+    # key (search text)
+    club_list: pd.DataFrame | None = None
 
 
 def _fold(s: pd.Series) -> pd.Series:
@@ -180,6 +185,8 @@ def load_state(data_dir: Path) -> State:
         people["name"] = name.reindex(people.index).combine_first(people.get("name", pd.Series(dtype=str)))
     people["licence"] = players.set_index("personId")["licenceNumber"].reindex(people.index)
     people["gender"] = p.set_index("personId")["gender"].to_numpy()
+    # the licence's age category today (A, 18&U, 45+, ...)
+    people["age"] = players.set_index("personId")["ageCategoryRedundant"].reindex(people.index)
     people = people[people["name"].fillna("") != ""]
     people["key"] = _fold(people["name"]) + " " + people["licence"].fillna("").str.replace(".", "", regex=False)
 
@@ -188,6 +195,18 @@ def load_state(data_dir: Path) -> State:
     official = highlights.list_at(history, official_date)
     today_list = p[p["on_list"]].set_index("personId")[["class", "rank", "C"]]
     number = pd.Series(p.index, index=p["personId"])
+    club_list = None
+    if clubs is not None:
+        club_list = clubs.groupby("clubId").agg(
+            name=("club", "first"), city=("city", "first"), players=("personId", "nunique")
+        )
+        # the canton at the club (scraped since 2026-10; older data has none)
+        club_list["canton"] = clubs.groupby("clubId")["canton"].first() if "canton" in clubs else None
+        # name, city and the club's number
+        club_list["key"] = (
+            _fold(club_list["name"].astype(object).fillna("") + " " + club_list["city"].astype(object).fillna(""))
+            + " " + club_list.index.astype(str)
+        )
     player_rows = rows.groupby("player").indices
     match_rows = matches.groupby("personId").indices
     model = _winprob_model(data_dir)
@@ -241,6 +260,7 @@ def load_state(data_dir: Path) -> State:
         number=number,
         people=people,
         clubs=clubs,
+        club_list=club_list,
         official_date=official_date,
         official_class=official["classification"],
         highlights=highlights.build(
@@ -375,6 +395,10 @@ class Tournaments:
     ages: dict  # age category id -> {"id", "kind", + "men"/"women" (seniors) or "max" (juniors)}
     geocode: Path  # the place cache (geocode.json, shared with the scraper)
     updated: datetime | None  # last refresh (the file's time)
+
+
+def _club_hit(cid: int, r: pd.Series) -> dict:
+    return {"id": int(cid), "name": _str(r["name"]), "city": _str(r["city"]), "canton": _str(r["canton"]), "players": int(r["players"])}
 
 
 def load_tournaments(tdir: Path) -> Tournaments:
@@ -706,11 +730,13 @@ class App:
         # the list in force, else the latest list the player was on
         last = off if off is not None else None if hist.empty else hist.iloc[-1]
         note = "classified" if r["classified"] else "assigned" if r["foreign"] and r["W5_prev"] >= evaluate.ASSIGNED_MIN_W5 else None
+        clubs = pd.DataFrame(columns=["clubId", "club"]) if s.clubs is None else s.clubs[s.clubs["personId"].eq(pid).to_numpy(bool)]
         return {
             "id": pid,
             "name": person["name"],
             "licence": _str(person["licence"]),
             "gender": _str(person["gender"]),
+            "clubs": [{"id": int(c["clubId"]), "name": _str(c["club"])} for _, c in clubs.drop_duplicates("clubId").iterrows()],
             "official": None
             if last is None
             else {
@@ -1067,8 +1093,70 @@ class App:
         m = stats.describe(m)
         return stats.match_list(self._with_categories(s, m, pid))
 
-    def highlights(self) -> dict:
-        return self.s().highlights
+    def highlights(self, age: str = "") -> dict:
+        h = self.s().highlights
+        if age not in h:
+            raise HTTPException(400, f"age must be one of {', '.join(highlights.AGES)}")
+        return h[age]
+
+    def clubs(self) -> list[dict]:
+        """Every club, by name."""
+        c = self.s().club_list
+        if c is None:
+            return []
+        c = c.assign(order=_fold(c["name"].astype(object))).sort_values("order")
+        return [_club_hit(cid, r) for cid, r in c.iterrows()]
+
+    def club_search(self, q: str, limit: int) -> list[dict]:
+        """Clubs by name, city or number: the club of that number first, then a name starting
+        with a word, then the bigger ones."""
+        c = self.s().club_list
+        words = _fold(pd.Series([q])).iloc[0].split()
+        if c is None or not words:
+            return []
+        hit = np.ones(len(c), bool)
+        for w in words:
+            hit &= c["key"].str.contains(w, regex=False).to_numpy()
+        found = c[hit]
+        starts = sum(found["key"].str.contains(r"(?:^| )" + re.escape(w)).astype(int) for w in words)
+        number = found.index.astype(str).isin(words)
+        found = found.assign(number=number, starts=starts).sort_values(["number", "starts", "players"], ascending=False)[:limit]
+        return [_club_hit(cid, r) for cid, r in found.iterrows()]
+
+    def club(self, cid: int) -> dict:
+        """A club's players (a current licence there): official and today's values, the
+        strongest first (today's C, else the official one); its tournaments, the latest first."""
+        s = self.s()
+        if s.club_list is None or cid not in s.club_list.index:
+            raise HTTPException(404, f"unknown club {cid}")
+        c = s.club_list.loc[cid]
+        ids = s.people.index.intersection(s.clubs.loc[s.clubs["clubId"].eq(cid).to_numpy(bool), "personId"])
+        people = s.people.loc[ids]
+        today = s.p.loc[s.number[ids]].set_index("personId")
+        lists = s.lists_of(ids)
+        off = lists[lists["date"].dt.normalize() == s.official_date].drop_duplicates("personId", keep="last").set_index("personId")
+        order = today["C"].where(today["on_list"]).combine_first(off["C"]).reindex(ids)
+        players = []
+        for pid in order.sort_values(ascending=False, na_position="last").index:
+            o = off.loc[pid] if pid in off.index else None
+            r = today.loc[pid]
+            players.append({
+                "id": int(pid),
+                "name": people.at[pid, "name"],
+                "gender": _str(people.at[pid, "gender"]),
+                "age": _str(people.at[pid, "age"]),
+                "official": None if o is None else {"class": _str(o["classification"]), "rank": _int(o["rank"]), "C": _num(o["C"])},
+                "today": values(r) if r["on_list"] else None,
+            })
+        t = self.tournaments.tournaments
+        own = t[t["clubId"].eq(cid).fillna(False).to_numpy(bool)].sort_values("dateBegin", ascending=False)
+        return {
+            "id": int(cid),
+            "name": _str(c["name"]),
+            "city": _str(c["city"]),
+            "players": players,
+            "tournaments": [{**_tournament_summary(tid, r), "players": int(r["players"])} for tid, r in own.iterrows()],
+        }
 
     def h2h(self, pid: int, oid: int) -> list[dict]:
         s = self.s()
@@ -1200,12 +1288,14 @@ class App:
         offset: int = 0,
         when: str = "upcoming",
         surface: str | None = None,
+        places: bool = False,
     ) -> dict:
         """Tournaments with at least one event matching all filters, with only those events (see
         the API contract). Filters are masks over the events table, no loop over its rows.
         when: upcoming (not over, at least one kept event takes registrations), live (not over,
         none does), past (over). The options are the values of the tournaments of `when` and the
-        date window, whatever the other filters (all tournaments' when that window is empty)."""
+        date window, whatever the other filters (all tournaments' when that window is empty).
+        places: also every matching tournament with a place, in order, for the map."""
         t = self.tournaments
         e = t.events
         if when not in TOURNAMENT_WHEN:
@@ -1286,9 +1376,14 @@ class App:
                 "inRange": int(x["inRange"]) if field else None,
                 "events": [_event_summary(t, y, y["inRange"] if field else None) for _, y in ev.iterrows()],
             })
+        located = t.tournaments.loc[g["tournamentId"]].dropna(subset=["lat", "lon"]) if places else None
         return {
             "total": len(g),
             "tournaments": out,
+            **({} if located is None else {"places": [
+                {**_tournament_summary(tid, x), "lat": round(float(x["lat"]), 5), "lon": round(float(x["lon"]), 5)}
+                for tid, x in located.iterrows()
+            ]}),
             # an empty window (no tournament in these dates) keeps every filter to choose from
             "options": self._options(t, e[window] if window.any() else e),
             "updated": None if t.updated is None else t.updated.isoformat(timespec="seconds"),
@@ -1674,8 +1769,20 @@ def create_app(
         return app.board_matches(key, pid)
 
     @api.get("/api/highlights")
-    def highlights():
-        return app.highlights()
+    def highlights(age: str = ""):
+        return app.highlights(age)
+
+    @api.get("/api/clubs")
+    def clubs():
+        return app.clubs()
+
+    @api.get("/api/clubs/search")
+    def club_search(q: str, limit: int = Query(20, ge=1, le=100)):
+        return app.club_search(q, limit)
+
+    @api.get("/api/clubs/{cid}")
+    def club(cid: int):
+        return app.club(cid)
 
     @api.get("/api/simulate")
     def simulate(player: int, opponent: int):
@@ -1700,10 +1807,11 @@ def create_app(
         offset: int = 0,
         when: str = "upcoming",
         surface: str | None = None,
+        places: bool = False,
     ):
         return app.tournament_list(
             from_, to, q, matchType, age, event, fieldMin, fieldMax, near, radius, canton, player, sort, limit,
-            offset, when, surface,
+            offset, when, surface, places,
         )
 
     @api.get("/api/tournaments/search")

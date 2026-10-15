@@ -199,3 +199,28 @@ def test_clean_news():
     assert t.clean_news("<html><head><title>News</title></head><body><div><br></div>&nbsp;</body></html>") is None
     # blank lines at both ends go, even inside elements
     assert t.clean_news("<div><br></div><div><b>x</b>\r\n<div><br></div> <div>&nbsp;</div><br></div>") == "<div><b>x</b></div>"
+
+
+def test_club_cantons(tmp_path, monkeypatch):
+    answers = {
+        (46.2, 7.4): {"address": {"country_code": "ch", "ISO3166-2-lvl4": "CH-VS"}},
+        (47.1, 9.5): {"address": {"country_code": "li"}},
+        (45.9, 6.1): {"address": {"country_code": "fr", "ISO3166-2-lvl4": "FR-ARA"}},
+    }
+    asked = []
+
+    def fake(url, params):
+        asked.append((params["lat"], params["lon"]))
+        return answers.get((params["lat"], params["lon"]))  # None: a network error
+
+    monkeypatch.setattr(t, "_nominatim", fake)
+    clubs = pd.DataFrame({"clubId": [1, 1, 2, 3, 4, 5], "lat": [46.2, 46.2, 47.1, 45.9, 46.0, None],
+                          "lon": [7.4, 7.4, 9.5, 6.1, 8.0, None]})
+    cache = tmp_path / "cantons.json"
+    out = t.club_cantons(clubs, cache)
+    assert out["canton"].tolist() == ["VS", "VS", "FL", None, None, None]  # France: none; an error: not known yet
+    assert len(asked) == 4  # each point once
+    asked.clear()
+    answers[(46.0, 8.0)] = {"address": {"country_code": "ch", "ISO3166-2-lvl4": "CH-TI"}}
+    assert t.club_cantons(clubs, cache)["canton"].tolist() == ["VS", "VS", "FL", None, "TI", None]
+    assert asked == [(46.0, 8.0)]  # the error asked again, the rest cached

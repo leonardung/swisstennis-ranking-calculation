@@ -523,6 +523,9 @@ main.container {
 .class-change .arrow {
   font-size: 15px;
 }
+.rank-change {
+  white-space: nowrap;
+}
 
 /* ---------- Pills / tags / deltas ---------- */
 .delta {
@@ -699,6 +702,21 @@ table {
 }
 .sortable:hover {
   color: var(--text);
+}
+.sort-btn {
+  all: inherit;
+  display: inline;
+  cursor: pointer;
+}
+.sort-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+th.num .sort-btn {
+  text-align: right;
+}
+.sort-arrow {
+  margin-left: 4px;
 }
 
 .matches td {
@@ -2945,4 +2963,116 @@ dialog.match-dialog::backdrop {
 }
 .perf-login input {
   flex: 1 1 220px;
+}
+
+/* Age selects (home highlights, club page): sized like the segmented controls next to them */
+.hl-age,
+.club-age {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+/* Club page */
+.club-page .hl-filter {
+  margin: 0 0 16px;
+}
+.club-table td {
+  white-space: nowrap;
+}
+.club-age-sub {
+  display: none;
+}
+@media (max-width: 600px) {
+  .club-table thead th {
+    white-space: normal;
+  }
+  .club-table th,
+  .club-table td {
+    padding: 8px 6px;
+  }
+  .club-table .club-c {
+    display: none;
+  }
+  .club-table td.club-name {
+    white-space: normal;
+  }
+  .club-table .club-age-col {
+    display: none;
+  }
+  .club-age-sub {
+    display: block;
+  }
+}
+.player-sub a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.club-page > .card + .card {
+  margin-top: 16px;
+}
+.club-tourn-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 24px;
+}
+@media (max-width: 720px) {
+  .club-tourn-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.club-tourn-cols h4 {
+  margin: 0 0 8px;
+}
+.club-tourns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.club-tourns li {
+  display: grid;
+}
+
+/* Tournament map */
+.toolbar-end {
+  margin-left: auto;
+}
+.tourn-map {
+  height: min(70vh, 640px);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  z-index: 0; /* the header's menus stay above Leaflet's panes */
+}
+.tourn-map .map-marker {
+  fill: var(--accent);
+  fill-opacity: 0.8;
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+.map-popup strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.map-popup ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.map-popup li {
+  display: grid;
+}
+.map-popup small {
+  color: #72756d;
 }

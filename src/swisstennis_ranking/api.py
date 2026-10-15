@@ -81,6 +81,7 @@ query Tournaments($where: ioTournament_bool_exp, $offset: Int, $limit: Int) {
     tournamentStatusId
     kanton { label }
     competitionCategory { id }
+    club { id }
     events {
       id
       Evt_Id_MatchType_l

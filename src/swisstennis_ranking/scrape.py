@@ -4,7 +4,8 @@ Layout:
     data/raw/<personId>.json   one cached API response per player (makes scraping resumable)
     data/raw/season            the current official list when the cache was last completed
     data/players.parquet       currently licensed players (both genders, kontingent 0: foreigners)
-    data/clubs.parquet         their clubs with coordinates (personId, clubId, club, city, lat, lon)
+    data/clubs.parquet         their clubs with coordinates (personId, clubId, club, city, lat, lon, canton)
+    data/cantons.json          the canton at each club's coordinates (Nominatim, cached)
     data/history.parquet       published ranking values per player and publication date
     data/matches.parquet       single results, one row per (player, match) from the player's view
 """
@@ -232,7 +233,9 @@ def scrape(data_dir: Path, since: str, workers: int, recent_days: int | None = N
         expire_cache(client, raw_dir, recent_days)
 
     players = fetch_players(client)
-    _write(player_clubs(players), data_dir, "clubs")
+    from .tournaments import club_cantons  # tournaments imports this module
+
+    _write(club_cantons(player_clubs(players), data_dir / "cantons.json"), data_dir, "clubs")
     players = players.drop(columns="clubs")
     _write(players, data_dir, "players")
     print(f"{len(players)} licensed players ({players['gender'].value_counts().to_dict()})")
