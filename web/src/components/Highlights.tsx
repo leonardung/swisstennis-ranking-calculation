@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
+import { useAccount } from "../account";
 import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtChance, fmtDate } from "../format";
@@ -242,11 +243,13 @@ function Leaderboards({ data, filter }: { data: Data["leaderboards"]; filter: Fi
 
 export default function Highlights() {
   const { t } = useI18n();
-  const [ageParam, setAge] = useUrlState("age", "");
+  // signed in with a player: the filters start from his gender, level and junior age
+  const me = useAccount().me;
+  const [ageParam, setAge] = useUrlState("age", me?.juniorAge ?? "");
   const age = (AGES as string[]).includes(ageParam) ? ageParam : "";
   const st = useAsync((s) => api.highlights(age, s), [age]);
-  const [gender, setGender] = useUrlState("g", "M");
-  const [group, setGroup] = useUrlState("group", GROUPS[0]);
+  const [gender, setGender] = useUrlState("g", me?.gender ?? "M");
+  const [group, setGroup] = useUrlState("group", me?.group ?? GROUPS[0]);
   const filter: Filter = { gender, group: (GROUPS as string[]).includes(group) ? (group as HlGroup) : GROUPS[0] };
   const setFilter = (f: Filter) => {
     setGender(f.gender);

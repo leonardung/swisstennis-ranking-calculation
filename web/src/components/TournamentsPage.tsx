@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { api, ApiError } from "../api";
+import { useAccount } from "../account";
 import { trackView } from "../analytics";
 import { tournamentHref, useAsync, useDebounced } from "../hooks";
 import { useI18n } from "../i18n";
@@ -30,6 +31,7 @@ const KEYS = [
   "sort",
   "offset",
   "view", // "map": the map instead of the list (not an API parameter)
+  "openTo", // "0": all events, not only those open to "me" (on by default for a signed-in user's player)
 ] as const;
 type Key = (typeof KEYS)[number];
 type Params = Partial<Record<Key, string>>;
@@ -69,13 +71,15 @@ function writeParams(p: Params): void {
   window.history.replaceState(window.history.state, "", url);
 }
 
-function apiQuery(p: Params): string {
+/** `me`: the signed-in user's player, whose events are kept unless openTo is "0". */
+function apiQuery(p: Params, me: number | undefined): string {
   const q = new URLSearchParams();
   for (const k of KEYS) {
     const v = p[k];
-    if (!v || k === "view" || (k === "radius" && !p.near)) continue;
+    if (!v || k === "view" || k === "openTo" || (k === "radius" && !p.near)) continue;
     q.set(k, v);
   }
+  if (me && p.openTo !== "0") q.set("openTo", String(me));
   if (p.view === "map") q.set("places", "true");
   if (p.near && !p.radius) q.set("radius", DEFAULT_RADIUS);
   q.set("limit", String(LIMIT));
@@ -92,8 +96,10 @@ function listOf(v: string | undefined): string[] {
 
 export default function TournamentsPage() {
   const { t, locale, lang } = useI18n();
+  const account = useAccount();
+  const me = account.me;
   const [params, setParams] = useState<Params>(readParams);
-  const query = useDebounced(apiQuery(params), 300);
+  const query = useDebounced(apiQuery(params, me?.id), 300);
   const st = useAsync((s) => api.tournaments(query, s), [query]);
   const [options, setOptions] = useState<TournamentOptions | null>(null);
   if (st.data && st.data.options !== options) setOptions(st.data.options);
@@ -132,10 +138,10 @@ export default function TournamentsPage() {
   const whenHref = (w: TournamentWhen) => (w === "upcoming" ? "/tournaments" : `/tournaments?when=${w}`);
   const whenLabel = { upcoming: t("whenUpcoming"), live: t("whenLive"), past: t("whenPast") };
 
-  const filtered = KEYS.some((k) => k !== "offset" && k !== "sort" && k !== "when" && k !== "view" && params[k]);
+  const filtered = KEYS.some((k) => k !== "offset" && k !== "sort" && k !== "when" && k !== "view" && k !== "openTo" && params[k]);
   const reset = () => {
     const clear: Params = {};
-    for (const k of KEYS) if (k !== "when" && k !== "view") clear[k] = "";
+    for (const k of KEYS) if (k !== "when" && k !== "view" && k !== "openTo") clear[k] = "";
     update(clear);
   };
   // the filters below the first row: open on a wide screen or when one is set, behind a button on a phone
@@ -212,6 +218,29 @@ export default function TournamentsPage() {
             )}
           </Field>
         </div>
+
+        {account.enabled && (
+          <div className="filter-row">
+            {me ? (
+              <button
+                className={`chip${params.openTo !== "0" ? " active" : ""}`}
+                aria-pressed={params.openTo !== "0"}
+                title={t("openToMeHint")}
+                onClick={() => update({ openTo: params.openTo === "0" ? "" : "0" })}
+              >
+                {t("openToMe", { who: [me.name, me.class, me.age === "A" ? t("age_1") : me.age].filter(Boolean).join(" · ") })}
+              </button>
+            ) : account.user ? (
+              <a className="chip" href="/account" title={t("openToMeHint")}>
+                {t("openToMePick")}
+              </a>
+            ) : (
+              <button className="chip" title={t("openToMeHint")} onClick={account.openLogin}>
+                {t("openToMeSignIn")}
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="filter-row more-toggle-row">
           <button className="btn btn-ghost more-toggle" aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen(!moreOpen)}>

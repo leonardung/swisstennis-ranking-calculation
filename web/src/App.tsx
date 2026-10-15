@@ -13,7 +13,9 @@ import TournamentPage from "./components/TournamentPage";
 import ClubPage from "./components/ClubPage";
 import ClubsPage from "./components/ClubsPage";
 import PerfPage from "./components/PerfPage";
-import { BackendLoading } from "./components/common";
+import { AccountPage, LoginDialog, LoginPage, PrivacyPage } from "./components/Account";
+import { BackendLoading, Spinner } from "./components/common";
+import { AccountContext, useAccountState } from "./account";
 
 export default function App() {
   const [lang, setLangState] = useState<Lang>(loadLang);
@@ -36,6 +38,7 @@ export default function App() {
     document.title = i18n.t("appName");
   }, [lang, i18n]);
 
+  const account = useAccountState();
   const meta = useAsync((s) => api.meta(s), []);
   const { reload: reloadMeta } = meta;
 
@@ -88,6 +91,7 @@ export default function App() {
 
   return (
     <I18nContext.Provider value={i18n}>
+    <AccountContext.Provider value={account}>
       <Header
         meta={meta.data}
         showSearch={route.page !== "home" && route.page !== "clubs"}
@@ -103,6 +107,15 @@ export default function App() {
       <main className="container">
         {meta.backendLoading && !meta.data ? (
           <BackendLoading />
+        ) : !account.ready ? (
+          // the filters start from "me": wait for the account
+          <Spinner />
+        ) : route.page === "login" ? (
+          <LoginPage />
+        ) : route.page === "account" ? (
+          <AccountPage />
+        ) : route.page === "privacy" ? (
+          <PrivacyPage />
         ) : route.page === "player" ? (
           <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : route.page === "tournaments" ? (
@@ -122,7 +135,14 @@ export default function App() {
       <footer className="container footer muted">
         <div>{i18n.t("appName")} · DCL · C = W + R</div>
         <div>{i18n.t("footerNote")}</div>
+        {account.enabled && (
+          <div>
+            <a href="/privacy">{i18n.t("privacyTitle")}</a>
+          </div>
+        )}
       </footer>
+      <LoginDialog />
+    </AccountContext.Provider>
     </I18nContext.Provider>
   );
 }

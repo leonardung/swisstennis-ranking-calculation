@@ -294,3 +294,27 @@ def test_search_by_name_coming_soonest_first_then_past(client):
     assert ids("tc") == [200, 100, 300]  # organisers "TC <city>": all of them
     assert ids("zur") == [300] and ids("lau OPEN") == [100] and ids(" ") == []
     assert client.get("/api/tournaments/search", params={"q": "bern"}).json()[0]["name"] == "Cup Bern"
+
+
+def test_open_to_a_player(client):
+    app = client.app.state.app
+    app.state.people = app.state.people.assign(gender=["M", "M", "M", "M", "M", "F"], age=["A"] * 6)
+    # 4 (a man, R7 on the official list): men's singles R9/R5 and the men's doubles (no level)
+    assert _ids(client.get("/api/tournaments?openTo=4")) == [200, 100]
+    r = client.get("/api/tournaments?openTo=4").json()
+    assert [[e["id"] for e in t["events"]] for t in r["tournaments"]] == [[2002], [1001]]
+    # 6 (a woman, R5): the women's singles R5/R1 only
+    assert _ids(client.get("/api/tournaments?openTo=6")) == [100]
+    assert client.get("/api/tournaments?openTo=99").status_code == 404
+
+    # age categories: 1001 for 16&U, 1002 for 12&U, 2002 for men 35+ (women 30+)
+    e = app.tournaments.events.assign(
+        ageCategoryId=app.tournaments.events["eventId"].map({1001: 3, 1002: 5, 2002: 7}).fillna(1).astype(int)
+    )
+    open_ = lambda pid: e.loc[app._open_to(app.tournaments, e, pid), "eventId"].tolist()  # noqa: E731
+    app.state.people.loc[4, "age"] = "14&U"
+    assert open_(4) == [1001, 3001]  # older juniors' events and actives', not seniors'
+    app.state.people.loc[4, "age"] = "40+"
+    assert open_(4) == [2002, 3001]
+    app.state.people.loc[4, "age"] = "A"
+    assert open_(4) == [3001]  # actives only (3001: men's singles R9/R5, past)

@@ -5,8 +5,11 @@ import type {
   ListedMatch,
   Highlights,
   MatchesResponse,
+  MePlayer,
   Meta,
   MoveUp,
+  MyPlayers,
+  User,
   Outlook,
   PlayerDetail,
   PlayerSummary,
@@ -70,6 +73,45 @@ async function fetchJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   }
   return (await res.json()) as T;
 }
+
+/** A change (POST, PUT, DELETE) with an optional JSON body; the response's JSON, if any. */
+async function send<T = void>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body === undefined ? { Accept: "application/json" } : { Accept: "application/json", "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new ApiError(0, "network");
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const b = await res.json();
+      if (b && typeof b.detail === "string") detail = b.detail;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+/** The account (accounts.py): never cached. */
+export const accountApi = {
+  me: (signal?: AbortSignal) => fetchJson<{ user: User | null }>("/api/me", signal),
+  emailLink: (email: string, next: string, lang: string) => send("POST", "/api/auth/email", { email, next, lang }),
+  verify: (token: string) => send<{ next: string }>("POST", "/api/auth/verify", { token }),
+  logout: () => send("POST", "/api/auth/logout"),
+  setMe: (player: number | null) => send<{ me: MePlayer | null }>("PUT", "/api/me", { player }),
+  deleteAccount: () => send("DELETE", "/api/me"),
+  favourite: (id: number, on: boolean) => send(on ? "PUT" : "DELETE", `/api/me/favourites/${id}`),
+  myPlayers: (signal?: AbortSignal) => fetchJson<MyPlayers>("/api/me/players", signal),
+  /** where "Sign in with Google" starts, coming back to `next` */
+  googleHref: (next: string) => `/api/auth/google?next=${encodeURIComponent(next)}`,
+};
 
 export const api = {
   meta: (signal?: AbortSignal) => get<Meta>("/api/meta", signal, false),

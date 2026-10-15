@@ -4,6 +4,7 @@ import { fmtDate, fmtDateTime } from "../format";
 import type { Meta } from "../types";
 import SearchBox, { ClubSearchBox, TournamentSearchBox } from "./SearchBox";
 import FeedbackButton from "./FeedbackButton";
+import { AccountButton } from "./Account";
 
 export type Section = "players" | "tournaments" | "clubs";
 
@@ -58,6 +59,7 @@ export default function Header({ meta, showSearch, section }: { meta: Meta | nul
             </div>
           )}
           <FeedbackButton />
+          <AccountButton />
           <button
             className="btn btn-ghost lang-toggle"
             onClick={() => setLang(lang === "en" ? "fr" : "en")}

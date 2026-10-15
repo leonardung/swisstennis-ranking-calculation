@@ -561,3 +561,38 @@ export interface Outlook {
     ifTitle: number | null;
   } | null;
 }
+
+/** An account's player ("me"): what the filters start from. */
+export interface MePlayer {
+  id: number;
+  name: string;
+  gender: string | null;
+  /** the licence's age category (A, 18&U, 45+, ...) */
+  age: string | null;
+  /** today's class, else the official one */
+  class: string | null;
+  group: HlGroup | null;
+  juniorAge: HlAge | null;
+}
+
+export interface User {
+  email: string;
+  me: MePlayer | null;
+  favourites: number[];
+}
+
+/** A favourite on the "My players" card. */
+export interface MyPlayer {
+  id: number;
+  name: string;
+  official: string | null;
+  today: { W: number | null; C: number | null; rank: number | null; class: string | null } | null;
+  /** results since the previous visit, the latest first (at most 5; nMatches in all) */
+  matches: ListedMatch[];
+  nMatches: number;
+}
+
+export interface MyPlayers {
+  since: string;
+  players: MyPlayer[];
+}

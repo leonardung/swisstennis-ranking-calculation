@@ -3076,3 +3076,130 @@ dialog.match-dialog::backdrop {
 .map-popup small {
   color: #72756d;
 }
+
+/* accounts: sign-in, account page, favourites, "My players" */
+.account-btn {
+  font-size: 13px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+.account-page.narrow {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.account-page h1 {
+  margin: 8px 0 0;
+}
+.login-form,
+.login-form form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.login-form input {
+  font: inherit;
+  color: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.login-form p {
+  margin: 0;
+}
+.google-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+}
+.login-or {
+  text-align: center;
+}
+.me-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+.me-row .btn {
+  margin-left: auto;
+}
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.fav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fav-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fav-btn {
+  background: none;
+  border: none;
+  padding: 0 4px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  vertical-align: middle;
+}
+.fav-btn.on,
+.fav-btn:hover:not(:disabled) {
+  color: #e0a800;
+}
+.my-players {
+  margin-top: 16px;
+}
+.my-players-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.my-players-cta p {
+  margin: 0;
+}
+.my-players-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.my-player-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 4px;
+}
+.my-player-n {
+  margin-left: auto;
+}
+.privacy p {
+  line-height: 1.6;
+}

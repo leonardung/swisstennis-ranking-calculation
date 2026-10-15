@@ -168,9 +168,15 @@ accounts are on the new one. So the two deployments don't need to share data.
    within clubs; no account needed. *Done 2026-10-15: `/club/<id>`, clubs in the header and home
    search, the player's clubs linked on their page, a men / women switch and an interclub age
    filter (45+ includes the older seniors, 16&U the younger juniors).*
-3. **Accounts** (tennis-radar.ch only): login, "me", settings.
+3. **Accounts** (tennis-radar.ch only): login, "me", settings. *Built 2026-10-15: emailed link
+   (Resend) and Google, one account per email, sessions of a year renewed on use, `/account`
+   (me, followed players, sign out, delete), `/privacy`; data/accounts.sqlite. No display name
+   (the player's name serves).*
 4. **C + B**: on top of accounts, the "open to me" tournament filter and favourites with the
-   "My players" card.
+   "My players" card. *Built 2026-10-15: "Open to me" chip on the Tournaments page (on by
+   default, `openTo=<player>`: gender, licence age category, class for singles); ☆ on player
+   pages; "My players" on the home page with the results since the previous visit; the home
+   filters start from me.*
 5. **4**: juniors filter. *Done 2026-10-15: an age select (All, U18 … U10) next to the home
    filters, applied to every card; `/api/highlights?age=U14`, each age precomputed.*
 6. **1**: map. *Done 2026-10-15: a List / Map switch on the Tournaments page (swisstopo grey

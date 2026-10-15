@@ -3,6 +3,7 @@ import { useI18n } from "../i18n";
 import { fmtDate, fmtDateTime } from "../format";
 import type { Meta } from "../types";
 import Highlights from "./Highlights";
+import { MyPlayersCard } from "./Account";
 import SearchBox from "./SearchBox";
 import { Card } from "./common";
 
@@ -112,6 +113,7 @@ export default function Home({ meta }: { meta: Meta | null }) {
           </div>
         </section>
       )}
+      <MyPlayersCard />
       <Highlights />
       <Accuracy />
     </div>

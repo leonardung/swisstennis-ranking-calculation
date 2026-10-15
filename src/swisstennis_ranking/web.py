@@ -9,6 +9,7 @@ import html
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
@@ -23,12 +24,14 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
+import requests
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import evaluate, highlights, mail, ranking, stats, winprob
+from . import accounts, evaluate, highlights, mail, ranking, stats, winprob
 from .perf import PerfLog
 from .tournaments import locate
 
@@ -56,6 +59,14 @@ TOURNAMENT_MAX_LIMIT = 200
 SUGGESTED_MAX = 20
 # suggested events: the weight of the field halves every SUGGESTED_HALF_KM from the player's club
 SUGGESTED_HALF_KM = 50
+# "My players" (an account's favourites): their results since the previous visit (on the first
+# one: of the last FAVOURITES_DAYS days), at most FAVOURITES_MATCHES each
+FAVOURITES_DAYS = 7
+FAVOURITES_MATCHES = 5
+# sign-in emails per visitor (IP) and per address per hour; link checks per visitor per hour
+LOGIN_MAILS_PER_HOUR = 5
+LOGIN_MAILS_PER_ADDRESS_HOUR = 3
+LOGIN_CHECKS_PER_HOUR = 30
 TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "inRange")
 TOURNAMENT_WHEN = ("upcoming", "live", "past")
 AGE_KINDS = ("actives", "juniors", "seniors")  # the order of the age options
@@ -96,12 +107,26 @@ class Feedback(BaseModel):
     website: str | None = None
 
 
+class EmailLogin(BaseModel):
+    email: str = Field(max_length=200)
+    next: str | None = Field(None, max_length=300)  # the page to return to
+    lang: Literal["fr", "en"] = "fr"
+
+
+class LinkToken(BaseModel):
+    token: str = Field(max_length=100)
+
+
+class MeUpdate(BaseModel):
+    player: int | None  # "me"; None: none
+
+
 class PerfSample(BaseModel):
     """A page view timed by the browser: from the navigation (initial: from the start of the
     page load) until its data is shown."""
 
     kind: Literal["initial", "navigation"]
-    page: str = Field(pattern=r"^(home|tournaments?|perf|player/[a-z]{1,12})$")
+    page: str = Field(pattern=r"^(home|tournaments?|clubs?|perf|login|account|privacy|player/[a-z]{1,12})$")
     ms: float = Field(ge=0, le=120_000)
 
 
@@ -556,6 +581,11 @@ class App:
         self.feedback_lock = threading.Lock()
         self.perf_limit = RateLimit(PERF_PER_HOUR)
         self.perf = PerfLog(data_dir / "perf.sqlite")
+        # user accounts: only with ACCOUNTS_URL (see accounts.py)
+        self.accounts = accounts.Accounts(data_dir / "accounts.sqlite") if os.environ.get("ACCOUNTS_URL") else None
+        self.login_mail_limit = RateLimit(LOGIN_MAILS_PER_HOUR)
+        self.login_address_limit = RateLimit(LOGIN_MAILS_PER_ADDRESS_HOUR)
+        self.login_check_limit = RateLimit(LOGIN_CHECKS_PER_HOUR)
 
     # --- lifecycle ---------------------------------------------------------------------------
 
@@ -1308,9 +1338,11 @@ class App:
         when: str = "upcoming",
         surface: str | None = None,
         places: bool = False,
+        open_to: int | None = None,
     ) -> dict:
         """Tournaments with at least one event matching all filters, with only those events (see
         the API contract). Filters are masks over the events table, no loop over its rows.
+        open_to: the events this player may enter (gender, age category, class).
         when: upcoming (not over, at least one kept event takes registrations), live (not over,
         none does), past (over). The options are the values of the tournaments of `when` and the
         date window, whatever the other filters (all tournaments' when that window is empty).
@@ -1354,6 +1386,8 @@ class App:
             ids = set(regs.loc[regs["personId"].eq(player).fillna(False).to_numpy(bool), "eventId"])
             ids |= set(t.draws.loc[_played_by(t.draws, player), "eventId"])
             keep &= e["eventId"].isin(ids).to_numpy(bool)
+        if open_to is not None:
+            keep &= self._open_to(t, e, open_to)
         if when != "past":  # a tournament is upcoming or live by its kept events
             opened = e["tournamentId"].isin(e.loc[keep & e["open"].to_numpy(bool), "tournamentId"]).to_numpy(bool)
             keep &= opened if when == "upcoming" else ~opened
@@ -1662,6 +1696,82 @@ class App:
                 expected = {"gain": _num(gain), "rounds": rounds, "title": _num(reach), "ifTitle": _num(title)}
         return {"field": field, "opponents": opponents, "expected": expected}
 
+    # --- accounts ----------------------------------------------------------------------------
+
+    def me(self, pid: int | None) -> dict | None:
+        """An account's player ("me"), what the filters start from: gender, licence age
+        category, class (today's, else official), its highlights group and junior age."""
+        if pid is None:
+            return None
+        s = self.s()
+        if pid not in s.number.index or pid not in s.people.index:
+            return None  # gone from the data: as if none was picked
+        person = s.people.loc[pid]
+        cls = self._class_of(s, self._player(s, pid))
+        age = _str(person["age"])
+        return {
+            "id": int(pid),
+            "name": person["name"],
+            "gender": _str(person["gender"]),
+            "age": age,
+            "class": _str(cls),
+            "group": highlights.group_of(cls) if cls in CATEGORY_INDEX else None,
+            "juniorAge": next((k for k, v in highlights.AGES.items() if v == age), None),
+        }
+
+    def my_players(self, ids: list[int], since: float | None) -> dict:
+        """The favourites, in the order they were added: official class → today's, and their
+        results since `since` (the previous visit; FAVOURITES_DAYS ago on the first), the latest
+        first, at most FAVOURITES_MATCHES each."""
+        s = self.s()
+        start = pd.Timestamp(datetime.fromtimestamp(since)).normalize() if since else s.today - pd.Timedelta(days=FAVOURITES_DAYS)
+        players = []
+        for pid in ids:
+            if pid not in s.number.index or pid not in s.people.index:
+                continue
+            r = self._player(s, pid)
+            m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
+            m = m[m["date"] >= start]
+            if len(m):
+                m = self._with_categories(s, stats.describe(m), pid)
+            players.append({
+                "id": int(pid),
+                "name": s.people.at[pid, "name"],
+                "official": _str(s.official_class.get(pid)),
+                "today": values(r) if r["on_list"] else None,
+                "matches": stats.match_list(m)[:FAVOURITES_MATCHES] if len(m) else [],
+                "nMatches": len(m),
+            })
+        return {"since": start.date().isoformat(), "players": players}
+
+    def _open_to(self, t: Tournaments, e: pd.DataFrame, pid: int) -> np.ndarray:
+        """The events player `pid` may enter: of his gender (mixed doubles for both), an age
+        category of his licence's (actives for all, juniors up to their age group, seniors from
+        theirs) and, for singles, a category range with his class (official, else today's).
+        Unknown match types and age categories are kept."""
+        s = self.s()
+        r = self._player(s, pid)
+        gender = s.people.at[pid, "gender"]
+        keep = ~e["matchTypeId"].isin({"M": (2, 4), "F": (1, 3)}.get(gender, ())).to_numpy(bool)
+        age = _str(s.people.at[pid, "age"]) or ""
+        junior, senior = re.fullmatch(r"(\d+)&U", age), re.fullmatch(r"(\d+)\+", age)
+        barred = []
+        for i, a in t.ages.items():
+            if a["kind"] == "juniors":
+                ok = junior is not None and int(junior[1]) <= a.get("max", 0)
+            elif a["kind"] == "seniors":
+                ok = senior is not None and a.get("men" if gender == "M" else "women", 999) <= int(senior[1])
+            else:
+                ok = True
+            if not ok:
+                barred.append(i)
+        keep &= ~e["ageCategoryId"].isin(barred).to_numpy(bool)
+        level = CATEGORY_INDEX.get(_str(s.official_class.get(pid)) or self._class_of(s, r))
+        if level is not None:
+            singles = e["matchTypeId"].isin(SINGLES).to_numpy(bool)
+            keep &= ~singles | ((e["strong"] <= level) & (e["weak"] >= level)).to_numpy(bool)
+        return keep
+
 
 class SinglePageApp(StaticFiles):
     """The UI's files; any other path outside /api gets index.html (the UI routes itself)."""
@@ -1709,7 +1819,175 @@ def create_app(
         return {
             "analytics": {"script": url, "website_id": website} if url and website else None,
             "moved_to": (os.environ.get("MOVED_TO") or None) if moved else None,
+            # user accounts on this address, and whether Google sign-in is set up
+            "accounts": {"google": bool(os.environ.get("GOOGLE_CLIENT_ID"))} if accounts_on(request) else None,
         }
+
+    # --- accounts (see accounts.py) ----------------------------------------------------------
+
+    base_url = (os.environ.get("ACCOUNTS_URL") or "").rstrip("/")
+    secure = base_url.startswith("https:")
+
+    def accounts_on(request: Request) -> bool:
+        return app.accounts is not None and request.url.hostname == accounts.hostname(base_url)
+
+    def store(request: Request) -> accounts.Accounts:
+        if not accounts_on(request):
+            raise HTTPException(404, "Not Found")
+        return app.accounts
+
+    def same_site(request: Request) -> None:
+        """Changes only from the site's own pages (CSRF): browsers send Origin with every POST,
+        PUT and DELETE."""
+        if request.headers.get("origin") != base_url:
+            raise HTTPException(403, "cross-site request")
+
+    def signed_in(request: Request) -> int:
+        uid = store(request).user_of_session(request.cookies.get(accounts.COOKIE))
+        if uid is None:
+            raise HTTPException(401, "not signed in")
+        return uid
+
+    def set_session(response: Response, token: str) -> None:
+        response.set_cookie(
+            accounts.COOKIE, token, max_age=accounts.SESSION_DAYS * 86400, httponly=True, secure=secure, samesite="lax"
+        )
+
+    def known_player(pid: int) -> None:
+        if pid not in app.s().people.index:
+            raise HTTPException(404, f"unknown player {pid}")
+
+    @api.post("/api/auth/email", status_code=204)
+    def login_email(body: EmailLogin, request: Request):
+        """Email a sign-in link (the account is created on its first use)."""
+        st = store(request)
+        same_site(request)
+        email = body.email.strip().lower()
+        if not mail.EMAIL.fullmatch(email):
+            raise HTTPException(400, "invalid email")
+        app.login_mail_limit.hit(_ip(request))
+        app.login_address_limit.hit(email)
+        token = st.new_link(email, body.next or "/")
+        try:
+            accounts.send_link(
+                os.environ.get("RESEND_API_KEY"), os.environ.get("MAIL_FROM", "Tennis Radar <login@tennis-radar.ch>"),
+                email, f"{base_url}/login?token={token}", body.lang,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"sign-in email not sent: {e!r}", file=sys.stderr, flush=True)
+            raise HTTPException(502, "email not sent") from None
+        return Response(status_code=204)
+
+    @api.post("/api/auth/verify")
+    def login_verify(body: LinkToken, request: Request):
+        """Sign in with the emailed link's token (posted by the /login page: mail scanners that
+        open links do not use it up)."""
+        st = store(request)
+        same_site(request)
+        app.login_check_limit.hit(_ip(request))
+        used = st.use_link(body.token)
+        if used is None:
+            raise HTTPException(400, "link expired or already used")
+        uid, next_ = used
+        response = Response(json.dumps({"next": next_}), media_type="application/json")
+        set_session(response, st.new_session(uid))
+        return response
+
+    @api.get("/api/auth/google")
+    def login_google(request: Request, next: str | None = None):
+        store(request)
+        client_id = os.environ.get("GOOGLE_CLIENT_ID")
+        if not client_id:
+            raise HTTPException(404, "Not Found")
+        state = secrets.token_urlsafe(24)
+        response = RedirectResponse(accounts.google_auth_url(client_id, base_url, state), status_code=303)
+        response.set_cookie(
+            accounts.STATE_COOKIE, f"{state}|{accounts.safe_next(next)}", max_age=600, httponly=True, secure=secure, samesite="lax"
+        )
+        return response
+
+    @api.get("/api/auth/google/callback")
+    def login_google_callback(request: Request, code: str | None = None, state: str | None = None):
+        st = store(request)
+        expected, _, next_ = (request.cookies.get(accounts.STATE_COOKIE) or "").partition("|")
+        try:
+            if not code or not state or not expected or not hmac.compare_digest(state, expected):
+                raise ValueError("missing or wrong state")
+            sub, email = accounts.google_identity(
+                os.environ.get("GOOGLE_CLIENT_ID", ""), os.environ.get("GOOGLE_CLIENT_SECRET", ""), base_url, code
+            )
+        except (ValueError, KeyError, requests.RequestException) as e:
+            print(f"Google sign-in failed: {e!r}", file=sys.stderr, flush=True)
+            response = RedirectResponse("/login?error=google", status_code=303)
+        else:
+            response = RedirectResponse(accounts.safe_next(next_), status_code=303)
+            set_session(response, st.new_session(st.google_user(sub, email)))
+        response.delete_cookie(accounts.STATE_COOKIE)
+        return response
+
+    @api.post("/api/auth/logout", status_code=204)
+    def logout(request: Request):
+        st = store(request)
+        same_site(request)
+        st.end_session(request.cookies.get(accounts.COOKIE))
+        response = Response(status_code=204)
+        response.delete_cookie(accounts.COOKIE)
+        return response
+
+    @api.get("/api/me")
+    def me(request: Request, response: Response):
+        """The signed-in user (None when signed out): email, player ("me"), favourite ids."""
+        st = store(request)
+        token = request.cookies.get(accounts.COOKIE)
+        uid = st.user_of_session(token)
+        if uid is None:
+            return {"user": None}
+        st.visit(uid)
+        if st.renew(token):
+            set_session(response, token)
+        p = st.profile(uid)
+        return {"user": {"email": p["email"], "me": app.me(p["player"]), "favourites": p["favourites"]}}
+
+    @api.put("/api/me")
+    def set_me(body: MeUpdate, request: Request):
+        uid = signed_in(request)
+        same_site(request)
+        if body.player is not None and app.me(body.player) is None:
+            raise HTTPException(404, f"unknown player {body.player}")
+        app.accounts.set_player(uid, body.player)
+        return {"me": app.me(body.player)}
+
+    @api.delete("/api/me", status_code=204)
+    def delete_me(request: Request):
+        """Delete the account and everything kept with it."""
+        uid = signed_in(request)
+        same_site(request)
+        app.accounts.delete(uid)
+        response = Response(status_code=204)
+        response.delete_cookie(accounts.COOKIE)
+        return response
+
+    @api.put("/api/me/favourites/{pid}", status_code=204)
+    def add_favourite(pid: int, request: Request):
+        uid = signed_in(request)
+        same_site(request)
+        known_player(pid)
+        if not app.accounts.add_favourite(uid, pid):
+            raise HTTPException(409, f"at most {accounts.MAX_FAVOURITES} favourites")
+        return Response(status_code=204)
+
+    @api.delete("/api/me/favourites/{pid}", status_code=204)
+    def remove_favourite(pid: int, request: Request):
+        uid = signed_in(request)
+        same_site(request)
+        app.accounts.remove_favourite(uid, pid)
+        return Response(status_code=204)
+
+    @api.get("/api/me/players")
+    def my_players(request: Request):
+        """The favourites' card: classes and results since the previous visit."""
+        p = app.accounts.profile(signed_in(request))
+        return app.my_players(p["favourites"], p["since"])
 
     @api.middleware("http")
     async def time_api(request: Request, call_next):
@@ -1827,10 +2105,11 @@ def create_app(
         when: str = "upcoming",
         surface: str | None = None,
         places: bool = False,
+        openTo: int | None = None,
     ):
         return app.tournament_list(
             from_, to, q, matchType, age, event, fieldMin, fieldMax, near, radius, canton, player, sort, limit,
-            offset, when, surface, places,
+            offset, when, surface, places, openTo,
         )
 
     @api.get("/api/tournaments/search")

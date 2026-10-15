@@ -5,6 +5,7 @@ import { clubHref, playerHref, TABS, useAsync, type Tab } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtInt } from "../format";
 import { AsyncStatus, CategoryBadge } from "./common";
+import { FavouriteButton } from "./Account";
 import OverviewTab from "./OverviewTab";
 import MatchesTab from "./MatchesTab";
 import SimulatorTab from "./SimulatorTab";
@@ -77,6 +78,7 @@ export default function PlayerPage({ id, tab }: { id: number; tab: Tab }) {
             <span className={`gender g-${p.gender}`} title={p.gender === "F" ? t("women") : t("men")}>
               {p.gender === "F" ? "♀" : "♂"}
             </span>
+            <FavouriteButton id={id} />
           </h1>
           <div className="muted player-sub">
             {p.licence && (
