@@ -15,12 +15,12 @@ const GENDERS: [string, MsgKey][] = [
 const GROUPS: HlGroup[] = ["N1-R3", "R4-R9"];
 // board, title, explanation shown on the title (ratios: the minimum played, filled in)
 const BOARDS: [BoardKey, MsgKey, MsgKey][] = [
-  ["tiebreaks", "hlTiebreaks", "hlMinTiebreaks"],
   ["longest_super_tiebreak", "hlLongestSuperTiebreak", "hlLongestSuperTiebreakHelp"],
   ["biggest_upset", "hlBiggestUpset", "hlBiggestUpsetHelp"],
+  ["streak", "hlStreak", "hlStreakHelp"],
   ["three_sets", "hlThreeSets", "hlMinThreeSets"],
   ["bagels", "hlBagels", "hlMinBagels"],
-  ["streak", "hlStreak", "hlStreakHelp"],
+  ["tiebreaks", "hlTiebreaks", "hlMinTiebreaks"],
 ];
 
 // shown side by side on wide screens, each row with its own "show more"
@@ -178,19 +178,18 @@ function MtbScore({ score }: { score: string }) {
   return <span className={mine > theirs ? "pos" : "neg"}>{score}</span>;
 }
 
-function Leaderboards({ data }: { data: Data["leaderboards"] }) {
+function Leaderboards({ data, filter }: { data: Data["leaderboards"]; filter: Filter }) {
   const { t, locale } = useI18n();
-  const [gender, setGender] = useUrlState("lb", "M");
   // the rows of boards shown in full: their indexes, e.g. "01"
   const [openParam, setOpenParam] = useUrlState("lbmore", "");
   const isOpen = (row: number) => openParam.includes(String(row));
   const toggle = (row: number) =>
     setOpenParam(isOpen(row) ? openParam.replace(String(row), "") : [...openParam, String(row)].sort().join(""));
   const [query, setQuery] = useState<MatchQuery | null>(null);
-  const boards = data.players[gender];
+  const boards = data.players[filter.gender]?.[filter.group];
   const pct = (v: number) => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(v);
   return (
-    <Card title={t("hlBoardsTitle")} className="hl-card" actions={<GenderSeg value={gender} onChange={setGender} />}>
+    <Card title={t("hlBoardsTitle")} className="hl-card">
       {query && <MatchListDialog key={query.key} query={query} onClose={() => setQuery(null)} />}
       <p className="hint small">{t("hlBoardsIntro", { since: fmtDate(data.since, locale) })}</p>
       {BOARD_ROWS.map((row, ri) => {
@@ -281,7 +280,7 @@ export default function Highlights() {
       <div className="highlights">
         <Upsets data={st.data.upsets} filter={filter} open={open} toggle={toggle} />
         <Movers data={st.data.movers} filter={filter} open={open} toggle={toggle} />
-        <Leaderboards data={st.data.leaderboards} />
+        <Leaderboards data={st.data.leaderboards} filter={filter} />
       </div>
     </>
   );

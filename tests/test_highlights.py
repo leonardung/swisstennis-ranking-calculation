@@ -29,7 +29,7 @@ def test_leaderboards_count_tiebreaks_three_sets_and_the_longest_streak():
         (1, 2, "2026-01-04", "N", ((6, 7), (6, 3), (4, 6))),  # tiebreak lost, three sets lost
         (1, 2, "2026-02-01", "S", won),
         (1, 2, "2026-02-02", "W", ((6, 1), (2, 0))),  # retirement counts in the run
-        (1, 2, "2019-01-01", "S", ((7, 6), (7, 6))),  # older than five years
+        (1, 2, "2019-01-01", "N", ((6, 7), (6, 7))),  # older than the period (a year)
         (2, 1, "2026-01-01", "N", lost),
     ])
     b = highlights.leaderboards(m, TODAY)
@@ -83,6 +83,40 @@ def test_board_matches_are_the_counted_ones():
     dates = lambda key: [d.day for d in highlights.board_matches(m, TODAY, key)["date"]]  # noqa: E731
     assert dates("tiebreaks") == [1] and dates("three_sets") == [1, 2]
     assert dates("bagels") == [2] and dates("streak") == [1, 2]  # 1 and 2 February
+
+
+def test_a_streak_counts_when_its_last_win_is_in_the_period():
+    won = ((6, 4), (6, 4))
+    m = _matches([
+        (1, 2, "2025-08-01", "S", won),  # before the period, in the run that ends in it
+        (1, 2, "2025-09-01", "S", won),
+        (1, 2, "2025-10-01", "S", won),
+        (1, 2, "2025-11-01", "N", won),
+        (2, 1, "2024-01-01", "S", won),  # a longer run, ended before the period
+        (2, 1, "2024-02-01", "S", won),
+        (2, 1, "2024-03-01", "S", won),
+        (2, 1, "2024-04-01", "S", won),
+        (2, 1, "2024-05-01", "N", won),
+        (2, 1, "2026-01-01", "S", won),
+    ])
+    b = highlights.leaderboards(m, TODAY)
+    assert b.loc[1, "streak"] == 3 and b.loc[1, "start"] == pd.Timestamp("2025-08-01") and not b.loc[1, "ongoing"]
+    assert b.loc[1, "other_sets"] == 4  # the other boards: the period's matches only
+    assert b.loc[2, "streak"] == 1
+    assert len(highlights.board_matches(m[m["personId"] == 1], TODAY, "streak")) == 3
+
+
+def test_a_streak_ends_after_two_years_without_a_result():
+    won = ((6, 4), (6, 4))
+    m = _matches([
+        (1, 2, "2021-01-01", "S", won),
+        (1, 2, "2021-02-01", "S", won),
+        (1, 2, "2023-03-01", "S", won),  # over two years later: a new streak
+        (1, 2, "2025-01-01", "S", won),  # under two years: the same one
+        (1, 2, "2026-01-01", "S", won),
+    ])
+    b = highlights.leaderboards(m, TODAY)
+    assert b.loc[1, "streak"] == 3 and b.loc[1, "start"] == pd.Timestamp("2023-03-01") and b.loc[1, "ongoing"]
 
 
 def test_record_counts_played_matches_in_the_period():

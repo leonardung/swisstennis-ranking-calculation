@@ -331,7 +331,7 @@ export interface MoverList {
 }
 
 export interface Highlights {
-  leaderboards: { since: string; min_played: Partial<Record<BoardKey, number>>; players: Record<string, Record<BoardKey, BoardRow[]>> };
+  leaderboards: { since: string; min_played: Partial<Record<BoardKey, number>>; players: Record<string, Record<HlGroup, Record<BoardKey, BoardRow[]>>> };
   upsets: { from: string; to: string; matches: Upset[] };
   movers: { today: MoverList; season?: MoverList };
 }

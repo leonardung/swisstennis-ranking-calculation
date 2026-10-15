@@ -1061,8 +1061,7 @@ class App:
             raise HTTPException(404, f"unknown leaderboard {key}")
         m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
         if key == "biggest_upset":
-            since = s.today - pd.DateOffset(years=highlights.LEADERBOARD_YEARS)
-            m = m.loc[highlights.upsets(m, s.history, since, s.today)["row"].head(1)]
+            m = m.loc[highlights.upsets(m, s.history, highlights.since(s.today), s.today)["row"].head(1)]
         else:
             m = highlights.board_matches(m, s.today, key)
         m = stats.describe(m)
