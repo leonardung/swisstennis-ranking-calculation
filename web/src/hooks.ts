@@ -260,6 +260,8 @@ export function useRoute(): Route {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       const a = (e.target as Element).closest?.("a");
       if (!a || a.target || a.hasAttribute("download") || a.origin !== window.location.origin) return;
+      // the server's own routes (Google sign-in redirects): a real page load
+      if (a.pathname.startsWith("/api/")) return;
       e.preventDefault();
       navigate(a.pathname + a.search);
     };
