@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accountApi, ApiError } from "../api";
-import type { User } from "../types";
+import type { MyPlayer, User } from "../types";
 import { useAccount } from "../account";
 import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
@@ -506,8 +506,8 @@ export function FavouriteButton({ id }: { id: number }) {
   );
 }
 
-/** Home page: the favourites, official class → today's, and their results since the last visit;
- * signed out, an invitation to sign in. */
+/** Home page: my player ("me") above, then the favourites; official → today and their results
+ * since the last visit. Signed out, an invitation to sign in. */
 export function MyPlayersCard() {
   const { t, locale } = useI18n();
   const account = useAccount();
@@ -527,43 +527,61 @@ export function MyPlayersCard() {
       </Card>
     );
   }
+  const players = st.data?.players ?? [];
+  const mine = players.find((p) => p.me);
+  // "me" is not a favourite here, even when followed with the ☆
+  const favourites = players.filter((p) => !p.me);
+  const since = st.data && <p className="muted small">{t("myPlayersSince", { date: fmtDate(st.data.since, locale) })}</p>;
   return (
-    <Card title={t("myPlayersTitle")} className="my-players">
-      {ids.length === 0 && !meId ? (
-        <p className="hint small">{t("favouritesNone")}</p>
-      ) : !st.data ? (
-        <AsyncStatus {...st} />
-      ) : (
-        <>
-          <p className="muted small">{t("myPlayersSince", { date: fmtDate(st.data.since, locale) })}</p>
-          <div className="my-players-list">
-            {st.data.players.map((p) => (
-              <div key={p.id} className={`my-player${p.me ? " is-me" : ""}`}>
-                <div className="my-player-head">
-                  <a href={playerHref(p.id)}>
-                    <strong>{p.name}</strong>
-                  </a>
-                  {p.me && <span className="tag tag-info">{t("myPlayersMe")}</span>}
-                  <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
-                  <span className="muted small my-player-n">
-                    {p.nMatches ? t("myPlayersMatches", { n: p.nMatches }) : t("myPlayersNoMatch")}
-                  </span>
-                </div>
-                <div className="my-player-values small">
-                  <span title={t("myPlayersSinceOfficial")}>
-                    C <Delta value={p.official?.C != null && p.today?.C != null ? p.today.C - p.official.C : null} />
-                  </span>
-                  <span>
-                    # <RankChange from={p.official?.rank} to={p.today?.rank} />
-                  </span>
-                </div>
-                {p.matches.length > 0 && <MatchTable matches={p.matches} />}
-              </div>
-            ))}
-          </div>
-        </>
+    <>
+      {mine && (
+        <Card className="my-players">
+          {since}
+          <MyPlayerRow p={mine} />
+        </Card>
       )}
-    </Card>
+      <Card title={t("myPlayersTitle")} className="my-players">
+        {ids.filter((id) => id !== meId).length === 0 ? (
+          <p className="hint small">{t("favouritesNone")}</p>
+        ) : !st.data ? (
+          <AsyncStatus {...st} />
+        ) : (
+          <>
+            {!mine && since}
+            <div className="my-players-list">
+              {favourites.map((p) => (
+                <MyPlayerRow key={p.id} p={p} />
+              ))}
+            </div>
+          </>
+        )}
+      </Card>
+    </>
+  );
+}
+
+/** A player on the home page: category, C and rank official → today, the new results. */
+function MyPlayerRow({ p }: { p: MyPlayer }) {
+  const { t } = useI18n();
+  return (
+    <div className="my-player">
+      <div className="my-player-head">
+        <a href={playerHref(p.id)}>
+          <strong>{p.name}</strong>
+        </a>
+        <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
+        <span className="muted small my-player-n">{p.nMatches ? t("myPlayersMatches", { n: p.nMatches }) : t("myPlayersNoMatch")}</span>
+      </div>
+      <div className="my-player-values small">
+        <span title={t("myPlayersSinceOfficial")}>
+          C <Delta value={p.official?.C != null && p.today?.C != null ? p.today.C - p.official.C : null} />
+        </span>
+        <span>
+          # <RankChange from={p.official?.rank} to={p.today?.rank} />
+        </span>
+      </div>
+      {p.matches.length > 0 && <MatchTable matches={p.matches} />}
+    </div>
   );
 }
 
