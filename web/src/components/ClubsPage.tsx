@@ -55,9 +55,9 @@ export default function ClubsPage() {
               <thead>
                 <tr>
                   {th("name", t("club"), { desc: false })}
-                  {th("city", t("clubCity"), { desc: false })}
-                  {th("canton", t("clubCanton"), { desc: false })}
-                  {th("id", t("clubNumber"), { className: "num", desc: false })}
+                  {th("city", t("clubCity"), { className: "clubs-col", desc: false })}
+                  {th("canton", t("clubCanton"), { className: "clubs-col", desc: false })}
+                  {th("id", t("clubNumber"), { className: "num clubs-col", desc: false })}
                   {th("players", t("clubPlayers"), { className: "num" })}
                 </tr>
               </thead>
@@ -66,10 +66,14 @@ export default function ClubsPage() {
                   <tr key={c.id}>
                     <td>
                       <a href={clubHref(c.id)}>{c.name}</a>
+                      {/* on a phone: under the name, their columns hidden */}
+                      <small className="muted clubs-sub">
+                        {[c.city, c.canton, `${t("clubNumber")} ${c.id}`].filter(Boolean).join(" · ")}
+                      </small>
                     </td>
-                    <td className="muted">{c.city}</td>
-                    <td className="muted">{c.canton}</td>
-                    <td className="num mono muted">{c.id}</td>
+                    <td className="muted clubs-col">{c.city}</td>
+                    <td className="muted clubs-col">{c.canton}</td>
+                    <td className="num mono muted clubs-col">{c.id}</td>
                     <td className="num">{fmtInt(c.players, locale)}</td>
                   </tr>
                 ))}

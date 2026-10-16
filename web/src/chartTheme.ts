@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMedia } from "./hooks";
 
 /** Chart colours (validated default palette), stepped separately for light and dark surfaces. */
 const LIGHT = {
@@ -27,24 +27,5 @@ const DARK: typeof LIGHT = {
 export type ChartColors = typeof LIGHT;
 
 export function useChartColors(): ChartColors {
-  const query = "(prefers-color-scheme: dark)";
-  const [dark, setDark] = useState(() => {
-    try {
-      return window.matchMedia(query).matches;
-    } catch {
-      return false;
-    }
-  });
-  useEffect(() => {
-    let mq: MediaQueryList;
-    try {
-      mq = window.matchMedia(query);
-    } catch {
-      return;
-    }
-    const on = (e: MediaQueryListEvent) => setDark(e.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
-  return dark ? DARK : LIGHT;
+  return useMedia("(prefers-color-scheme: dark)") ? DARK : LIGHT;
 }

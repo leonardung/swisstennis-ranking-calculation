@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { api } from "../api";
-import { playerHref, useAsync, useUrlState } from "../hooks";
+import { playerHref, useAsync, useMedia, useUrlState } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import { fmt3, fmtChance, fmtDate, fmtDateShort } from "../format";
 import type { Match, Season } from "../types";
@@ -35,6 +35,8 @@ function seasonLabel(s: Season, locale: string): string {
 export default function MatchesTab({ playerId }: { playerId: number }) {
   const { t, locale } = useI18n();
   const [seasonParam, setSeason] = useUrlState("season", "0");
+  // phones: "Actuelle" alone, the window's dates are written just below
+  const phone = useMedia("(max-width: 720px)");
   const season = Number(seasonParam) || 0;
   const st = useAsync((s) => api.matches(playerId, season, s), [playerId, season]);
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -127,7 +129,7 @@ export default function MatchesTab({ playerId }: { playerId: number }) {
           <select aria-labelledby="season-label" value={season} onChange={(e) => setSeason(e.target.value)}>
             {seasons.map((s, i) => (
               <option key={s.start} value={i}>
-                {i === 0 ? t("seasonCurrent", { months: seasonLabel(s, locale) }) : seasonLabel(s, locale)}
+                {i === 0 ? (phone ? t("seasonCurrentShort") : t("seasonCurrent", { months: seasonLabel(s, locale) })) : seasonLabel(s, locale)}
               </option>
             ))}
           </select>

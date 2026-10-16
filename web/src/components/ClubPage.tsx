@@ -146,8 +146,15 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
                   <th className="num">#</th>
                   {th("name", t("clubPlayer"), { desc: false })}
                   {th("age", t("clubAge"), { className: "club-age-col", desc: false })}
-                  {th("class", t("clubOfficialToday"), { desc: false })}
-                  {th("rank", t("clubRankOfficialToday"), { className: "num", desc: false })}
+                  {th(
+                    "class",
+                    <>
+                      <span className="th-long">{t("clubOfficialToday")}</span>
+                      <span className="th-short">{t("clubCategory")}</span>
+                    </>,
+                    { desc: false },
+                  )}
+                  {th("rank", t("clubRankOfficialToday"), { className: "num club-rank-col", desc: false })}
                   {th("c", "C", { className: "num club-c" })}
                 </tr>
               </thead>
@@ -163,8 +170,13 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
                     <td className="muted small club-age-col">{p.age}</td>
                     <td>
                       <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
+                      {/* on a phone: under the category, its column hidden */}
+                      <small className="club-rank-sub">
+                        <span className="muted"># </span>
+                        <RankChange from={p.official?.rank} to={p.today?.rank} />
+                      </small>
                     </td>
-                    <td className="num">
+                    <td className="num club-rank-col">
                       <RankChange from={p.official?.rank} to={p.today?.rank} />
                     </td>
                     <td className="num mono club-c">{fmt3(p.today?.C ?? p.official?.C)}</td>

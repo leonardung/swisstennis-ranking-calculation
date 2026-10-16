@@ -77,6 +77,30 @@ export function useAsync<T>(
   return { data, error, loading, backendLoading, reload };
 }
 
+/** Whether the CSS media query matches, following its changes (false where unsupported). */
+export function useMedia(query: string): boolean {
+  const [matches, setMatches] = useState(() => {
+    try {
+      return window.matchMedia(query).matches;
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    let mq: MediaQueryList;
+    try {
+      mq = window.matchMedia(query);
+    } catch {
+      return;
+    }
+    setMatches(mq.matches);
+    const on = (e: MediaQueryListEvent) => setMatches(e.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return matches;
+}
+
 export function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {

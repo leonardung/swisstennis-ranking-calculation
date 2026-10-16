@@ -263,6 +263,12 @@ main.container {
   opacity: 0.35;
   cursor: default;
 }
+/* phones: the arrows and the select say it; the label stays for screen readers (aria-labelledby) */
+@media (max-width: 720px) {
+  #season-label {
+    display: none;
+  }
+}
 
 /* ---------- Header ---------- */
 .app-header {
@@ -1852,18 +1858,29 @@ dialog.feedback::backdrop {
   .hl-mover {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }
+  /* one line: smaller labels and padding so the three fit without squeezing into each other */
+  .hl-filter {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
   .hl-filter > div,
   .hl-filter > .seg {
-    flex: 1;
+    flex: 1 1 auto;
   }
   .hl-filter .seg {
     display: grid;
     grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-columns: 1fr;
   }
-  /* on its own line: three in a row squeeze the segmented controls' labels into each other */
+  .hl-filter .seg button {
+    padding: 5px 6px;
+    font-size: 12px;
+  }
   .hl-filter .hl-age {
-    flex-basis: 100%;
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 5px 4px;
+    font-size: 12px;
   }
   .hl-mover .class-change {
     grid-column: 2;
@@ -1872,6 +1889,14 @@ dialog.feedback::backdrop {
   .hl-mover-val {
     grid-row: 1 / span 2;
     grid-column: 3;
+  }
+}
+@media (max-width: 359px) {
+  .hl-filter {
+    gap: 4px;
+  }
+  .hl-filter .seg button {
+    padding: 5px 3px;
   }
 }
 .hl-more {
@@ -3020,10 +3045,32 @@ dialog.match-dialog::backdrop {
 .club-table td {
   white-space: nowrap;
 }
-.club-age-sub {
+.club-age-sub,
+.club-rank-sub,
+.clubs-sub,
+.th-short {
   display: none;
 }
+/* phones: no sideways scroll; the hidden columns go under the name (clubs: town, canton,
+   number) or the category (players: the rank), and the long header gets its short form */
 @media (max-width: 600px) {
+  .clubs-table .clubs-col,
+  .club-table .club-rank-col,
+  .th-long {
+    display: none;
+  }
+  .clubs-sub,
+  .club-rank-sub {
+    display: block;
+    margin-top: 2px;
+  }
+  .th-short {
+    display: inline;
+  }
+  .clubs-table th,
+  .clubs-table td {
+    padding: 8px 6px;
+  }
   .club-table thead th {
     white-space: normal;
   }

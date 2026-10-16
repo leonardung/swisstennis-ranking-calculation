@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
-import { clubHref, navigate, useDebounced } from "../hooks";
+import { clubHref, navigate, useDebounced, useMedia } from "../hooks";
 import { useI18n, type MsgKey } from "../i18n";
 import type { ClubHit, PlayerSummary, TournamentHit } from "../types";
 import { CategoryBadge } from "./common";
@@ -143,6 +143,8 @@ function Combobox<T extends { id: number }>({
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  // not on a touch screen: the keyboard would pop up over the page as soon as it opens
+  const mouse = useMedia("(hover: hover) and (pointer: fine)");
 
   useEffect(() => {
     if (debounced.length < 2) {
@@ -233,7 +235,7 @@ function Combobox<T extends { id: number }>({
         aria-activedescendant={showList && results[active] ? `${listId}-${active}` : undefined}
         placeholder={placeholder}
         value={query}
-        autoFocus={autoFocus}
+        autoFocus={autoFocus && mouse}
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
