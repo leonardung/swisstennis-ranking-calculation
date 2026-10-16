@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import numpy as np
 import pandas as pd
@@ -63,10 +63,12 @@ SUGGESTED_HALF_KM = 50
 # one: of the last FAVOURITES_DAYS days), at most FAVOURITES_MATCHES each
 FAVOURITES_DAYS = 7
 FAVOURITES_MATCHES = 5
-# sign-in emails per visitor (IP) and per address per hour; link checks per visitor per hour
+# account emails (verify, reset) per visitor (IP) and per address per hour; password and link
+# checks per visitor and per address per hour
 LOGIN_MAILS_PER_HOUR = 5
 LOGIN_MAILS_PER_ADDRESS_HOUR = 3
 LOGIN_CHECKS_PER_HOUR = 30
+LOGIN_CHECKS_PER_ADDRESS_HOUR = 10
 TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "inRange")
 TOURNAMENT_WHEN = ("upcoming", "live", "past")
 AGE_KINDS = ("actives", "juniors", "seniors")  # the order of the age options
@@ -107,14 +109,38 @@ class Feedback(BaseModel):
     website: str | None = None
 
 
-class EmailLogin(BaseModel):
+Password = Annotated[str, Field(min_length=accounts.PASSWORD_MIN, max_length=200)]
+
+
+class SignUp(BaseModel):
     email: str = Field(max_length=200)
-    next: str | None = Field(None, max_length=300)  # the page to return to
+    password: Password
+    next: str | None = Field(None, max_length=300)  # the page to return to once verified
+    lang: Literal["fr", "en"] = "fr"
+
+
+class Login(BaseModel):
+    email: str = Field(max_length=200)
+    password: str = Field(max_length=200)
+    lang: Literal["fr", "en"] = "fr"  # of the verification email sent again to an unverified account
+
+
+class Forgot(BaseModel):
+    email: str = Field(max_length=200)
     lang: Literal["fr", "en"] = "fr"
 
 
 class LinkToken(BaseModel):
     token: str = Field(max_length=100)
+
+
+class Reset(BaseModel):
+    token: str = Field(max_length=100)
+    password: Password
+
+
+class NewPassword(BaseModel):
+    password: Password
 
 
 class MeUpdate(BaseModel):
@@ -126,7 +152,7 @@ class PerfSample(BaseModel):
     page load) until its data is shown."""
 
     kind: Literal["initial", "navigation"]
-    page: str = Field(pattern=r"^(home|tournaments?|clubs?|perf|login|account|privacy|player/[a-z]{1,12})$")
+    page: str = Field(pattern=r"^(home|tournaments?|clubs?|perf|login|reset|account|privacy|player/[a-z]{1,12})$")
     ms: float = Field(ge=0, le=120_000)
 
 
@@ -586,6 +612,7 @@ class App:
         self.login_mail_limit = RateLimit(LOGIN_MAILS_PER_HOUR)
         self.login_address_limit = RateLimit(LOGIN_MAILS_PER_ADDRESS_HOUR)
         self.login_check_limit = RateLimit(LOGIN_CHECKS_PER_HOUR)
+        self.login_address_check_limit = RateLimit(LOGIN_CHECKS_PER_ADDRESS_HOUR)
 
     # --- lifecycle ---------------------------------------------------------------------------
 
@@ -1857,41 +1884,107 @@ def create_app(
         if pid not in app.s().people.index:
             raise HTTPException(404, f"unknown player {pid}")
 
-    @api.post("/api/auth/email", status_code=204)
-    def login_email(body: EmailLogin, request: Request):
-        """Email a sign-in link (the account is created on its first use)."""
-        st = store(request)
-        same_site(request)
-        email = body.email.strip().lower()
+    def address(request: Request, email: str) -> str:
+        """The email, checked and lower case; counts against the email limits."""
+        email = email.strip().lower()
         if not mail.EMAIL.fullmatch(email):
             raise HTTPException(400, "invalid email")
         app.login_mail_limit.hit(_ip(request))
         app.login_address_limit.hit(email)
-        token = st.new_link(email, body.next or "/")
+        return email
+
+    def send(kind: str, to: str, path: str, token: str, lang: str) -> None:
+        """Email a link (verify, reset, exists: see accounts.MAILS) to base_url + path?token=."""
         try:
-            accounts.send_link(
+            accounts.send_mail(
                 os.environ.get("RESEND_API_KEY"), os.environ.get("MAIL_FROM", "Tennis Radar <login@tennis-radar.ch>"),
-                email, f"{base_url}/login?token={token}", body.lang,
+                to, kind, f"{base_url}{path}?token={token}", lang,
             )
         except Exception as e:  # noqa: BLE001
-            print(f"sign-in email not sent: {e!r}", file=sys.stderr, flush=True)
+            print(f"{kind} email not sent: {e!r}", file=sys.stderr, flush=True)
             raise HTTPException(502, "email not sent") from None
+
+    def signed_in_response(st: accounts.Accounts, uid: int, body: dict) -> Response:
+        response = Response(json.dumps(body), media_type="application/json")
+        set_session(response, st.new_session(uid))
+        return response
+
+    @api.post("/api/auth/signup", status_code=204)
+    def sign_up(body: SignUp, request: Request):
+        """Create an account: an email verifies the address, the password works from then on.
+        The answer is the same whether the address has an account already (that one gets an
+        email to reset its password instead)."""
+        st = store(request)
+        same_site(request)
+        email = address(request, body.email)
+        uid, token = st.sign_up(email, body.password, body.next or "/")
+        if token:
+            send("verify", email, "/login", token, body.lang)
+        else:
+            send("exists", email, "/reset", st.reset_link(uid), body.lang)
+        return Response(status_code=204)
+
+    @api.post("/api/auth/login")
+    def log_in(body: Login, request: Request):
+        """Sign in with the password. 401: wrong email or password; 403: the email is not
+        verified yet (its verification email is sent again)."""
+        st = store(request)
+        same_site(request)
+        email = body.email.strip().lower()
+        app.login_check_limit.hit(_ip(request))
+        app.login_address_check_limit.hit(email)
+        found = st.check_login(email, body.password)
+        if found is None:
+            raise HTTPException(401, "wrong email or password")
+        uid, verified = found
+        if not verified:
+            app.login_mail_limit.hit(_ip(request))
+            _, token = st.sign_up(email, body.password, "/")
+            send("verify", email, "/login", token, body.lang)
+            raise HTTPException(403, "email not verified")
+        return signed_in_response(st, uid, {"next": None})
+
+    @api.post("/api/auth/forgot", status_code=204)
+    def forgot(body: Forgot, request: Request):
+        """Email a link to choose a new password (nothing for an address without an account:
+        the answer is the same)."""
+        st = store(request)
+        same_site(request)
+        email = address(request, body.email)
+        uid = st.user_by_email(email)
+        if uid is not None:
+            send("reset", email, "/reset", st.reset_link(uid), body.lang)
         return Response(status_code=204)
 
     @api.post("/api/auth/verify")
-    def login_verify(body: LinkToken, request: Request):
-        """Sign in with the emailed link's token (posted by the /login page: mail scanners that
-        open links do not use it up)."""
+    def verify(body: LinkToken, request: Request):
+        """Verify the email with the link's token and sign in (posted by the /login page: mail
+        scanners that open links do not use it up)."""
         st = store(request)
         same_site(request)
         app.login_check_limit.hit(_ip(request))
-        used = st.use_link(body.token)
+        used = st.use_link(body.token, "verify")
         if used is None:
             raise HTTPException(400, "link expired or already used")
-        uid, next_ = used
-        response = Response(json.dumps({"next": next_}), media_type="application/json")
-        set_session(response, st.new_session(uid))
-        return response
+        return signed_in_response(st, used[0], {"next": used[1]})
+
+    @api.post("/api/auth/reset")
+    def reset(body: Reset, request: Request):
+        """A new password with the emailed link's token; every other session ends."""
+        st = store(request)
+        same_site(request)
+        app.login_check_limit.hit(_ip(request))
+        used = st.use_link(body.token, "reset", body.password)
+        if used is None:
+            raise HTTPException(400, "link expired or already used")
+        return signed_in_response(st, used[0], {"next": used[1]})
+
+    @api.put("/api/me/password", status_code=204)
+    def change_password(body: NewPassword, request: Request):
+        uid = signed_in(request)
+        same_site(request)
+        app.accounts.set_password(uid, body.password)
+        return Response(status_code=204)
 
     @api.get("/api/auth/google")
     def login_google(request: Request, next: str | None = None):
@@ -1946,7 +2039,10 @@ def create_app(
         if st.renew(token):
             set_session(response, token)
         p = st.profile(uid)
-        return {"user": {"email": p["email"], "me": app.me(p["player"]), "favourites": p["favourites"]}}
+        return {"user": {
+            "email": p["email"], "me": app.me(p["player"]), "favourites": p["favourites"],
+            "hasPassword": p["password"], "google": p["google"],
+        }}
 
     @api.put("/api/me")
     def set_me(body: MeUpdate, request: Request):

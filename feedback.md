@@ -137,9 +137,9 @@ holds preferences. Two accounts may pick the same player; nothing private leaks.
 are stored on the server. Nothing is kept in the browser. Anonymous visitors get the site as it
 is today; the account features show a "Sign in to …" prompt instead.
 
-**Login (decided: both):** an email magic link (no password to store or reset) and "Sign in
-with Google". One account per email: Google and the magic link with the same verified email are
-the same account.
+**Login (decided: both):** email and password (the email verified once by a link; "forgot my
+password" emails a reset link) and "Sign in with Google". One account per email: Google and the
+password with the same verified email are the same account.
 After signing up, the user picks their player ("me") and a display name, both changeable in
 settings. The account also enables notifications later (B).
 
@@ -168,8 +168,9 @@ accounts are on the new one. So the two deployments don't need to share data.
    within clubs; no account needed. *Done 2026-10-15: `/club/<id>`, clubs in the header and home
    search, the player's clubs linked on their page, a men / women switch and an interclub age
    filter (45+ includes the older seniors, 16&U the younger juniors).*
-3. **Accounts** (tennis-radar.ch only): login, "me", settings. *Built 2026-10-15: emailed link
-   (Resend) and Google, one account per email, sessions of a year renewed on use, `/account`
+3. **Accounts** (tennis-radar.ch only): login, "me", settings. *Built 2026-10-15: email and password
+   (the address verified by an emailed link, Resend; "forgot my password" emails a reset link;
+   scrypt hashes) and Google, one account per email, sessions of a year renewed on use, `/account`
    (me, followed players, sign out, delete), `/privacy`; data/accounts.sqlite. No display name
    (the player's name serves).*
 4. **C + B**: on top of accounts, the "open to me" tournament filter and favourites with the
@@ -187,7 +188,7 @@ accounts are on the new one. So the two deployments don't need to share data.
 ## Decisions (2026-10-15)
 
 - A: current players of the club only.
-- Accounts: both login methods, email magic link and Google.
+- Accounts: both login methods, email + password (verified by a link) and Google.
 - 3: demote the tiebreak ratio (don't remove it).
 - 4: juniors only (no seniors), with U18, U16, U14, U12 and U10 as separate choices.
 - 1: swisstopo tiles.

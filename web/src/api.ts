@@ -102,7 +102,11 @@ async function send<T = void>(method: string, path: string, body?: unknown): Pro
 /** The account (accounts.py): never cached. */
 export const accountApi = {
   me: (signal?: AbortSignal) => fetchJson<{ user: User | null }>("/api/me", signal),
-  emailLink: (email: string, next: string, lang: string) => send("POST", "/api/auth/email", { email, next, lang }),
+  signup: (email: string, password: string, next: string, lang: string) => send("POST", "/api/auth/signup", { email, password, next, lang }),
+  login: (email: string, password: string, lang: string) => send("POST", "/api/auth/login", { email, password, lang }),
+  forgot: (email: string, lang: string) => send("POST", "/api/auth/forgot", { email, lang }),
+  reset: (token: string, password: string) => send("POST", "/api/auth/reset", { token, password }),
+  setPassword: (password: string) => send("PUT", "/api/me/password", { password }),
   verify: (token: string) => send<{ next: string }>("POST", "/api/auth/verify", { token }),
   logout: () => send("POST", "/api/auth/logout"),
   setMe: (player: number | null) => send<{ me: MePlayer | null }>("PUT", "/api/me", { player }),

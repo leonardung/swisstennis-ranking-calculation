@@ -579,6 +579,9 @@ export interface User {
   email: string;
   me: MePlayer | null;
   favourites: number[];
+  hasPassword: boolean;
+  /** signs in with Google too */
+  google: boolean;
 }
 
 /** A favourite on the "My players" card. */

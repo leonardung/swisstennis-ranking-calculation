@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { accountApi, ApiError } from "../api";
+import type { User } from "../types";
 import { useAccount } from "../account";
 import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
@@ -9,54 +10,86 @@ import { AsyncStatus, Card, CategoryBadge, ClassChange, Spinner } from "./common
 import { MatchTable } from "./MatchListDialog";
 import SearchBox from "./SearchBox";
 
-type SendStatus = "idle" | "sending" | "sent" | "error" | "limited";
+const PASSWORD_MIN = 8; // accounts.PASSWORD_MIN
 
-/** Sign in: an emailed link (no password) or Google; the account is created on first use. */
-function LoginForm({ next, autoFocus = false }: { next: string; autoFocus?: boolean }) {
+type Mode = "login" | "signup" | "forgot";
+type SendStatus = "idle" | "sending" | "sent" | "error" | "limited" | "wrong" | "unverified";
+
+const GOOGLE_ICON = (
+  <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
+    <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.6 17.7 9.5 24 9.5z" />
+    <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.1z" />
+    <path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.2A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.2z" />
+    <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.2C6.6 42.6 14.6 48 24 48z" />
+  </svg>
+);
+
+/** Once signed in: the first time to the account page (pick "me"), else to `next`. */
+async function afterSignIn(refresh: () => Promise<User | null>, next: string) {
+  const user = await refresh();
+  trackEvent("login");
+  navigate(user && !user.me ? "/account" : next);
+}
+
+/** Sign in with email and password or Google; create an account (the password works once the
+ * email is verified by a link); ask for a link to choose a new password. */
+function LoginForm({ next, autoFocus = false, onSignedIn }: { next: string; autoFocus?: boolean; onSignedIn?: () => void }) {
   const { t, lang } = useI18n();
   const account = useAccount();
+  const [mode, setMode] = useState<Mode>("login");
   const [status, setStatus] = useState<SendStatus>("idle");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const switchTo = (m: Mode) => {
+    setMode(m);
+    setStatus("idle");
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setStatus("sending");
+    const address = email.trim();
     try {
-      await accountApi.emailLink(email.trim(), next, lang);
-      trackEvent("login-email");
+      if (mode === "login") {
+        await accountApi.login(address, password, lang);
+        onSignedIn?.();
+        await afterSignIn(account.refresh, next);
+        return;
+      }
+      if (mode === "signup") await accountApi.signup(address, password, next, lang);
+      else await accountApi.forgot(address, lang);
+      trackEvent(mode === "signup" ? "signup" : "password-forgot");
       setStatus("sent");
     } catch (err) {
-      setStatus(err instanceof ApiError && err.status === 429 ? "limited" : "error");
+      const code = err instanceof ApiError ? err.status : 0;
+      setStatus(code === 429 ? "limited" : code === 401 ? "wrong" : code === 403 ? "unverified" : "error");
     }
   };
 
   if (status === "sent") {
     return (
       <div className="login-form">
-        <p>{t("loginSent", { email: email.trim() })}</p>
-        <p className="muted small">{t("loginSentHint")}</p>
-        <button className="btn btn-ghost" onClick={() => setStatus("idle")}>
-          {t("loginOtherEmail")}
+        <p>{t(mode === "signup" ? "signupSent" : "forgotSent", { email: email.trim() })}</p>
+        <p className="muted small">{t(mode === "signup" ? "signupSentHint" : "forgotSentHint")}</p>
+        <button className="btn btn-ghost" onClick={() => switchTo("login")}>
+          {t("loginBack")}
         </button>
       </div>
     );
   }
   return (
     <div className="login-form">
-      {account.google && (
+      {account.google && mode !== "forgot" && (
         <>
           <a className="btn google-btn" href={accountApi.googleHref(next)} onClick={() => trackEvent("login-google")}>
-            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
-              <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.6 17.7 9.5 24 9.5z" />
-              <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.1z" />
-              <path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.2A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.2z" />
-              <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.2C6.6 42.6 14.6 48 24 48z" />
-            </svg>
+            {GOOGLE_ICON}
             {t("loginGoogle")}
           </a>
           <div className="login-or muted small">{t("loginOr")}</div>
         </>
       )}
+      {mode === "forgot" && <p className="muted small">{t("forgotIntro")}</p>}
       <form onSubmit={submit}>
         <label>
           <span>{t("loginEmail")}</span>
@@ -70,15 +103,162 @@ function LoginForm({ next, autoFocus = false }: { next: string; autoFocus?: bool
             onChange={(e) => setEmail(e.target.value)}
           />
         </label>
+        {mode !== "forgot" && (
+          <label>
+            <span>{t(mode === "signup" ? "loginNewPassword" : "loginPassword")}</span>
+            <input
+              type="password"
+              required
+              minLength={mode === "signup" ? PASSWORD_MIN : undefined}
+              maxLength={200}
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </label>
+        )}
+        {status === "wrong" && <p className="neg small">{t("loginWrong")}</p>}
+        {status === "unverified" && <p className="neg small">{t("loginUnverified")}</p>}
         {status === "error" && <p className="neg small">{t("loginError")}</p>}
         {status === "limited" && <p className="neg small">{t("feedbackLimited")}</p>}
         <button type="submit" className="btn btn-primary" disabled={status === "sending"}>
-          {status === "sending" ? t("feedbackSending") : t("loginSend")}
+          {status === "sending" ? t("feedbackSending") : t(mode === "login" ? "loginSubmit" : mode === "signup" ? "signupSubmit" : "forgotSubmit")}
         </button>
       </form>
+      <div className="login-links small">
+        {mode === "login" ? (
+          <>
+            <button type="button" className="link-btn" onClick={() => switchTo("signup")}>
+              {t("loginToSignup")}
+            </button>
+            <button type="button" className="link-btn" onClick={() => switchTo("forgot")}>
+              {t("loginForgot")}
+            </button>
+          </>
+        ) : (
+          <button type="button" className="link-btn" onClick={() => switchTo("login")}>
+            {t("loginToLogin")}
+          </button>
+        )}
+      </div>
       <p className="muted small">
         {t("loginPrivacy")} <a href="/privacy">{t("privacyTitle")}</a>
       </p>
+    </div>
+  );
+}
+
+/** A new password, typed twice. */
+function NewPasswordForm({ submitLabel, onSubmit }: { submitLabel: string; onSubmit: (password: string) => Promise<void> }) {
+  const { t } = useI18n();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [status, setStatus] = useState<"idle" | "saving" | "mismatch" | "error">("idle");
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (password !== confirm) return setStatus("mismatch");
+    setStatus("saving");
+    try {
+      await onSubmit(password);
+      setPassword("");
+      setConfirm("");
+      setStatus("idle");
+    } catch {
+      setStatus("error");
+    }
+  };
+  return (
+    <form className="login-form" onSubmit={submit}>
+      <label>
+        <span>{t("loginNewPassword")}</span>
+        <input
+          type="password"
+          required
+          minLength={PASSWORD_MIN}
+          maxLength={200}
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+      </label>
+      <label>
+        <span>{t("passwordConfirm")}</span>
+        <input
+          type="password"
+          required
+          maxLength={200}
+          autoComplete="new-password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+        />
+      </label>
+      {status === "mismatch" && <p className="neg small">{t("passwordMismatch")}</p>}
+      {status === "error" && <p className="neg small">{t("passwordError")}</p>}
+      <button type="submit" className="btn btn-primary" disabled={status === "saving"}>
+        {status === "saving" ? t("feedbackSending") : submitLabel}
+      </button>
+    </form>
+  );
+}
+
+/** The account page's password: change it, or choose one (signed up with Google). */
+function PasswordCard({ hasPassword }: { hasPassword: boolean }) {
+  const { t } = useI18n();
+  const account = useAccount();
+  const [saved, setSaved] = useState(false);
+  return (
+    <Card title={t("passwordTitle")}>
+      {!hasPassword && <p className="muted small">{t("passwordChooseHint")}</p>}
+      {saved && <p className="pos small">{t("passwordSaved")}</p>}
+      <NewPasswordForm
+        submitLabel={t(hasPassword ? "passwordChange" : "passwordChoose")}
+        onSubmit={async (password) => {
+          setSaved(false);
+          await accountApi.setPassword(password);
+          trackEvent("password-set");
+          await account.refresh();
+          setSaved(true);
+        }}
+      />
+    </Card>
+  );
+}
+
+/** /reset: the "forgotten password" link lands here; the new password signs in (and out
+ * everywhere else). */
+export function ResetPage() {
+  const { t } = useI18n();
+  const account = useAccount();
+  const token = new URLSearchParams(window.location.search).get("token");
+  const [failed, setFailed] = useState(!token);
+  useEffect(() => {
+    document.title = `${t("resetTitle")} · ${t("appName")}`;
+  }, [t]);
+  if (!account.enabled) return <NotAvailable />;
+  return (
+    <div className="account-page narrow">
+      <h1>{t("resetTitle")}</h1>
+      <Card>
+        {failed ? (
+          <>
+            <p className="neg">{t("loginLinkFailed")}</p>
+            <LoginForm next="/" />
+          </>
+        ) : (
+          <NewPasswordForm
+            submitLabel={t("resetSubmit")}
+            onSubmit={async (password) => {
+              try {
+                await accountApi.reset(token!, password);
+              } catch (err) {
+                if (err instanceof ApiError && err.status === 400) return setFailed(true);
+                throw err;
+              }
+              await afterSignIn(account.refresh, "/");
+            }}
+          />
+        )}
+      </Card>
     </div>
   );
 }
@@ -105,7 +285,7 @@ export function LoginDialog() {
         <div className="feedback-body">
           <h2 id="login-title">{t("loginTitle")}</h2>
           <p className="muted small">{t("loginIntro")}</p>
-          <LoginForm next={window.location.pathname + window.location.search} autoFocus />
+          <LoginForm next={window.location.pathname + window.location.search} autoFocus onSignedIn={close} />
           <div className="feedback-actions">
             <button className="btn btn-ghost" onClick={close}>
               {t("close")}
@@ -136,8 +316,8 @@ export function AccountButton() {
   );
 }
 
-/** /login: the emailed link lands here and signs in with a POST (mail scanners that open links
- * do not use it up); without a token, the sign-in form. */
+/** /login: the verification link lands here and signs in with a POST (mail scanners that open
+ * links do not use it up); without a token, the sign-in form. */
 export function LoginPage() {
   const { t } = useI18n();
   const account = useAccount();
@@ -151,12 +331,7 @@ export function LoginPage() {
     if (!token || started.current) return;
     started.current = true;
     accountApi.verify(token).then(
-      async ({ next }) => {
-        const user = await account.refresh();
-        trackEvent("login");
-        // first time: pick "me"
-        navigate(user && !user.me ? "/account" : next);
-      },
+      ({ next }) => afterSignIn(account.refresh, next),
       () => setFailed(true),
     );
   }, [token, account, t]);
@@ -257,6 +432,7 @@ export function AccountPage() {
         />
       </Card>
       <FavouritesCard />
+      <PasswordCard hasPassword={user.hasPassword} />
       <Card title={t("accountSection")}>
         <p>
           {t("accountEmail")}: <strong>{user.email}</strong>

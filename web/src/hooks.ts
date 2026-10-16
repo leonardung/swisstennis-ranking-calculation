@@ -103,6 +103,7 @@ export type Route =
   | { page: "club"; id: number; tab: ClubTab }
   | { page: "perf" }
   | { page: "login" }
+  | { page: "reset" }
   | { page: "account" }
   | { page: "privacy" };
 
@@ -117,6 +118,7 @@ export function parsePath(path: string): Route {
   if (/^\/perf\/?$/.test(path)) return { page: "perf" };
   if (/^\/clubs\/?$/.test(path)) return { page: "clubs" };
   if (/^\/login\/?$/.test(path)) return { page: "login" };
+  if (/^\/reset\/?$/.test(path)) return { page: "reset" };
   if (/^\/account\/?$/.test(path)) return { page: "account" };
   if (/^\/privacy\/?$/.test(path)) return { page: "privacy" };
   const c = /^\/club\/(\d+)(?:\/(tournaments))?\/?$/.exec(path);

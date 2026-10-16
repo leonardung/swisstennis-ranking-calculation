@@ -13,7 +13,7 @@ import TournamentPage from "./components/TournamentPage";
 import ClubPage from "./components/ClubPage";
 import ClubsPage from "./components/ClubsPage";
 import PerfPage from "./components/PerfPage";
-import { AccountPage, LoginDialog, LoginPage, PrivacyPage } from "./components/Account";
+import { AccountPage, LoginDialog, LoginPage, PrivacyPage, ResetPage } from "./components/Account";
 import { BackendLoading, Spinner } from "./components/common";
 import { AccountContext, useAccountState } from "./account";
 
@@ -112,6 +112,8 @@ export default function App() {
           <Spinner />
         ) : route.page === "login" ? (
           <LoginPage />
+        ) : route.page === "reset" ? (
+          <ResetPage />
         ) : route.page === "account" ? (
           <AccountPage />
         ) : route.page === "privacy" ? (
