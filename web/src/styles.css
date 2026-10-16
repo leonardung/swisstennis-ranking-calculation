@@ -1843,6 +1843,10 @@ dialog.feedback::backdrop {
     grid-auto-flow: column;
     grid-auto-columns: minmax(0, 1fr);
   }
+  /* on its own line: three in a row squeeze the segmented controls' labels into each other */
+  .hl-filter .hl-age {
+    flex-basis: 100%;
+  }
   .hl-mover .class-change {
     grid-column: 2;
     grid-row: 2;
