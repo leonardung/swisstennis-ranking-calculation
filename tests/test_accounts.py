@@ -136,7 +136,10 @@ def test_me_favourites_password_logout_and_delete(client, mails):
     assert client.put("/api/me", json={"player": 99}, headers=SAME).status_code == 404
     me = client.put("/api/me", json={"player": 2}, headers=SAME).json()["me"]
     # what the filters start from: today's class R7 (R4-R9), the junior age U14
-    assert me == {"id": 2, "name": "Ben", "gender": "M", "age": "14&U", "class": "R7", "group": "R4-R9", "juniorAge": "U14"}
+    assert me == {
+        "id": 2, "name": "Ben", "gender": "M", "age": "14&U", "class": "R7", "group": "R4-R9", "juniorAge": "U14",
+        "officialClass": "R7", "openTo": {"matchType": "1,3,5", "age": None, "event": "R7"},  # no tournaments here
+    }  # fmt: skip
     assert client.put("/api/me/favourites/1", headers=SAME).status_code == 204
     assert client.put("/api/me/favourites/1", headers=SAME).status_code == 204  # twice: once
     assert client.put("/api/me/favourites/99", headers=SAME).status_code == 404

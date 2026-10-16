@@ -53,13 +53,12 @@ PREDICT_MAX_ADD = 30
 # tournaments: their tables (written by `scrape-tournaments`), refreshed every this many hours
 TOURNAMENT_DIR = "tournaments"
 TOURNAMENT_REFRESH_HOURS = 2
-# tournament list: page size by default and at most; suggested tournaments of a player
+# tournament list: page size by default and at most
 TOURNAMENT_LIMIT = 50
 TOURNAMENT_MAX_LIMIT = 200
-SUGGESTED_MAX = 20
-# suggested events: the weight of the field halves every SUGGESTED_HALF_KM from the player's club
+# "suggested" order: the weight of the field halves every SUGGESTED_HALF_KM from the player's club
 SUGGESTED_HALF_KM = 50
-# "My players" (an account's favourites): their results since the previous visit (on the first
+# "My favourites" (an account's player and favourites): their results since the previous visit (on the first
 # one: of the last FAVOURITES_DAYS days), at most FAVOURITES_MATCHES each
 FAVOURITES_DAYS = 7
 FAVOURITES_MATCHES = 5
@@ -69,10 +68,11 @@ LOGIN_MAILS_PER_HOUR = 5
 LOGIN_MAILS_PER_ADDRESS_HOUR = 3
 LOGIN_CHECKS_PER_HOUR = 30
 LOGIN_CHECKS_PER_ADDRESS_HOUR = 10
-TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "inRange")
+TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "inRange", "suggested")
 TOURNAMENT_WHEN = ("upcoming", "live", "past")
 AGE_KINDS = ("actives", "juniors", "seniors")  # the order of the age options
 SINGLES = (1, 2)  # match types: men's and women's singles
+MATCH_TYPES = (1, 2, 3, 4, 5)  # men's, women's singles; men's, women's, mixed doubles
 MYTENNIS_URL = "https://www.mytennis.ch/fr/tournois/{}"
 # category index (0 = N1, strongest) of each category, and of each ranking type id (1 N1 ... 13 R9)
 CATEGORY_INDEX = {c: i for i, c in enumerate(evaluate.CATEGORIES)}
@@ -1209,19 +1209,17 @@ class App:
         ids = s.people.index.intersection(s.clubs.loc[s.clubs["clubId"].eq(cid).to_numpy(bool), "personId"])
         people = s.people.loc[ids]
         today = s.p.loc[s.number[ids]].set_index("personId")
-        lists = s.lists_of(ids)
-        off = lists[lists["date"].dt.normalize() == s.official_date].drop_duplicates("personId", keep="last").set_index("personId")
+        off = self._officials(s, ids)
         order = today["C"].where(today["on_list"]).combine_first(off["C"]).reindex(ids)
         players = []
         for pid in order.sort_values(ascending=False, na_position="last").index:
-            o = off.loc[pid] if pid in off.index else None
             r = today.loc[pid]
             players.append({
                 "id": int(pid),
                 "name": people.at[pid, "name"],
                 "gender": _str(people.at[pid, "gender"]),
                 "age": _str(people.at[pid, "age"]),
-                "official": None if o is None else {"class": _str(o["classification"]), "rank": _int(o["rank"]), "C": _num(o["C"])},
+                "official": _official(off, pid),
                 "today": values(r) if r["on_list"] else None,
             })
         t = self.tournaments.tournaments
@@ -1233,6 +1231,12 @@ class App:
             "players": players,
             "tournaments": [{**_tournament_summary(tid, r), "players": int(r["players"])} for tid, r in own.iterrows()],
         }
+
+    @staticmethod
+    def _officials(s: State, ids: Iterable[int]) -> pd.DataFrame:
+        """The players' rows of the official list, by personId (none for a player not on it)."""
+        lists = s.lists_of(ids)
+        return lists[lists["date"].dt.normalize() == s.official_date].drop_duplicates("personId", keep="last").set_index("personId")
 
     def h2h(self, pid: int, oid: int) -> list[dict]:
         s = self.s()
@@ -1283,12 +1287,12 @@ class App:
         """Today's class of the player (row r of s.p), else his official one."""
         return r["class"] if r["on_list"] else s.official_class.get(r["personId"])
 
-    def _tournament_item(self, t: Tournaments, e: pd.Series, in_range=None, distance=None) -> dict:
+    def _tournament_item(self, t: Tournaments, e: pd.Series, in_range=None) -> dict:
         """A tournament (list summary without events) and one of its events."""
         tid = int(e["tournamentId"])
         tr = t.tournaments.loc[tid]
         return {
-            "tournament": {**_tournament_summary(tid, tr), "distanceKm": _num(distance, 1), "players": int(tr["players"]), "inRange": None},
+            "tournament": {**_tournament_summary(tid, tr), "distanceKm": None, "players": int(tr["players"]), "inRange": None},
             "event": _event_summary(t, e, in_range),
         }
 
@@ -1365,11 +1369,11 @@ class App:
         when: str = "upcoming",
         surface: str | None = None,
         places: bool = False,
-        open_to: int | None = None,
+        suggest_for: int | None = None,
     ) -> dict:
         """Tournaments with at least one event matching all filters, with only those events (see
         the API contract). Filters are masks over the events table, no loop over its rows.
-        open_to: the events this player may enter (gender, age category, class).
+        sort "suggested": by the best of a tournament's events for player suggest_for (_suggestion).
         when: upcoming (not over, at least one kept event takes registrations), live (not over,
         none does), past (over). The options are the values of the tournaments of `when` and the
         date window, whatever the other filters (all tournaments' when that window is empty).
@@ -1413,8 +1417,6 @@ class App:
             ids = set(regs.loc[regs["personId"].eq(player).fillna(False).to_numpy(bool), "eventId"])
             ids |= set(t.draws.loc[_played_by(t.draws, player), "eventId"])
             keep &= e["eventId"].isin(ids).to_numpy(bool)
-        if open_to is not None:
-            keep &= self._open_to(t, e, open_to)
         if when != "past":  # a tournament is upcoming or live by its kept events
             opened = e["tournamentId"].isin(e.loc[keep & e["open"].to_numpy(bool), "tournamentId"]).to_numpy(bool)
             keep &= opened if when == "upcoming" else ~opened
@@ -1430,11 +1432,15 @@ class App:
         field = _category_range(field_min, field_max, "field")
         if sort == "inRange" and field is None:
             raise HTTPException(400, "sort by inRange needs fieldMin or fieldMax")
+        if sort == "suggested" and suggest_for is None:
+            raise HTTPException(400, "sort by suggested needs suggestFor")
 
         k = e[keep].assign(distance=dist[keep])
         k["inRange"] = _in_range(t, self._levels()["level"], k["eventId"], *field).to_numpy() if field else 0
+        k["score"] = self._suggestion(t, k, suggest_for) if sort == "suggested" else 0.0
         g = k.groupby("tournamentId").agg(
-            dateBegin=("dateBegin", "first"), distance=("distance", "first"), players=("players", "sum"), inRange=("inRange", "sum")
+            dateBegin=("dateBegin", "first"), distance=("distance", "first"), players=("players", "sum"),
+            inRange=("inRange", "sum"), score=("score", "max"),
         )
         by, ascending = {
             "date": (["dateBegin"], [True]),
@@ -1442,6 +1448,7 @@ class App:
             "distance": (["distance", "dateBegin"], [True, True]),
             "players": (["players", "dateBegin"], [False, True]),
             "inRange": (["inRange", "dateBegin"], [False, True]),
+            "suggested": (["score", "dateBegin"], [False, True]),
         }[sort]
         g = g.reset_index().sort_values(by + ["tournamentId"], ascending=ascending + [True], na_position="last")
         events_of = k.groupby("tournamentId").indices
@@ -1538,12 +1545,8 @@ class App:
         return {"rounds": rounds}
 
     def player_tournaments(self, pid: int) -> dict:
-        """The player's upcoming registrations, suggested events and past results (see the API
-        contract). Suggested: upcoming singles of his gender, actives, registration open or
-        unknown, his class within the event's bounds, ranked by the registered players within
-        one category of his class (n) and the distance d to the closest of his clubs:
-        (n + 1) * 0.5^(d / SUGGESTED_HALF_KM); events without a place last; by n alone when his
-        clubs are unknown. Past: from the draws, "reached" is the round (1 = final) of
+        """The player's upcoming registrations and past results (see the API contract).
+        Past: from the draws, "reached" is the round (1 = final) of
         his last match (whether he won it is in his last result), None outside a bracket (round 0:
         pools, round robin)."""
         s = self.s()
@@ -1562,25 +1565,6 @@ class App:
         upcoming = (e["until"] >= s.today).to_numpy(bool)
         registered = e[upcoming & e["eventId"].isin(mine).to_numpy(bool)].sort_values(["dateBegin", "eventId"])
         registered = registered.assign(inRange=around(registered["eventId"]))
-
-        gender_type = {"M": 1, "F": 2}.get(r["gender"])
-        if level is None or gender_type is None:
-            suggested = e.iloc[:0].assign(inRange=0)
-        else:
-            ok = (
-                upcoming
-                & ~e["eventId"].isin(mine).to_numpy(bool)
-                & e["registrationOpen"].fillna(True).to_numpy(bool)
-                & (e["matchTypeId"] == gender_type).to_numpy(bool)
-                & (e["ageCategoryId"] == 1).to_numpy(bool)
-                & ((e["strong"] <= level) & (e["weak"] >= level)).to_numpy(bool)
-            )
-            suggested = e[ok]
-            suggested = suggested.assign(inRange=around(suggested["eventId"]))
-            suggested = suggested.assign(distance=self._club_distance(s, pid, suggested))
-            score = (suggested["inRange"] + 1) * 0.5 ** (suggested["distance"] / SUGGESTED_HALF_KM)
-            suggested = suggested.assign(score=score.fillna(0) if suggested["distance"].notna().any() else suggested["inRange"])
-            suggested = suggested.sort_values(["score", "dateBegin", "eventId"], ascending=[False, True, True]).head(SUGGESTED_MAX)
 
         d = t.draws[_played_by(t.draws, pid)]
         at = pd.Series(np.arange(len(e)), index=e["eventId"])
@@ -1609,12 +1593,7 @@ class App:
         past.sort(key=lambda p: (pd.isna(p[0]), -(p[0].value if pd.notna(p[0]) else 0)))
         return {
             "registered": [self._tournament_item(t, x, x["inRange"]) for _, x in registered.iterrows()],
-            "suggested": [
-                {**self._tournament_item(t, x, x["inRange"], x["distance"]), "inRange": _int(x["inRange"])}
-                for _, x in suggested.iterrows()
-            ],
             "past": [p for _, p in past],
-            "clubs": [{"name": _str(c["club"]), "city": _str(c["city"])} for _, c in self._clubs(s, pid).iterrows()],
         }
 
     @staticmethod
@@ -1727,7 +1706,8 @@ class App:
 
     def me(self, pid: int | None) -> dict | None:
         """An account's player ("me"), what the filters start from: gender, licence age
-        category, class (today's, else official), its highlights group and junior age."""
+        category, class (today's, else official), its highlights group and junior age, the
+        official class and the Tournaments page's filters of the events open to him."""
         if pid is None:
             return None
         s = self.s()
@@ -1744,18 +1724,20 @@ class App:
             "class": _str(cls),
             "group": highlights.group_of(cls) if cls in CATEGORY_INDEX else None,
             "juniorAge": next((k for k, v in highlights.AGES.items() if v == age), None),
+            "officialClass": _str(s.official_class.get(pid)),
+            "openTo": self.open_filters(pid),
         }
 
-    def my_players(self, ids: list[int], since: float | None) -> dict:
-        """The favourites, in the order they were added: official class → today's, and their
-        results since `since` (the previous visit; FAVOURITES_DAYS ago on the first), the latest
-        first, at most FAVOURITES_MATCHES each."""
+    def my_players(self, ids: list[int], since: float | None, me: int | None) -> dict:
+        """The account's player ("me") first, then the favourites in the order they were added:
+        official values → today's, and their results since `since` (the previous visit;
+        FAVOURITES_DAYS ago on the first), the latest first, at most FAVOURITES_MATCHES each."""
         s = self.s()
         start = pd.Timestamp(datetime.fromtimestamp(since)).normalize() if since else s.today - pd.Timedelta(days=FAVOURITES_DAYS)
+        ids = [pid for pid in ([me] if me is not None else []) + [i for i in ids if i != me] if pid in s.number.index and pid in s.people.index]
+        off = self._officials(s, ids)
         players = []
         for pid in ids:
-            if pid not in s.number.index or pid not in s.people.index:
-                continue
             r = self._player(s, pid)
             m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
             m = m[m["date"] >= start]
@@ -1764,40 +1746,75 @@ class App:
             players.append({
                 "id": int(pid),
                 "name": s.people.at[pid, "name"],
-                "official": _str(s.official_class.get(pid)),
+                "me": pid == me,
+                "official": _official(off, pid),
                 "today": values(r) if r["on_list"] else None,
                 "matches": stats.match_list(m)[:FAVOURITES_MATCHES] if len(m) else [],
                 "nMatches": len(m),
             })
         return {"since": start.date().isoformat(), "players": players}
 
-    def _open_to(self, t: Tournaments, e: pd.DataFrame, pid: int) -> np.ndarray:
-        """The events player `pid` may enter: of his gender (mixed doubles for both), an age
-        category of his licence's (actives for all, juniors up to their age group, seniors from
-        theirs) and, for singles, a category range with his class (official, else today's).
-        Unknown match types and age categories are kept."""
+    def open_filters(self, pid: int) -> dict:
+        """The Tournaments page's filters ("Ouverts à moi") of the events player `pid` may enter,
+        as the API's parameters: matchType, those of his gender (mixed doubles for both); age, the
+        categories of his licence's (actives for all, juniors up to their age group, seniors from
+        theirs); event, his class (official, else today's). None for what is unknown."""
         s = self.s()
         r = self._player(s, pid)
-        gender = s.people.at[pid, "gender"]
-        keep = ~e["matchTypeId"].isin({"M": (2, 4), "F": (1, 3)}.get(gender, ())).to_numpy(bool)
+        gender = _str(s.people.at[pid, "gender"])
+        barred = {"M": (2, 4), "F": (1, 3)}.get(gender)
         age = _str(s.people.at[pid, "age"]) or ""
         junior, senior = re.fullmatch(r"(\d+)&U", age), re.fullmatch(r"(\d+)\+", age)
-        barred = []
-        for i, a in t.ages.items():
+        ages = []
+        for i, a in sorted(self.tournaments.ages.items()):
             if a["kind"] == "juniors":
                 ok = junior is not None and int(junior[1]) <= a.get("max", 0)
             elif a["kind"] == "seniors":
                 ok = senior is not None and a.get("men" if gender == "M" else "women", 999) <= int(senior[1])
             else:
                 ok = True
-            if not ok:
-                barred.append(i)
-        keep &= ~e["ageCategoryId"].isin(barred).to_numpy(bool)
+            if ok:
+                ages.append(i)
+        cls = _str(s.official_class.get(pid)) or _str(self._class_of(s, r))
+        return {
+            "matchType": None if barred is None else ",".join(str(i) for i in MATCH_TYPES if i not in barred),
+            "age": ",".join(map(str, ages)) or None,
+            "event": cls if cls in CATEGORY_INDEX else None,
+        }
+
+    def _suggestion(self, t: Tournaments, e: pd.DataFrame, pid: int) -> np.ndarray:
+        """Per event of `e`, how well it suits player `pid` (the "suggested" order): the singles of
+        his gender with his class (official, else today's) within the bounds, not entered yet, by
+        the registered players within one category of his class (n) and the distance d to the
+        closest of his clubs: (n + 1) * 0.5^(d / SUGGESTED_HALF_KM), 0 without a place; n + 1
+        alone when his clubs are unknown. Any other event: 0."""
+        s = self.s()
+        r = self._player(s, pid)
         level = CATEGORY_INDEX.get(_str(s.official_class.get(pid)) or self._class_of(s, r))
-        if level is not None:
-            singles = e["matchTypeId"].isin(SINGLES).to_numpy(bool)
-            keep &= ~singles | ((e["strong"] <= level) & (e["weak"] >= level)).to_numpy(bool)
-        return keep
+        gender_type = {"M": 1, "F": 2}.get(r["gender"])
+        score = np.zeros(len(e))
+        if level is None or gender_type is None:
+            return score
+        regs = t.registrations
+        mine = regs.loc[regs["personId"].eq(pid).fillna(False).to_numpy(bool), "eventId"]
+        ok = (
+            ~e["eventId"].isin(mine).to_numpy(bool)
+            & (e["matchTypeId"] == gender_type).to_numpy(bool)
+            & ((e["strong"] <= level) & (e["weak"] >= level)).to_numpy(bool)
+        )
+        x = e[ok]
+        n = np.asarray(_in_range(t, self._levels()["level"], x["eventId"], max(level - 1, 0), level + 1), float)
+        d = self._club_distance(s, pid, x).to_numpy(float)
+        score[ok] = n + 1 if np.isnan(d).all() else np.nan_to_num((n + 1) * 0.5 ** (d / SUGGESTED_HALF_KM))
+        return score
+
+
+def _official(off: pd.DataFrame, pid: int) -> dict | None:
+    """A player's class, rank and C on the official list (App._officials), None when not on it."""
+    if pid not in off.index:
+        return None
+    o = off.loc[pid]
+    return {"class": _str(o["classification"]), "rank": _int(o["rank"]), "C": _num(o["C"])}
 
 
 class SinglePageApp(StaticFiles):
@@ -2081,9 +2098,9 @@ def create_app(
 
     @api.get("/api/me/players")
     def my_players(request: Request):
-        """The favourites' card: classes and results since the previous visit."""
+        """The favourites' card ("me" first): official → today and results since the previous visit."""
         p = app.accounts.profile(signed_in(request))
-        return app.my_players(p["favourites"], p["since"])
+        return app.my_players(p["favourites"], p["since"], p["player"])
 
     @api.middleware("http")
     async def time_api(request: Request, call_next):
@@ -2201,11 +2218,11 @@ def create_app(
         when: str = "upcoming",
         surface: str | None = None,
         places: bool = False,
-        openTo: int | None = None,
+        suggestFor: int | None = None,
     ):
         return app.tournament_list(
             from_, to, q, matchType, age, event, fieldMin, fieldMax, near, radius, canton, player, sort, limit,
-            offset, when, surface, places, openTo,
+            offset, when, surface, places, suggestFor,
         )
 
     @api.get("/api/tournaments/search")

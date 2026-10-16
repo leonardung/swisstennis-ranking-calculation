@@ -64,7 +64,7 @@ export default function TournamentMap({ places }: { places: TournamentPlace[] })
       }
       popup.append(ul);
       L.circleMarker([lat, lon], {
-        radius: Math.min(6 + 2 * (list.length - 1), 14),
+        radius: Math.min(8 + 2 * (list.length - 1), 15),
         className: "map-marker",
       })
         .bindPopup(popup, { maxHeight: 260 })

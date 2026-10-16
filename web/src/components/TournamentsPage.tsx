@@ -5,7 +5,7 @@ import { trackView } from "../analytics";
 import { tournamentHref, useAsync, useDebounced } from "../hooks";
 import { useI18n } from "../i18n";
 import { CATEGORIES, fmtDateTime, fmtInt } from "../format";
-import type { AgeInfo, TournamentListItem, TournamentOptions, TournamentWhen } from "../types";
+import type { AgeInfo, MePlayer, TournamentListItem, TournamentOptions, TournamentWhen } from "../types";
 import { AsyncStatus, Pager, Seg, Spinner } from "./common";
 
 // Leaflet only loads with the map
@@ -31,7 +31,7 @@ const KEYS = [
   "sort",
   "offset",
   "view", // "map": the map instead of the list (not an API parameter)
-  "openTo", // "0": all events, not only those open to "me" (on by default for a signed-in user's player)
+  "openTo", // "0": "Ouverts à moi" was turned off (else the page opens with the filters of "me")
 ] as const;
 type Key = (typeof KEYS)[number];
 type Params = Partial<Record<Key, string>>;
@@ -71,15 +71,43 @@ function writeParams(p: Params): void {
   window.history.replaceState(window.history.state, "", url);
 }
 
-/** `me`: the signed-in user's player, whose events are kept unless openTo is "0". */
-function apiQuery(p: Params, me: number | undefined): string {
+/** The filters "Ouverts à moi" sets: the events open to "me" (MePlayer.openTo). */
+const OPEN_KEYS = ["matchType", "age", "event"] as const;
+
+function openFilters(me: MePlayer): Params {
+  return Object.fromEntries(OPEN_KEYS.map((k) => [k, me.openTo[k] ?? ""]));
+}
+
+/** Whether the filters are those of "Ouverts à moi" (lists in any order). */
+function isOpenToMe(p: Params, me: MePlayer): boolean {
+  const norm = (v: string | undefined) => listOf(v?.toUpperCase()).sort().join(",");
+  return OPEN_KEYS.every((k) => norm(p[k]) === norm(me.openTo[k] ?? ""));
+}
+
+/** The page opens with the filters of "me", unless the address has some or they were turned off. */
+function initialParams(me: MePlayer | null): Params {
+  const p = readParams();
+  if (!me || p.openTo || OPEN_KEYS.some((k) => p[k])) return p;
+  const withMe = { ...p, ...openFilters(me) };
+  for (const k of KEYS) if (!withMe[k]) delete withMe[k];
+  writeParams(withMe);
+  return withMe;
+}
+
+/** `me`: the signed-in user's player, the "suggested" order's. */
+function apiQuery(p: Params, me: number | undefined, defaultSort: string): string {
   const q = new URLSearchParams();
   for (const k of KEYS) {
     const v = p[k];
-    if (!v || k === "view" || k === "openTo" || (k === "radius" && !p.near)) continue;
+    if (!v || k === "view" || k === "openTo" || k === "sort" || (k === "radius" && !p.near)) continue;
     q.set(k, v);
   }
-  if (me && p.openTo !== "0") q.set("openTo", String(me));
+  const sort = p.sort || defaultSort;
+  if (sort !== "suggested") q.set("sort", sort);
+  else if (me) {
+    q.set("sort", sort);
+    q.set("suggestFor", String(me));
+  }
   if (p.view === "map") q.set("places", "true");
   if (p.near && !p.radius) q.set("radius", DEFAULT_RADIUS);
   q.set("limit", String(LIMIT));
@@ -98,8 +126,11 @@ export default function TournamentsPage() {
   const { t, locale, lang } = useI18n();
   const account = useAccount();
   const me = account.me;
-  const [params, setParams] = useState<Params>(readParams);
-  const query = useDebounced(apiQuery(params, me?.id), 300);
+  const [params, setParams] = useState<Params>(() => initialParams(me));
+  const when = whenOf(params);
+  // with a player ("me"): the tournaments suggested to him first
+  const defaultSort = when === "past" ? "-date" : me ? "suggested" : "date";
+  const query = useDebounced(apiQuery(params, me?.id, defaultSort), 300);
   const st = useAsync((s) => api.tournaments(query, s), [query]);
   const [options, setOptions] = useState<TournamentOptions | null>(null);
   if (st.data && st.data.options !== options) setOptions(st.data.options);
@@ -115,13 +146,13 @@ export default function TournamentsPage() {
   const update = (patch: Params) => {
     const next: Params = { ...params, ...patch };
     if (!("offset" in patch)) delete next.offset;
+    // none of the filters of "me" left: a refresh does not set them again
+    next.openTo = me && OPEN_KEYS.every((k) => !next[k]) ? "0" : "";
     for (const k of KEYS) if (!next[k]) delete next[k];
     setParams(next);
     writeParams(next);
   };
 
-  const when = whenOf(params);
-  const defaultSort = when === "past" ? "-date" : "date";
   const fieldFilter = !!(params.fieldMin || params.fieldMax);
   const fieldRange = rangeLabel(params.fieldMin || LEVELS[0], params.fieldMax || LEVELS[LEVELS.length - 1]);
   const offset = Number(params.offset) || 0;
@@ -214,6 +245,11 @@ export default function TournamentsPage() {
                   {t("sortInRange")}
                 </option>
                 {params.near && <option value="distance">{t("sortDistance")}</option>}
+                {me && (
+                  <option value="suggested" title={t("suggestedHint")}>
+                    {t("suggestedTitle")}
+                  </option>
+                )}
               </select>
             )}
           </Field>
@@ -223,12 +259,12 @@ export default function TournamentsPage() {
           <div className="filter-row">
             {me ? (
               <button
-                className={`chip${params.openTo !== "0" ? " active" : ""}`}
-                aria-pressed={params.openTo !== "0"}
+                className={`chip${isOpenToMe(params, me) ? " active" : ""}`}
+                aria-pressed={isOpenToMe(params, me)}
                 title={t("openToMeHint")}
-                onClick={() => update({ openTo: params.openTo === "0" ? "" : "0" })}
+                onClick={() => update(isOpenToMe(params, me) ? { matchType: "", age: "", event: "" } : openFilters(me))}
               >
-                {t("openToMe", { who: [me.name, me.class, me.age === "A" ? t("age_1") : me.age].filter(Boolean).join(" · ") })}
+                {t("openToMe", { who: [me.name, me.officialClass ?? me.class, me.age === "A" ? t("age_1") : me.age].filter(Boolean).join(" · ") })}
               </button>
             ) : account.user ? (
               <a className="chip" href="/account" title={t("openToMeHint")}>

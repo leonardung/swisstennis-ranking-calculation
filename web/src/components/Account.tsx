@@ -6,7 +6,7 @@ import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate } from "../format";
-import { AsyncStatus, Card, CategoryBadge, ClassChange, Spinner } from "./common";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, RankChange, Spinner } from "./common";
 import { MatchTable } from "./MatchListDialog";
 import SearchBox from "./SearchBox";
 
@@ -458,7 +458,7 @@ function FavouritesCard() {
   const { t } = useI18n();
   const account = useAccount();
   const ids = account.user?.favourites ?? [];
-  // names and classes from the "My players" endpoint (loaded again when the list changes)
+  // names and classes from the "My favourites" endpoint (loaded again when the list changes)
   const st = useAsync((s) => accountApi.myPlayers(s), [ids.join(",")]);
   return (
     <Card title={t("favouritesTitle", { n: ids.length })}>
@@ -468,11 +468,11 @@ function FavouritesCard() {
         <AsyncStatus {...st} />
       ) : (
         <ul className="fav-list">
-          {st.data.players.map((p) => (
+          {st.data.players.filter((p) => !p.me || ids.includes(p.id)).map((p) => (
             <li key={p.id}>
               <FavouriteButton id={p.id} />
               <a href={playerHref(p.id)}>{p.name}</a>
-              <ClassChange from={p.official} to={p.today?.class ?? p.official} />
+              <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
             </li>
           ))}
         </ul>
@@ -512,7 +512,8 @@ export function MyPlayersCard() {
   const { t, locale } = useI18n();
   const account = useAccount();
   const ids = account.user?.favourites ?? [];
-  const st = useAsync(account.user && ids.length ? (s) => accountApi.myPlayers(s) : null, [account.user?.email, ids.join(",")]);
+  const meId = account.me?.id;
+  const st = useAsync(account.user && (ids.length || meId) ? (s) => accountApi.myPlayers(s) : null, [account.user?.email, meId, ids.join(",")]);
   if (!account.enabled || !account.ready) return null;
   if (!account.user) {
     return (
@@ -528,7 +529,7 @@ export function MyPlayersCard() {
   }
   return (
     <Card title={t("myPlayersTitle")} className="my-players">
-      {ids.length === 0 ? (
+      {ids.length === 0 && !meId ? (
         <p className="hint small">{t("favouritesNone")}</p>
       ) : !st.data ? (
         <AsyncStatus {...st} />
@@ -537,15 +538,21 @@ export function MyPlayersCard() {
           <p className="muted small">{t("myPlayersSince", { date: fmtDate(st.data.since, locale) })}</p>
           <div className="my-players-list">
             {st.data.players.map((p) => (
-              <div key={p.id} className="my-player">
+              <div key={p.id} className={`my-player${p.me ? " is-me" : ""}`}>
                 <div className="my-player-head">
                   <a href={playerHref(p.id)}>
                     <strong>{p.name}</strong>
                   </a>
-                  <ClassChange from={p.official} to={p.today?.class ?? p.official} />
-                  <span className="muted small">C {fmt3(p.today?.C)}</span>
+                  {p.me && <span className="tag">{t("myPlayersMe")}</span>}
+                  <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
                   <span className="muted small my-player-n">
                     {p.nMatches ? t("myPlayersMatches", { n: p.nMatches }) : t("myPlayersNoMatch")}
+                  </span>
+                </div>
+                <div className="my-player-values small">
+                  <CChange from={p.official?.C} to={p.today?.C} />
+                  <span>
+                    # <RankChange from={p.official?.rank} to={p.today?.rank} />
                   </span>
                 </div>
                 {p.matches.length > 0 && <MatchTable matches={p.matches} />}
@@ -555,6 +562,16 @@ export function MyPlayersCard() {
         </>
       )}
     </Card>
+  );
+}
+
+/** "C 7.802 → 7.912 (+0.110)": the official C, then today's; one value when it didn't move. */
+function CChange({ from, to }: { from: number | null | undefined; to: number | null | undefined }) {
+  if (from == null || to == null || from === to) return <span className="mono">C {fmt3(to ?? from)}</span>;
+  return (
+    <span className="mono">
+      C <span className="muted">{fmt3(from)}</span> → {fmt3(to)} (<Delta value={to - from} />)
+    </span>
   );
 }
 

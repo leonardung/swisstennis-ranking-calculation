@@ -533,10 +533,7 @@ export interface PastResult {
 
 export interface PlayerTournaments {
   registered: PlayerTournamentEntry[];
-  suggested: (PlayerTournamentEntry & { inRange: number })[];
   past: (PlayerTournamentEntry & { reached: number | null; results: PastResult[] })[];
-  /** the player's clubs with a place: the suggestions are ranked around them */
-  clubs: { name: string | null; city: string | null }[];
 }
 
 export interface OutlookOpponent {
@@ -573,6 +570,9 @@ export interface MePlayer {
   class: string | null;
   group: HlGroup | null;
   juniorAge: HlAge | null;
+  officialClass: string | null;
+  /** the Tournaments page's filters of the events open to this player ("Ouverts à moi") */
+  openTo: { matchType: string | null; age: string | null; event: string | null };
 }
 
 export interface User {
@@ -584,11 +584,12 @@ export interface User {
   google: boolean;
 }
 
-/** A favourite on the "My players" card. */
+/** A player on the "My favourites" card: "me" first, then the favourites. */
 export interface MyPlayer {
   id: number;
   name: string;
-  official: string | null;
+  me: boolean;
+  official: { class: string | null; rank: number | null; C: number | null } | null;
   today: { W: number | null; C: number | null; rank: number | null; class: string | null } | null;
   /** results since the previous visit, the latest first (at most 5; nMatches in all) */
   matches: ListedMatch[];

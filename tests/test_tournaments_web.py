@@ -201,34 +201,44 @@ def test_detail_players_and_draw(client):
     assert client.get("/api/tournaments/999").status_code == 404
 
 
-def test_player_registered_suggested_past(client):
+def test_player_registered_past(client):
     r = client.get("/api/players/1/tournaments").json()
     assert [(x["tournament"]["id"], x["event"]["id"]) for x in r["registered"]] == [(100, 1001)]
     assert r["registered"][0]["tournament"]["players"] == 2 + 1
-    # men's singles, R3 within the bounds, not registered: 2001 (R4/R1); 3 players within R2..R4
-    assert [(x["event"]["id"], x["inRange"]) for x in r["suggested"]] == [(2001, 3)]
     assert [x["event"]["id"] for x in r["past"]] == [3001]
     past = r["past"][0]
     assert past["reached"] == 1  # lost the final
     assert [(x["round"], x["win"], x["score"]) for x in past["results"]] == [(2, True, "6-3 6-4"), (1, False, "2-6 6-3 8-10")]
     assert past["results"][1]["opponent"] == [{"personId": 2, "name": "P2", "class": "R2"}]
-    # the woman: no men's events suggested; 1002 (WS R5/R1) is her registration
+    # the woman: 1002 (WS R5/R1) is her registration
     r = client.get("/api/players/6/tournaments").json()
-    assert r["suggested"] == [] and [x["event"]["id"] for x in r["registered"]] == [1002]
+    assert [x["event"]["id"] for x in r["registered"]] == [1002]
     assert client.get("/api/players/99/tournaments").status_code == 404
 
 
-def test_suggested_around_the_clubs(client):
+def test_suggested_order(client):
     app = client.app.state.app
-    assert client.get("/api/players/1/tournaments").json()["clubs"] == []  # clubs unknown: by the field
+    assert _ids(client.get("/api/tournaments")) == [200, 100]  # by date
+    # 3, R6 on the official list: 1001 (men's singles R9/R5) suits him, nothing at 200
+    app.state.official_class.loc[3] = "R6"
+    assert _ids(client.get("/api/tournaments?sort=suggested&suggestFor=3")) == [100, 200]
+    # 4 (R7) is registered in 1001: by date
+    assert _ids(client.get("/api/tournaments?sort=suggested&suggestFor=4")) == [200, 100]
+    # 1 (R4 official): 2001 (R4/R1), not 1001 where he is registered
+    assert _ids(client.get("/api/tournaments?sort=suggested&suggestFor=1")) == [200, 100]
+    assert client.get("/api/tournaments?sort=suggested").status_code == 400
+    assert client.get("/api/tournaments?sort=suggested&suggestFor=99").status_code == 404
+
+    e = app.tournaments.events
+    score = lambda: dict(zip(e["eventId"], app._suggestion(app.tournaments, e, 1)))  # noqa: E731
+    # clubs unknown: by the field, 2 players within R3..R5 (+ 1)
+    assert score()[2001] == 3 and score()[1001] == 0 and score()[2002] == 0
     # a club in Bern (the 2001 event) and one in Lausanne: the closest counts
     app.state.clubs = pd.DataFrame({
         "personId": [1, 1, 2], "clubId": [7, 8, 9], "club": ["TC Bern", "TC Lausanne", "TC X"],
         "city": ["Bern", "Lausanne", "X"], "lat": [46.95, 46.52, 47.0], "lon": [7.46, 6.63, 8.0],
     })  # fmt: skip
-    r = client.get("/api/players/1/tournaments").json()
-    assert r["clubs"] == [{"name": "TC Bern", "city": "Bern"}, {"name": "TC Lausanne", "city": "Lausanne"}]
-    assert [(x["event"]["id"], x["tournament"]["distanceKm"]) for x in r["suggested"]] == [(2001, 0.8)]
+    assert score()[2001] == pytest.approx(3 * 0.5 ** (0.8 / 50), abs=0.01)
 
 
 def test_outlook_without_and_with_model(client):
@@ -265,7 +275,7 @@ def test_missing_files_give_empty_results(tmp_path):
     r = c.get("/api/tournaments").json()
     assert r == {"total": 0, "tournaments": [], "options": {"matchTypes": [], "ages": [], "surfaces": [], "cantons": [], "cities": []}, "updated": None}
     assert c.get("/api/tournaments/1").status_code == 404
-    assert c.get("/api/players/1/tournaments").json() == {"registered": [], "suggested": [], "past": [], "clubs": []}
+    assert c.get("/api/players/1/tournaments").json() == {"registered": [], "past": []}
     assert c.get("/api/meta").json()["tournaments"] == {"updated": None, "running": False, "lastError": None}
 
 
@@ -296,25 +306,16 @@ def test_search_by_name_coming_soonest_first_then_past(client):
     assert client.get("/api/tournaments/search", params={"q": "bern"}).json()[0]["name"] == "Cup Bern"
 
 
-def test_open_to_a_player(client):
+def test_open_filters(client):
     app = client.app.state.app
     app.state.people = app.state.people.assign(gender=["M", "M", "M", "M", "M", "F"], age=["A"] * 6)
-    # 4 (a man, R7 on the official list): men's singles R9/R5 and the men's doubles (no level)
-    assert _ids(client.get("/api/tournaments?openTo=4")) == [200, 100]
-    r = client.get("/api/tournaments?openTo=4").json()
-    assert [[e["id"] for e in t["events"]] for t in r["tournaments"]] == [[2002], [1001]]
-    # 6 (a woman, R5): the women's singles R5/R1 only
-    assert _ids(client.get("/api/tournaments?openTo=6")) == [100]
-    assert client.get("/api/tournaments?openTo=99").status_code == 404
-
-    # age categories: 1001 for 16&U, 1002 for 12&U, 2002 for men 35+ (women 30+)
-    e = app.tournaments.events.assign(
-        ageCategoryId=app.tournaments.events["eventId"].map({1001: 3, 1002: 5, 2002: 7}).fillna(1).astype(int)
-    )
-    open_ = lambda pid: e.loc[app._open_to(app.tournaments, e, pid), "eventId"].tolist()  # noqa: E731
+    # 4: a man, R7 on the official list (R6 today); actives only
+    assert app.open_filters(4) == {"matchType": "1,3,5", "age": "1", "event": "R7"}
+    assert app.open_filters(6) == {"matchType": "2,4,5", "age": "1", "event": "R5"}
     app.state.people.loc[4, "age"] = "14&U"
-    assert open_(4) == [1001, 3001]  # older juniors' events and actives', not seniors'
+    assert app.open_filters(4)["age"] == "1,3"  # older juniors' events and actives', not seniors'
     app.state.people.loc[4, "age"] = "40+"
-    assert open_(4) == [2002, 3001]
-    app.state.people.loc[4, "age"] = "A"
-    assert open_(4) == [3001]  # actives only (3001: men's singles R9/R5, past)
+    assert app.open_filters(4)["age"] == "1,7,16"  # 35+ and 40+
+    app.state.people.loc[4, "gender"] = None
+    assert app.open_filters(4)["matchType"] is None
+    assert client.get("/api/tournaments?matchType=1,3,5&age=1&event=R7").status_code == 200

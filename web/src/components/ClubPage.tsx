@@ -3,9 +3,9 @@ import { api } from "../api";
 import { trackView } from "../analytics";
 import { CLUB_TABS, clubHref, playerHref, tournamentHref, useAsync, useUrlState, type ClubTab } from "../hooks";
 import { useI18n } from "../i18n";
-import { categoryIndex, fmt3, fmtInt } from "../format";
+import { categoryIndex, fmt3 } from "../format";
 import type { ClubDetail, ClubPlayer } from "../types";
-import { AsyncStatus, Card, ClassChange, Seg, sortRows, useSort } from "./common";
+import { AsyncStatus, Card, ClassChange, RankChange, Seg, sortRows, useSort } from "./common";
 import { dateRange } from "./tournamentUtil";
 
 /** "45+": 45 and older; "16&U": 16 and younger; else null (actives). */
@@ -53,17 +53,6 @@ const VALUE: Record<Key, (p: ClubPlayer) => number | string | null | undefined> 
   },
   rank: (p) => p.today?.rank ?? p.official?.rank,
 };
-
-/** "123 → 98" (the official rank, then today's), one number when it didn't move. */
-function RankChange({ from, to }: { from: number | null | undefined; to: number | null | undefined }) {
-  const { locale } = useI18n();
-  if (from == null || to == null || from === to) return <>{fmtInt(to ?? from, locale)}</>;
-  return (
-    <span className={`rank-change ${to < from ? "pos" : "neg"}`}>
-      <span className="muted">{fmtInt(from, locale)}</span> → {fmtInt(to, locale)}
-    </span>
-  );
-}
 
 export default function ClubPage({ id, tab }: { id: number; tab: ClubTab }) {
   const { t } = useI18n();

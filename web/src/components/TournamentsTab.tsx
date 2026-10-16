@@ -16,7 +16,7 @@ function playerTournamentsHref(id: number): string {
 }
 
 export default function TournamentsTab({ playerId }: { playerId: number }) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const st = useAsync((s) => api.playerTournaments(playerId, s), [playerId]);
   const d = st.data;
   if (!d) return <AsyncStatus {...st} />;
@@ -39,31 +39,6 @@ export default function TournamentsTab({ playerId }: { playerId: number }) {
               <li key={r.event.id}>
                 <EntryHead entry={r} />
                 {isSingles(r.event.matchType) && <OutlookToggle playerId={playerId} eventId={r.event.id} />}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card title={<Hint label={t("suggestedTitle")} text={t("suggestedHint")} />}>
-        {d.clubs.length > 0 && (
-          <p className="muted small">
-            {t("aroundClubs", { clubs: d.clubs.map((c) => (c.city && !c.name?.includes(c.city) ? `${c.name} (${c.city})` : c.name)).join(", ") })}
-          </p>
-        )}
-        {d.suggested.length === 0 ? (
-          <p className="muted">{t("noSuggested")}</p>
-        ) : (
-          <ul className="entry-list">
-            {d.suggested.map((r) => (
-              <li key={r.event.id}>
-                <EntryHead entry={r} openTag={false} side={
-                    <>
-                      {r.tournament.distanceKm != null && <span className="muted">{t("distanceKm", { km: Math.round(r.tournament.distanceKm) })}</span>}
-                      <span className="strong">{t("nearLevelN", { n: fmtInt(r.inRange, locale) })}</span>
-                    </>
-                  }
-                />
               </li>
             ))}
           </ul>
@@ -119,7 +94,7 @@ export default function TournamentsTab({ playerId }: { playerId: number }) {
   );
 }
 
-function EntryHead({ entry, side, openTag = true }: { entry: PlayerTournamentEntry; side?: ReactNode; openTag?: boolean }) {
+function EntryHead({ entry, side }: { entry: PlayerTournamentEntry; side?: ReactNode }) {
   const { t, locale } = useI18n();
   const { tournament: tr, event: e } = entry;
   return (
@@ -139,7 +114,7 @@ function EntryHead({ entry, side, openTag = true }: { entry: PlayerTournamentEnt
         </small>
       </div>
       <div className="entry-side">
-        {openTag && e.registrationOpen && <span className="tag tag-open">{t("registrationOpen")}</span>}
+        {e.registrationOpen && <span className="tag tag-open">{t("registrationOpen")}</span>}
         {side}
       </div>
     </div>

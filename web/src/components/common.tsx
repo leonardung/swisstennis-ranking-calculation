@@ -31,6 +31,17 @@ export function ClassChange({ from, to }: { from: string | null | undefined; to:
   );
 }
 
+/** "123 → 98" (the official rank, then today's), one number when it didn't move. */
+export function RankChange({ from, to }: { from: number | null | undefined; to: number | null | undefined }) {
+  const { locale } = useI18n();
+  if (from == null || to == null || from === to) return <>{fmtInt(to ?? from, locale)}</>;
+  return (
+    <span className={`rank-change ${to < from ? "pos" : "neg"}`}>
+      <span className="muted">{fmtInt(from, locale)}</span> → {fmtInt(to, locale)}
+    </span>
+  );
+}
+
 export function Delta({ value, digits = 3 }: { value: number | null | undefined; digits?: number }) {
   return <span className={`delta ${signClass(value)}`}>{fmtDelta(value, digits)}</span>;
 }

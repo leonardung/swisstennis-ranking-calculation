@@ -3055,7 +3055,7 @@ dialog.match-dialog::backdrop {
 }
 .tourn-map .map-marker {
   fill: var(--accent);
-  fill-opacity: 0.8;
+  fill-opacity: 0.95;
   stroke: #fff;
   stroke-width: 1.5;
 }
@@ -3216,6 +3216,12 @@ dialog.match-dialog::backdrop {
 }
 .my-player-n {
   margin-left: auto;
+}
+.my-player-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-bottom: 4px;
 }
 .privacy p {
   line-height: 1.6;
