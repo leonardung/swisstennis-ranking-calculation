@@ -5,7 +5,6 @@ import { useAccount } from "../account";
 import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
-import { fmtDate } from "../format";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, RankChange, Spinner } from "./common";
 import { MatchTable } from "./MatchListDialog";
 import SearchBox from "./SearchBox";
@@ -509,7 +508,7 @@ export function FavouriteButton({ id }: { id: number }) {
 /** Home page: my player ("me") above, then the favourites; official → today and their results
  * since the last visit. Signed out, an invitation to sign in. */
 export function MyPlayersCard() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const account = useAccount();
   const ids = account.user?.favourites ?? [];
   const meId = account.me?.id;
@@ -531,12 +530,10 @@ export function MyPlayersCard() {
   const mine = players.find((p) => p.me);
   // "me" is not a favourite here, even when followed with the ☆
   const favourites = players.filter((p) => !p.me);
-  const since = st.data && <p className="muted small">{t("myPlayersSince", { date: fmtDate(st.data.since, locale) })}</p>;
   return (
     <>
       {mine && (
         <Card className="my-players">
-          {since}
           <MyPlayerRow p={mine} />
         </Card>
       )}
@@ -546,14 +543,11 @@ export function MyPlayersCard() {
         ) : !st.data ? (
           <AsyncStatus {...st} />
         ) : (
-          <>
-            {!mine && since}
-            <div className="my-players-list">
-              {favourites.map((p) => (
-                <MyPlayerRow key={p.id} p={p} />
-              ))}
-            </div>
-          </>
+          <div className="my-players-list">
+            {favourites.map((p) => (
+              <MyPlayerRow key={p.id} p={p} />
+            ))}
+          </div>
         )}
       </Card>
     </>
