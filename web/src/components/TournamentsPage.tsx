@@ -186,9 +186,10 @@ export default function TournamentsPage() {
     for (const k of KEYS) if (k !== "when" && k !== "view" && k !== "openTo") clear[k] = "";
     update(clear);
   };
-  // the filters below the first row: open on a wide screen or when one is set, behind a button on a phone
+  // the filters below the first row: open on a wide screen, behind a button on a phone (its count
+  // tells how many are set)
   const more = MORE_KEYS.filter((k) => params[k]).length;
-  const [moreOpen, setMoreOpen] = useState(() => more > 0 || !window.matchMedia?.("(max-width: 720px)").matches);
+  const [moreOpen, setMoreOpen] = useState(() => !window.matchMedia?.("(max-width: 720px)").matches);
   const moreId = useId();
   const resultsId = useId();
 

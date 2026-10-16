@@ -3247,8 +3247,14 @@ dialog.match-dialog::backdrop {
   gap: 6px;
   margin-top: 6px;
 }
-/* List / Map: easy to see and to hit */
+/* List / Map: easy to see and to hit, side by side even on a phone */
+.toolbar .seg.view-switch {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  width: auto;
+}
 .seg.view-switch button {
+  justify-content: center;
   display: inline-flex;
   align-items: center;
   gap: 6px;
