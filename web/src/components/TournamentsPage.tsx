@@ -886,9 +886,9 @@ function TournamentCard({ tr, fieldRange }: { tr: TournamentListItem; fieldRange
               {tr.canton && ` (${tr.canton})`}
             </span>
           )}
-          {tr.distanceKm != null && <span>{t("distanceKm", { km: Math.round(tr.distanceKm) })}</span>}
           {tr.surface && <span>{surfaceLabel(tr.surface, lang)}</span>}
           <span>{t("playersN", { n: fmtInt(tr.players, locale) })}</span>
+          {tr.distanceKm != null && <span>{t("distanceKm", { km: Math.round(tr.distanceKm) })}</span>}
           {fieldRange && tr.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(tr.inRange, locale), range: fieldRange })}</span>}
         </div>
       </header>
