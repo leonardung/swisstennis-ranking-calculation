@@ -174,10 +174,12 @@ accounts are on the new one. So the two deployments don't need to share data.
    (me, followed players, sign out, delete), `/privacy`; data/accounts.sqlite. No display name
    (the player's name serves).*
 4. **C + B**: on top of accounts, the "open to me" tournament filter and favourites with the
-   "My players" card. *Built 2026-10-15: "Open to me" chip on the Tournaments page (on by
-   default, `openTo=<player>`: gender, licence age category, class for singles); ☆ on player
-   pages; "My players" on the home page with the results since the previous visit; the home
-   filters start from me.*
+   "My players" card. *Built 2026-10-15/16: with "me", the Tournaments page opens with its own
+   filters filled (competition, age, the official category) and the "Ouverts à moi" chip fills
+   or clears them; the default sort is "Tournois suggérés" (`sort=suggested&suggestFor=<player>`,
+   the distance from the nearest of my clubs); "Près de" offers my clubs. ☆ on player pages; the
+   home page shows my own card, then "Mes favoris", each with the category and rank official →
+   today and the results since the previous visit; the home filters start from me.*
 5. **4**: juniors filter. *Done 2026-10-15: an age select (All, U18 … U10) next to the home
    filters, applied to every card; `/api/highlights?age=U14`, each age precomputed.*
 6. **1**: map. *Done 2026-10-15: a List / Map switch on the Tournaments page (swisstopo grey
