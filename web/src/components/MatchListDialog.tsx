@@ -103,12 +103,12 @@ export function MatchTable({ matches, h2h = false }: { matches: ListedMatch[]; h
             ) : (
               <td>
                 <span className="hl-who">
-                  {m.opponent.class_official && m.opponent.class_today ? (
-                    <ClassChange from={m.opponent.class_official} to={m.opponent.class_today} />
-                  ) : (
-                    <Standing cls={m.opponent.class} rank={m.opponent.rank} />
-                  )}
+                  {/* official → today (the home page's favourites): after the name; else the category then */}
+                  {!(m.opponent.class_official && m.opponent.class_today) && <Standing cls={m.opponent.class} rank={m.opponent.rank} />}
                   {m.opponent.id != null ? <a href={playerHref(m.opponent.id)}>{m.opponent.name}</a> : m.opponent.name}
+                  {m.opponent.class_official && m.opponent.class_today && (
+                    <ClassChange from={m.opponent.class_official} to={m.opponent.class_today} />
+                  )}
                 </span>
                 {m.tournament && <small className="muted match-dialog-tournament" title={m.tournament}>{m.tournament}</small>}
               </td>
