@@ -812,6 +812,24 @@ th.num .sort-btn {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* phones: two by two and tighter, not four full-width tiles */
+@media (max-width: 720px) {
+  .meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .meta-tile {
+    padding: 8px 10px;
+    gap: 2px;
+  }
+  .meta-tile > small:first-child {
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+  }
+  .meta-tile strong {
+    font-size: 13.5px;
+  }
+}
 
 /* ---------- Player page ---------- */
 .player-head {
