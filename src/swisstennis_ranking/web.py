@@ -1373,7 +1373,8 @@ class App:
     ) -> dict:
         """Tournaments with at least one event matching all filters, with only those events (see
         the API contract). Filters are masks over the events table, no loop over its rows.
-        sort "suggested": by the best of a tournament's events for player suggest_for (_suggestion).
+        sort "suggested": by the best of a tournament's events for player suggest_for (_suggestion);
+        without near, the distances are from the closest of his clubs.
         when: upcoming (not over, at least one kept event takes registrations), live (not over,
         none does), past (over). The options are the values of the tournaments of `when` and the
         date window, whatever the other filters (all tournaments' when that window is empty).
@@ -1425,6 +1426,8 @@ class App:
         dist = np.full(len(e), np.nan)
         if near:
             dist = haversine(e["lat"].to_numpy(float), e["lon"].to_numpy(float), *self._place(t, near))
+        elif sort == "suggested" and suggest_for is not None:
+            dist = self._club_distance(self.s(), suggest_for, e).to_numpy(float)
         if radius is not None and near:  # without near, radius means nothing
             keep &= dist <= radius
         if sort == "distance" and not near:
@@ -1707,7 +1710,8 @@ class App:
     def me(self, pid: int | None) -> dict | None:
         """An account's player ("me"), what the filters start from: gender, licence age
         category, class (today's, else official), its highlights group and junior age, the
-        official class and the Tournaments page's filters of the events open to him."""
+        official class, the Tournaments page's filters of the events open to him and his clubs
+        with a place ("Près de")."""
         if pid is None:
             return None
         s = self.s()
@@ -1726,6 +1730,7 @@ class App:
             "juniorAge": next((k for k, v in highlights.AGES.items() if v == age), None),
             "officialClass": _str(s.official_class.get(pid)),
             "openTo": self.open_filters(pid),
+            "clubs": [{"name": _str(c["club"]), "city": _str(c["city"])} for _, c in self._clubs(s, pid).iterrows() if _str(c["city"])],
         }
 
     def my_players(self, ids: list[int], since: float | None, me: int | None) -> dict:
@@ -1743,13 +1748,19 @@ class App:
             m = m[m["date"] >= start]
             if len(m):
                 m = self._with_categories(s, stats.describe(m), pid)
+            matches = stats.match_list(m)[:FAVOURITES_MATCHES] if len(m) else []
+            for x in matches:  # the opponents' category official -> today, as on the Matches tab
+                o = x["opponent"]
+                opp = s.p.loc[s.number[o["id"]]] if o["id"] in s.number.index else None
+                o["class_official"] = _str(s.official_class.get(o["id"]))
+                o["class_today"] = None if opp is None or not opp["on_list"] else _str(opp["class"])
             players.append({
                 "id": int(pid),
                 "name": s.people.at[pid, "name"],
                 "me": pid == me,
                 "official": _official(off, pid),
                 "today": values(r) if r["on_list"] else None,
-                "matches": stats.match_list(m)[:FAVOURITES_MATCHES] if len(m) else [],
+                "matches": matches,
                 "nMatches": len(m),
             })
         return {"since": start.date().isoformat(), "players": players}

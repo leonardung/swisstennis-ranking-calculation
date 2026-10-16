@@ -239,6 +239,9 @@ def test_suggested_order(client):
         "city": ["Bern", "Lausanne", "X"], "lat": [46.95, 46.52, 47.0], "lon": [7.46, 6.63, 8.0],
     })  # fmt: skip
     assert score()[2001] == pytest.approx(3 * 0.5 ** (0.8 / 50), abs=0.01)
+    # the distance shown: from his closest club
+    r = client.get("/api/tournaments?sort=suggested&suggestFor=1").json()
+    assert r["tournaments"][0]["distanceKm"] == 0.8
 
 
 def test_outlook_without_and_with_model(client):

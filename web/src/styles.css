@@ -2635,9 +2635,22 @@ dialog.match-dialog::backdrop {
 .past-results {
   margin-top: 6px;
   font-size: 13.5px;
+  /* the same columns in every tournament: round, opponent, result, score */
+  width: 100%;
+  min-width: 36em; /* a phone scrolls it sideways (.table-wrap) rather than squeeze the names */
+  table-layout: fixed;
 }
 .past-results td {
   padding: 5px 8px;
+}
+.past-results td:nth-child(1) {
+  width: 9.5em;
+}
+.past-results td:nth-child(3) {
+  width: 8.5em;
+}
+.past-results td:nth-child(4) {
+  width: 8.5em;
 }
 
 @media (max-width: 720px) {
@@ -3222,6 +3235,25 @@ dialog.match-dialog::backdrop {
   flex-wrap: wrap;
   gap: 4px 16px;
   margin-bottom: 4px;
+}
+/* the results under the player, from the left with a small indent (not spread over the card) */
+.my-player .match-table {
+  width: auto;
+  margin-left: 12px;
+}
+.near-clubs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+/* List / Map: easy to see and to hit */
+.seg.view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
 }
 .privacy p {
   line-height: 1.6;

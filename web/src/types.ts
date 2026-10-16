@@ -573,6 +573,8 @@ export interface MePlayer {
   officialClass: string | null;
   /** the Tournaments page's filters of the events open to this player ("Ouverts à moi") */
   openTo: { matchType: string | null; age: string | null; event: string | null };
+  /** his clubs with a place: "Près de" offers them */
+  clubs: { name: string | null; city: string }[];
 }
 
 export interface User {

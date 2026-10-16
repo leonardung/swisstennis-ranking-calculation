@@ -5,8 +5,8 @@ import { useAccount } from "../account";
 import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
-import { fmt3, fmtDate } from "../format";
-import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, RankChange, Spinner } from "./common";
+import { fmtDate, fmtInt } from "../format";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Spinner } from "./common";
 import { MatchTable } from "./MatchListDialog";
 import SearchBox from "./SearchBox";
 
@@ -543,17 +543,17 @@ export function MyPlayersCard() {
                   <a href={playerHref(p.id)}>
                     <strong>{p.name}</strong>
                   </a>
-                  {p.me && <span className="tag">{t("myPlayersMe")}</span>}
+                  {p.me && <span className="tag tag-info">{t("myPlayersMe")}</span>}
                   <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
                   <span className="muted small my-player-n">
                     {p.nMatches ? t("myPlayersMatches", { n: p.nMatches }) : t("myPlayersNoMatch")}
                   </span>
                 </div>
                 <div className="my-player-values small">
-                  <CChange from={p.official?.C} to={p.today?.C} />
-                  <span>
-                    # <RankChange from={p.official?.rank} to={p.today?.rank} />
+                  <span title={t("myPlayersSinceOfficial")}>
+                    C <Delta value={p.official?.C != null && p.today?.C != null ? p.today.C - p.official.C : null} />
                   </span>
+                  <RankMove from={p.official?.rank} to={p.today?.rank} />
                 </div>
                 {p.matches.length > 0 && <MatchTable matches={p.matches} />}
               </div>
@@ -565,12 +565,14 @@ export function MyPlayersCard() {
   );
 }
 
-/** "C 7.802 → 7.912 (+0.110)": the official C, then today's; one value when it didn't move. */
-function CChange({ from, to }: { from: number | null | undefined; to: number | null | undefined }) {
-  if (from == null || to == null || from === to) return <span className="mono">C {fmt3(to ?? from)}</span>;
+/** The places won (▲) or lost (▼) in the ranking since the official list. */
+function RankMove({ from, to }: { from: number | null | undefined; to: number | null | undefined }) {
+  const { t, locale } = useI18n();
+  if (from == null || to == null) return null;
+  const up = from - to;
   return (
-    <span className="mono">
-      C <span className="muted">{fmt3(from)}</span> → {fmt3(to)} (<Delta value={to - from} />)
+    <span className={up > 0 ? "pos" : up < 0 ? "neg" : "muted"} title={`${t("rank")} ${fmtInt(from, locale)} → ${fmtInt(to, locale)}`}>
+      {t("rank")} {up > 0 ? "▲" : up < 0 ? "▼" : "="} {up !== 0 && fmtInt(Math.abs(up), locale)}
     </span>
   );
 }

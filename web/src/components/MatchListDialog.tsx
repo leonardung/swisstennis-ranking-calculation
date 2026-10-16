@@ -3,7 +3,7 @@ import { playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmtDate } from "../format";
 import type { ListedMatch } from "../types";
-import { AsyncStatus, ResultPill, Standing } from "./common";
+import { AsyncStatus, ClassChange, ResultPill, Standing } from "./common";
 
 /** What a popup lists: `key` identifies the list (a new key loads again). */
 export interface MatchQuery {
@@ -103,7 +103,11 @@ export function MatchTable({ matches, h2h = false }: { matches: ListedMatch[]; h
             ) : (
               <td>
                 <span className="hl-who">
-                  <Standing cls={m.opponent.class} rank={m.opponent.rank} />
+                  {m.opponent.class_official && m.opponent.class_today ? (
+                    <ClassChange from={m.opponent.class_official} to={m.opponent.class_today} />
+                  ) : (
+                    <Standing cls={m.opponent.class} rank={m.opponent.rank} />
+                  )}
                   {m.opponent.id != null ? <a href={playerHref(m.opponent.id)}>{m.opponent.name}</a> : m.opponent.name}
                 </span>
                 {m.tournament && <small className="muted match-dialog-tournament" title={m.tournament}>{m.tournament}</small>}

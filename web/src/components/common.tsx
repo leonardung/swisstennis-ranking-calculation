@@ -158,9 +158,19 @@ export function FixedValueNote({ note }: { note: "assigned" | "classified" | nul
 }
 
 /** A segmented control: one of a few options. */
-export function Seg<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+export function Seg<T extends string>({
+  value,
+  options,
+  onChange,
+  className,
+}: {
+  value: T;
+  options: [T, ReactNode][];
+  onChange: (v: T) => void;
+  className?: string;
+}) {
   return (
-    <div className="seg" role="group">
+    <div className={`seg${className ? ` ${className}` : ""}`} role="group">
       {options.map(([k, label]) => (
         <button key={k} className={value === k ? "active" : ""} onClick={() => onChange(k)}>
           {label}

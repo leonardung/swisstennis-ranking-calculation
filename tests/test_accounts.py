@@ -27,7 +27,7 @@ def client(tmp_path, monkeypatch, mails):
     app.state = SimpleNamespace(
         p=p, number=pd.Series(p.index, index=p["personId"]),
         people=pd.DataFrame({"name": ["Ann", "Ben"], "gender": ["F", "M"], "age": ["30+", "14&U"]}, index=pd.Index([1, 2], name="personId")),
-        official_class=pd.Series(["R4", "R7"], index=[1, 2]),
+        official_class=pd.Series(["R4", "R7"], index=[1, 2]), clubs=None,
     )  # fmt: skip
     return TestClient(api)
 
@@ -139,6 +139,7 @@ def test_me_favourites_password_logout_and_delete(client, mails):
     assert me == {
         "id": 2, "name": "Ben", "gender": "M", "age": "14&U", "class": "R7", "group": "R4-R9", "juniorAge": "U14",
         "officialClass": "R7", "openTo": {"matchType": "1,3,5", "age": None, "event": "R7"},  # no tournaments here
+        "clubs": [],
     }  # fmt: skip
     assert client.put("/api/me/favourites/1", headers=SAME).status_code == 204
     assert client.put("/api/me/favourites/1", headers=SAME).status_code == 204  # twice: once
