@@ -5,8 +5,8 @@ import { useAccount } from "../account";
 import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
-import { fmtDate, fmtInt } from "../format";
-import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, Spinner } from "./common";
+import { fmtDate } from "../format";
+import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, RankChange, Spinner } from "./common";
 import { MatchTable } from "./MatchListDialog";
 import SearchBox from "./SearchBox";
 
@@ -553,7 +553,9 @@ export function MyPlayersCard() {
                   <span title={t("myPlayersSinceOfficial")}>
                     C <Delta value={p.official?.C != null && p.today?.C != null ? p.today.C - p.official.C : null} />
                   </span>
-                  <RankMove from={p.official?.rank} to={p.today?.rank} />
+                  <span>
+                    # <RankChange from={p.official?.rank} to={p.today?.rank} />
+                  </span>
                 </div>
                 {p.matches.length > 0 && <MatchTable matches={p.matches} />}
               </div>
@@ -562,18 +564,6 @@ export function MyPlayersCard() {
         </>
       )}
     </Card>
-  );
-}
-
-/** The places won (▲) or lost (▼) in the ranking since the official list. */
-function RankMove({ from, to }: { from: number | null | undefined; to: number | null | undefined }) {
-  const { t, locale } = useI18n();
-  if (from == null || to == null) return null;
-  const up = from - to;
-  return (
-    <span className={up > 0 ? "pos" : up < 0 ? "neg" : "muted"} title={`${t("rank")} ${fmtInt(from, locale)} → ${fmtInt(to, locale)}`}>
-      {t("rank")} {up > 0 ? "▲" : up < 0 ? "▼" : "="} {up !== 0 && fmtInt(Math.abs(up), locale)}
-    </span>
   );
 }
 
