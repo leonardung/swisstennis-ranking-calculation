@@ -1,13 +1,16 @@
 import { useRef, useState, type FormEvent } from "react";
+import { useAccount } from "../account";
 import { trackEvent } from "../analytics";
 import { showModal } from "../hooks";
 import { useI18n } from "../i18n";
 
 type Status = "idle" | "sending" | "sent" | "error" | "limited";
 
-/** "Give feedback" button and its dialog: a message, optional name and email, and the page. */
+/** "Give feedback" button and its dialog: a message, optional name and email (signed in: the
+ * account's email and "me"'s name to start with), and the page. */
 export default function FeedbackButton() {
   const { t } = useI18n();
+  const { user, me } = useAccount();
   const dialog = useRef<HTMLDialogElement>(null);
   const [status, setStatus] = useState<Status>("idle");
 
@@ -67,7 +70,7 @@ export default function FeedbackButton() {
               </div>
             </>
           ) : (
-            <form onSubmit={submit}>
+            <form key={`${user?.email}-${me?.name}`} onSubmit={submit}>
               <p className="muted small">{t("feedbackIntro")}</p>
               <label>
                 <span>{t("feedbackMessage")}</span>
@@ -78,13 +81,13 @@ export default function FeedbackButton() {
                   <span>
                     {t("feedbackName")} <small className="muted">({t("feedbackOptional")})</small>
                   </span>
-                  <input name="name" maxLength={100} autoComplete="name" />
+                  <input name="name" maxLength={100} autoComplete="name" defaultValue={me?.name} />
                 </label>
                 <label>
                   <span>
                     {t("feedbackEmail")} <small className="muted">({t("feedbackOptional")})</small>
                   </span>
-                  <input name="email" type="email" maxLength={200} autoComplete="email" placeholder={t("feedbackEmailHint")} />
+                  <input name="email" type="email" maxLength={200} autoComplete="email" placeholder={t("feedbackEmailHint")} defaultValue={user?.email} />
                 </label>
               </div>
               {/* trap for bots, hidden from people and screen readers */}
