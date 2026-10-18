@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { trackEvent } from "./analytics";
 import { accountApi, ApiError } from "./api";
 import { appConfig } from "./config";
 import type { MePlayer, User } from "./types";
@@ -98,7 +99,11 @@ export function useAccountState(): Account {
         setUser(null);
       },
       loginOpen,
-      openLogin: () => setLoginOpen(true),
+      // counted, to compare with the sign-ups and sign-ins (who looked and left)
+      openLogin: () => {
+        trackEvent("login-open");
+        setLoginOpen(true);
+      },
       closeLogin: () => setLoginOpen(false),
     };
   }, [config, user, refresh, loginOpen]);
