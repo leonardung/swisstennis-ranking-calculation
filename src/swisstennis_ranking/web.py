@@ -24,6 +24,7 @@ from typing import Annotated, Literal
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq
 import requests
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -212,12 +213,19 @@ def _fold(s: pd.Series) -> pd.Series:
     return s.fillna("").map(lambda x: unicodedata.normalize("NFKD", x).encode("ascii", "ignore").decode().lower())
 
 
+def _read_parquet(path: Path) -> pd.DataFrame:
+    """A parquet table with each column in one piece: the text columns are Arrow arrays, read in
+    dozens of chunks, and selecting a few rows of a chunked column costs a pass over all of it
+    (~15 ms per column of `matches`, per request)."""
+    return pq.read_table(path).combine_chunks().to_pandas()
+
+
 def load_state(data_dir: Path) -> State:
-    history = pd.read_parquet(data_dir / "history.parquet")
-    matches = pd.read_parquet(data_dir / "matches.parquet")
-    players = pd.read_parquet(data_dir / "players.parquet")
+    history = _read_parquet(data_dir / "history.parquet")
+    matches = _read_parquet(data_dir / "matches.parquet")
+    players = _read_parquet(data_dir / "players.parquet")
     clubs_path = data_dir / "clubs.parquet"
-    clubs = pd.read_parquet(clubs_path) if clubs_path.exists() else None
+    clubs = _read_parquet(clubs_path) if clubs_path.exists() else None
     today = pd.Timestamp.now().normalize()
 
     period = evaluate.build_period(history, matches, players, today)
@@ -763,10 +771,6 @@ class App:
             raise HTTPException(404, f"unknown player {pid}")
         return s.p.loc[s.number[pid]]
 
-    def _official(self, s: State, pid: int) -> pd.Series | None:
-        h = s.history[(s.history["personId"] == pid) & (s.history["date"].dt.normalize() == s.official_date)]
-        return None if h.empty else h.iloc[-1]
-
     def search(self, q: str, limit: int, gender: str | None = None) -> list[dict]:
         s = self.s()
         words = _fold(pd.Series([q.replace(".", "")])).iloc[0].split()
@@ -800,9 +804,10 @@ class App:
         s = self.s()
         r = self._player(s, pid)
         person = s.people.loc[pid]
-        off = self._official(s, pid)
-        hist = s.history[s.history["personId"] == pid].sort_values("date")
-        hist = hist.assign(day=hist["date"].dt.normalize()).drop_duplicates("day", keep="last")
+        own = s.lists_of([pid]).assign(day=lambda h: h["date"].dt.normalize())
+        on_list = own[own["day"] == s.official_date]
+        off = None if on_list.empty else on_list.iloc[-1]
+        hist = own.sort_values("date").drop_duplicates("day", keep="last")
         # the list in force, else the latest list the player was on
         last = off if off is not None else None if hist.empty else hist.iloc[-1]
         note = "classified" if r["classified"] else "assigned" if r["foreign"] and r["W5_prev"] >= evaluate.ASSIGNED_MIN_W5 else None

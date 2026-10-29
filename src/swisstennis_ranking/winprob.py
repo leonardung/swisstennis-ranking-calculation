@@ -263,7 +263,8 @@ class Model:
         other fold; else the mean of both models."""
         if q.empty:
             return np.array([])
-        a = features(q, res, history, born)
-        b = features(q.rename(columns={"personId": "opp", "opp": "personId"}), res, history, born)
+        # both sides in one pass: features() builds its tables (form, head to head, lists) per call
+        both = features(pd.concat([q, q.rename(columns={"personId": "opp", "opp": "personId"})], ignore_index=True), res, history, born)
+        a, b = both.iloc[: len(q)], both.iloc[len(q) :]
         p = [(m.inplace_predict(a) + 1 - m.inplace_predict(b)) / 2 for m in self.boosters]
         return np.where(fold(q) == 0, p[1], p[0]) if played else (p[0] + p[1]) / 2
