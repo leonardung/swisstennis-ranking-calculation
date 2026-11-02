@@ -449,19 +449,23 @@ def categories(p: pd.DataFrame, cuts: dict[str, np.ndarray] | None = None) -> tu
     rank, and the quota bounds give the category (or `cuts`, the published bounds). The other
     players get the rank their (C, W) would have among them, without taking a slot.
     """
-    rank = pd.Series(np.nan, index=p.index)
-    cat = pd.Series(pd.NA, index=p.index, dtype="object")
+    rank = np.full(len(p), np.nan)
+    cat = np.full(len(p), pd.NA, dtype=object)
+    on_list = p["on_list"].to_numpy()
     for gender, bounds in QUOTAS.items():
-        g = p[p["on_list"] & (p["gender"] == gender)]
+        sel = on_list & (p["gender"] == gender).to_numpy()
+        # only the columns used: a copy of the whole frame per gender costs more than the rest
+        g = p.loc[sel, ["on_list", "foreign", "classified", "W5_prev", "C", "W"]]
         swiss = np.sort(_key(g[ranked(g)]))
-        pos = np.searchsorted(swiss, _key(g), side="left") + 1  # 1 + number of ranked strictly better
-        rank[g.index] = pos
+        key = _key(g)
+        pos = np.searchsorted(swiss, key, side="left") + 1  # 1 + number of ranked strictly better
+        rank[sel] = pos
         if cuts is None or gender not in cuts:
             level = np.searchsorted(bounds, pos)
         else:
-            level = np.searchsorted(cuts[gender], _key(g))
-        cat[g.index] = np.array(CATEGORIES)[level]
-    return rank, cat
+            level = np.searchsorted(cuts[gender], key)
+        cat[sel] = np.array(CATEGORIES)[level]
+    return pd.Series(rank, index=p.index), pd.Series(cat, index=p.index, dtype="object")
 
 
 def placed_ranks(p: pd.DataFrame) -> pd.Series:
@@ -469,10 +473,13 @@ def placed_ranks(p: pd.DataFrame) -> pd.Series:
     evaluation): the middle of the category's quota range, the last range ending at the last
     ranked player (see ranked()). Other players keep their rank."""
     rank = p["rank"].copy()
-    placed = p["on_list"] & ~p["foreign"] & (p["classified"] | p["W5_prev"].isna())
+    # isin on the object column is the slow part (~13 ms): once, not per gender
+    placed = p["on_list"] & ~p["foreign"] & (p["classified"] | p["W5_prev"].isna()) & p["class"].isin(CATEGORIES)
+    is_ranked = ranked(p)
     for gender, quota in QUOTAS.items():
-        ends = np.array([0, *quota, (ranked(p) & (p["gender"] == gender)).sum()])
-        sel = placed & (p["gender"] == gender) & p["class"].isin(CATEGORIES)
+        is_gender = p["gender"] == gender
+        ends = np.array([0, *quota, (is_ranked & is_gender).sum()])
+        sel = placed & is_gender
         level = p.loc[sel, "class"].map(CATEGORIES.index).to_numpy(dtype=int)
         rank[sel] = (ends[level] + ends[level + 1]) // 2 + 1
     return rank
@@ -482,7 +489,7 @@ def C_at_rank(p: pd.DataFrame, assigned: pd.Series) -> pd.Series:
     """C of players with an assigned value: the computed C of the Swiss player (per gender) at
     their previous rank. Ranks count only the ranked players (Art. 9.2)."""
     out = pd.Series(np.nan, index=p.index)
-    for gender, g in p[ranked(p)].groupby("gender"):
+    for gender, g in p.loc[ranked(p), ["gender", "C"]].groupby("gender"):
         cs = np.sort(g["C"].to_numpy())[::-1]
         sel = assigned & (p["gender"] == gender) & p["rank_prev"].notna()
         pos = p.loc[sel, "rank_prev"].to_numpy(dtype=int) - 1
@@ -512,16 +519,15 @@ def evaluate_detailed(period: Period, predict: bool = False) -> tuple[pd.DataFra
     p["w0"] = start_values(p, knots)
     r = period.matches
     assigned = p["foreign"] & (p["W5_prev"] >= ASSIGNED_MIN_W5)
-    W, R, opp_w = ranking.compute(
+    W, R, opp_w, loss_counts = ranking.compute(
         p["w0"].to_numpy(),
         r["player"].to_numpy(),
         r["opp"].to_numpy(),
         snap_category_means(p, r, knots),
         r["win"].to_numpy(),
         fixed=p["W5_prev"].where(assigned).to_numpy(dtype=float),
-        with_opp_w=True,
+        with_rows=True,
     )
-    loss_counts = ranking.counted_losses(r["player"].to_numpy(), opp_w, r["win"].to_numpy(), len(p))
     rows = r.assign(opp_w=opp_w, counted=r["win"].to_numpy() | loss_counts)
     # The Art. 5.8 deduction is shown in R (published R = C - W).
     p["W"] = W.round(3)

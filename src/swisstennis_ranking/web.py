@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import unicodedata
+from collections import OrderedDict
 from collections.abc import Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
@@ -51,6 +52,8 @@ PREDICT_MAX_RESULTS = 60
 # ... and at most this many played matches removed, and matches added against given players
 PREDICT_MAX_REMOVE = 200
 PREDICT_MAX_ADD = 30
+# answers of simulate() and predict() kept per loaded data (each runs full calculations, ~0.2-0.4 s)
+WHAT_IF_CACHE = 512
 # tournaments: their tables (written by `scrape-tournaments`), refreshed every this many hours
 TOURNAMENT_DIR = "tournaments"
 TOURNAMENT_REFRESH_HOURS = 2
@@ -621,6 +624,10 @@ class App:
         self.login_address_limit = RateLimit(LOGIN_MAILS_PER_ADDRESS_HOUR)
         self.login_check_limit = RateLimit(LOGIN_CHECKS_PER_HOUR)
         self.login_address_check_limit = RateLimit(LOGIN_CHECKS_PER_ADDRESS_HOUR)
+        # see _what_if(): the state the answers belong to, the answers (least recently used first)
+        self.what_if_lock = threading.Lock()
+        self.what_if_state: State | None = None
+        self.what_if: OrderedDict[tuple, dict] = OrderedDict()
 
     # --- lifecycle ---------------------------------------------------------------------------
 
@@ -976,8 +983,28 @@ class App:
             ],
         }
 
-    def simulate(self, pid: int, oid: int) -> dict:
+    def _what_if(self, key: tuple, compute: Callable[[State], dict]) -> dict:
+        """compute(state), or its answer kept from the same question on the same loaded data (the
+        last WHAT_IF_CACHE questions; a data reload starts afresh). Errors are not kept."""
         s = self.s()
+        with self.what_if_lock:
+            if self.what_if_state is not s:
+                self.what_if_state, self.what_if = s, OrderedDict()
+            if (hit := self.what_if.get(key)) is not None:
+                self.what_if.move_to_end(key)
+                return hit
+        out = compute(s)
+        with self.what_if_lock:
+            if self.what_if_state is s:
+                self.what_if[key] = out
+                if len(self.what_if) > WHAT_IF_CACHE:
+                    self.what_if.popitem(last=False)
+        return out
+
+    def simulate(self, pid: int, oid: int) -> dict:
+        return self._what_if(("simulate", pid, oid), lambda s: self._simulate(s, pid, oid))
+
+    def _simulate(self, s: State, pid: int, oid: int) -> dict:
         before_a, before_b = self._player(s, pid), self._player(s, oid)
         if pid == oid:
             raise HTTPException(400, "a player cannot play himself")
@@ -1010,6 +1037,9 @@ class App:
         return out
 
     def predict(self, pid: int, results: str = "", remove: str = "", add: str = "") -> dict:
+        return self._what_if(("predict", pid, results, remove, add), lambda s: self._predict(s, pid, results, remove, add))
+
+    def _predict(self, s: State, pid: int, results: str = "", remove: str = "", add: str = "") -> dict:
         """The player's values after a what-if, all in one full calculation (as simulate()):
         - `results`: hypothetical results, a comma-separated list of outcome:count:category:percentile
           (e.g. win:3:R2:75), each against an opponent of that category at that percentile of W
@@ -1018,7 +1048,6 @@ class App:
           result in `matches`, the ids of player_matches()); the opponent's side goes too;
         - `add`: matches against given players of the same gender, outcome:personId (win:123),
           counted for both players."""
-        s = self.s()
         r = self._player(s, pid)
         a = s.number[pid]
         m = s.period.matches

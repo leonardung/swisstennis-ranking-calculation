@@ -14,6 +14,8 @@ pass. Per 6 matches played, one loss (at most 4) against the weakest opponent is
 With no matches, W = w0 and R = 0.
 """
 
+from typing import NamedTuple
+
 import numpy as np
 
 PASSES = 5
@@ -21,18 +23,42 @@ MATCHES_PER_DISCARDED_LOSS = 6
 MAX_DISCARDED_LOSSES = 4
 
 
-def counted_losses(player: np.ndarray, opp_w: np.ndarray, win: np.ndarray, n_players: int) -> np.ndarray:
-    """Mask of losses that count, after discarding floor(matches/6) (max 4) weakest-opponent losses."""
-    n_matches = np.bincount(player, minlength=n_players)
-    n_discard = np.minimum(n_matches // MATCHES_PER_DISCARDED_LOSS, MAX_DISCARDED_LOSSES)
+class LossGroups(NamedTuple):
+    """The losses that can be discarded, grouped by player: those of players with at least
+    MATCHES_PER_DISCARDED_LOSS matches. They depend only on who played and lost, so one grouping
+    serves every pass."""
 
-    loss_rows = np.flatnonzero(~win)
-    order = loss_rows[np.lexsort((opp_w[loss_rows], player[loss_rows]))]
-    sorted_players = player[order]
-    rank_in_player = np.arange(len(order)) - np.searchsorted(sorted_players, sorted_players)
+    rows: np.ndarray  # match rows, grouped by player, in row order within a player
+    starts: np.ndarray  # first position of each player's group in `rows`
+    group: np.ndarray  # group number of each position
+    n_discard: np.ndarray  # losses to discard, per group
 
-    counted = np.zeros(len(player), dtype=bool)
-    counted[order] = rank_in_player >= n_discard[sorted_players]
+
+def loss_groups(player: np.ndarray, win: np.ndarray, n_players: int) -> LossGroups:
+    n_discard = np.minimum(np.bincount(player, minlength=n_players) // MATCHES_PER_DISCARDED_LOSS, MAX_DISCARDED_LOSSES)
+    rows = np.flatnonzero(~win & (n_discard[player] > 0))
+    rows = rows[np.argsort(player[rows], kind="stable")]
+    starts = np.flatnonzero(np.r_[True, player[rows][1:] != player[rows][:-1]]) if len(rows) else rows
+    group = np.repeat(np.arange(len(starts)), np.diff(np.r_[starts, len(rows)]))
+    return LossGroups(rows, starts, group, n_discard[player[rows[starts]]])
+
+
+def counted_losses(
+    player: np.ndarray, opp_w: np.ndarray, win: np.ndarray, n_players: int, groups: LossGroups | None = None
+) -> np.ndarray:
+    """Mask of losses that count, after discarding floor(matches/6) (max 4) weakest-opponent losses
+    (ties: the earlier row). groups: loss_groups() of these matches, when already known."""
+    g = loss_groups(player, win, n_players) if groups is None else groups
+    counted = ~win
+    vals = opp_w[g.rows].astype(float)  # a copy; a discarded loss becomes NaN, which fmin skips
+    pos = np.arange(len(g.rows))
+    # the weakest remaining loss of each player, as often as the player discards (at most 4 rounds)
+    for k in range(1, int(g.n_discard.max(initial=0)) + 1):
+        low = np.fmin.reduceat(vals, g.starts)
+        first = np.minimum.reduceat(np.where(vals == low[g.group], pos, len(pos)), g.starts)
+        take = first[(g.n_discard >= k) & (first < len(pos))]
+        counted[g.rows[take]] = False
+        vals[take] = np.nan
     return counted
 
 
@@ -56,7 +82,7 @@ def compute(
     win: np.ndarray,
     passes: int = PASSES,
     fixed: np.ndarray | None = None,
-    with_opp_w: bool = False,
+    with_rows: bool = False,
 ):
     """Run the iterative calculation for all players at once.
 
@@ -68,14 +94,16 @@ def compute(
     fixed:     optional value per player (NaN = computed) that opponents use in every pass
                instead of the player's current W (players with an assigned value)
 
-    Returns (W, R), or (W, R, opp_w) with the opponent value of each match row in the last pass
-    when with_opp_w is set.
+    Returns (W, R), or with with_rows (W, R, opp_w, counted): per match row, the opponent value
+    of the last pass and whether the loss counted in it (see counted_losses; False for wins).
     """
     known = opp >= 0
+    groups = loss_groups(player, win, len(w0))
     W = w0.copy()
     for _ in range(passes):
         V = W if fixed is None else np.where(np.isnan(fixed), W, fixed)
         opp_w = np.where(known, V[np.where(known, opp, 0)], opp_fixed)
-        W, R = single_pass(w0, player, opp_w, win)
-    return (W, R, opp_w) if with_opp_w else (W, R)
+        counted = counted_losses(player, opp_w, win, len(w0), groups)
+        W, R = single_pass(w0, player, opp_w, win, counted)
+    return (W, R, opp_w, counted) if with_rows else (W, R)
 

@@ -283,6 +283,22 @@ def test_predict_removes_played_matches_and_adds_matches_against_players(tmp_pat
         assert e.value.status_code == 400, kw
 
 
+def test_what_if_answers_are_kept_until_the_data_reloads(tmp_path):
+    from dataclasses import replace
+
+    from fastapi import HTTPException
+
+    app, _ = _league_app(tmp_path)
+    first = app.simulate(1, 2)
+    assert app.simulate(1, 2) is first and app.predict(1, add="win:2") is app.predict(1, add="win:2")
+    with pytest.raises(HTTPException):  # errors are not kept
+        app.simulate(1, 1)
+    assert ("simulate", 1, 1) not in app.what_if
+    app.state = replace(app.state)  # a reload: a new state object
+    again = app.simulate(1, 2)
+    assert again is not first and again == first and len(app.what_if) == 1
+
+
 def test_tournament_name_drops_the_number():
     assert stats.tournament_name("157652 47. Wohlensee-Cup") == "47. Wohlensee-Cup"
     assert stats.tournament_name("IC 2L") == "IC 2L"
