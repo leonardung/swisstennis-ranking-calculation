@@ -11,14 +11,18 @@ Layout:
 """
 
 import json
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from tqdm import tqdm
 
 from .evaluate import publications
+from .winprob import free_memory
 from .api import (
     CURRENT_SEASON_QUERY,
     HISTORY_QUERY,
@@ -110,33 +114,65 @@ def _fetch_all(client: Client, ids: set[int], since: str, raw_dir: Path, workers
             f.result()
 
 
-def build_tables(raw_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Turn the raw cache into (history, matches) tables.
+def build_tables(raw_dir: Path, matches_out: Path) -> tuple[pd.DataFrame, int]:
+    """Turn the raw cache into the history table, and write the matches table to `matches_out`
+    on the way; returns the history and the number of match rows.
 
-    Built in batches of files: millions of results as Python dicts do not fit in memory.
+    Built in batches of files: millions of results as Python dicts do not fit in memory. Each
+    batch of matches goes to its own file at once and the files are then copied one after the
+    other into `matches_out`, so the ~1.2 GB matches table is never in memory as a whole (the
+    nightly update runs next to the web server on a small machine).
     """
     paths = sorted(raw_dir.glob("*.json"))
-    hist_parts, match_parts = [], []
-    for start in tqdm(range(0, len(paths), BUILD_BATCH), desc="building tables", unit_scale=BUILD_BATCH):
-        history, matches = [], []
-        for path in paths[start : start + BUILD_BATCH]:
-            person_id = int(path.stem)
-            raw = json.loads(path.read_text())
-            history += raw["history"]
-            matches += [{"personId": person_id, **r} for r in raw["results"]]
-        h, m = pd.DataFrame(history), pd.DataFrame(matches)
-        h["date"] = pd.to_datetime(h["date"], format="mixed")
-        if len(m):
-            m["date"] = pd.to_datetime(m["date"], format="mixed")
-            m["adversaryPersonId"] = m["adversaryPersonId"].astype("Int64")
-        hist_parts.append(h)
-        match_parts.append(m)
+    hist_parts = []
+    with tempfile.TemporaryDirectory(dir=matches_out.parent) as tmp:
+        parts = []
+        for start in tqdm(range(0, len(paths), BUILD_BATCH), desc="building tables", unit_scale=BUILD_BATCH):
+            history, matches = [], []
+            for path in paths[start : start + BUILD_BATCH]:
+                person_id = int(path.stem)
+                raw = json.loads(path.read_text())
+                history += raw["history"]
+                matches += [{"personId": person_id, **r} for r in raw["results"]]
+            h, m = pd.DataFrame(history), pd.DataFrame(matches)
+            h["date"] = pd.to_datetime(h["date"], format="mixed")
+            if len(m):
+                m["date"] = pd.to_datetime(m["date"], format="mixed")
+                m["adversaryPersonId"] = m["adversaryPersonId"].astype("Int64")
+                parts.append(Path(tmp) / f"{start}.parquet")
+                # the pandas types (Int64) go with each part, in its metadata
+                pq.write_table(pa.Table.from_pandas(m, preserve_index=False), parts[-1])
+            hist_parts.append(h)
+            del history, matches, h, m
+        n_matches = _join_parquet(parts, matches_out)
 
     hist = pd.concat(hist_parts, ignore_index=True)
     hist = hist.rename(columns={"competitionValue": "W", "classificationValue": "C"})
-    m = pd.concat(match_parts, ignore_index=True)
-    m["adversaryPersonId"] = m["adversaryPersonId"].astype("Int64")
-    return hist, m
+    return hist, n_matches
+
+
+def _join_parquet(parts: list[Path], out: Path) -> int:
+    """Write the tables of `parts` one after the other into `out`, one part in memory at a time;
+    returns the number of rows. Their columns are united (a column missing from a part, or empty
+    in it, becomes nulls of the type it has elsewhere), with the pandas metadata of the first part."""
+    schemas = [pq.read_schema(p) for p in parts]
+    schema = pa.unify_schemas(schemas, promote_options="permissive").with_metadata(schemas[0].metadata)
+    n = 0
+    with pq.ParquetWriter(out, schema) as writer:
+        for p in parts:
+            t = pq.read_table(p)
+            columns = [t[f.name].cast(f.type) if f.name in t.column_names else pa.nulls(len(t), f.type) for f in schema]
+            writer.write_table(pa.Table.from_arrays(columns, schema=schema))
+            n += len(t)
+    return n
+
+
+def opponent_ids(raw_dir: Path) -> set[int]:
+    """The opponents in the results of the raw cache, read one file at a time (no tables)."""
+    ids = set()
+    for path in raw_dir.glob("*.json"):
+        ids.update(int(r["adversaryPersonId"]) for r in json.loads(path.read_text())["results"] if r.get("adversaryPersonId") is not None)
+    return ids
 
 
 def current_season(client: Client) -> pd.Timestamp:
@@ -245,16 +281,23 @@ def scrape(data_dir: Path, since: str, workers: int, recent_days: int | None = N
     # Opponents who are no longer licensed still carry a ranking value; fetch them once.
     # Their own opponents are not followed further: those matches fall back to the
     # adversary value stored with the result.
-    _, matches = build_tables(raw_dir)
     cached = {int(p.stem) for p in raw_dir.glob("*.json")}
-    missing = set(matches["adversaryPersonId"].dropna().astype(int)) - cached
+    missing = opponent_ids(raw_dir) - cached
     _fetch_all(client, missing, since, raw_dir, workers, "unlicensed opponents")
 
-    hist, matches = build_tables(raw_dir)
+    write_tables(client, raw_dir, data_dir, players)
+    (raw_dir / "season").write_text(current_season(client).isoformat())
+    (raw_dir / "refresh_since").unlink(missing_ok=True)
+
+
+def write_tables(client: Client, raw_dir: Path, data_dir: Path, players: pd.DataFrame) -> None:
+    """Build history and matches from the raw cache and write them; both are renamed into place
+    at the end, so a failure on the way leaves the previous pair."""
+    matches_tmp = data_dir / "matches.tmp"
+    hist, n_matches = build_tables(raw_dir, matches_tmp)
+    free_memory()  # the parsed results: give their memory back before the history steps
     hist = _with_current_list(client, hist, players)
     hist = add_list_flags(client, hist)
     _write(hist, data_dir, "history")
-    _write(matches, data_dir, "matches")
-    (raw_dir / "season").write_text(current_season(client).isoformat())
-    (raw_dir / "refresh_since").unlink(missing_ok=True)
-    print(f"{hist['personId'].nunique()} players with history, {len(matches)} match rows")
+    matches_tmp.replace(data_dir / "matches.parquet")
+    print(f"{hist['personId'].nunique()} players with history, {n_matches} match rows")

@@ -120,7 +120,7 @@ def features(q: pd.DataFrame, res: pd.DataFrame, history: pd.DataFrame, born: pd
         }
     ).astype({c: "float32" for c in ("W", "C", "cls", "rank", "n_lists", "W_trend")})
     del h, gh
-    _free()
+    free_memory()
 
     # filled in place: the whole table exists once (float32)
     out = np.empty((len(q), len(FEATURES)), dtype="float32")
@@ -182,7 +182,7 @@ def stale(data_dir: Path) -> bool:
     return any(a != _latest_list(data_dir) for a in attrs)
 
 
-def _free() -> None:
+def free_memory() -> None:
     """Give the memory freed so far back to the system (the training runs on a small server)."""
     import ctypes
 
@@ -206,7 +206,7 @@ def train(data_dir: Path) -> None:
     matches = pq.read_table(data_dir / "matches.parquet", columns=cols, filters=played, read_dictionary=["tournamentName"])
     res = results(matches.to_pandas(self_destruct=True, split_blocks=True))
     del matches
-    _free()
+    free_memory()
     history = pq.read_table(
         data_dir / "history.parquet", columns=["personId", "date", "classification", "rank", "W", "C"], read_dictionary=["classification"]
     ).to_pandas(self_destruct=True, split_blocks=True)
@@ -214,7 +214,7 @@ def train(data_dir: Path) -> None:
     latest = history["date"].max().date().isoformat()
     X, y, f = features(res, res, history, born).to_numpy(), res["win"].to_numpy(), fold(res)
     del res, history
-    _free()
+    free_memory()
 
     class Rows(xgb.DataIter):
         """Rows `rows` of X and y, CHUNK at a time: a fold is never copied whole."""
