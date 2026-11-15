@@ -1,5 +1,5 @@
 /** Labels and small pieces shared by the tournament views. */
-import { useI18n, type MsgKey, type TFunc } from "../i18n";
+import { useI18n, type Lang, type MsgKey, type TFunc } from "../i18n";
 import { fmtDate } from "../format";
 import { playerHref } from "../hooks";
 import type { AgeInfo, DrawPlayer, TournamentEvent } from "../types";
@@ -101,21 +101,45 @@ export function eventKind(e: Pick<TournamentEvent, "matchType" | "age" | "ageInf
 }
 
 /** Round counted from the final: 1 final, 2 semi-finals, 3 quarter-finals, then "round of 16"… */
-/** Swiss Tennis gives the surfaces in French. */
-const SURFACES_EN: Record<string, string> = {
-  Autres: "Other",
-  "Dur (asphalt/béton)": "Hard (asphalt/concrete)",
-  "Dur (synthétique)": "Hard (synthetic)",
-  "Gazon synthétique (sable de quartz ou de céramique)": "Artificial grass (quartz or ceramic sand)",
-  "Moquette (avec granules)": "Carpet (with granules)",
-  "Moquette (sans granules)": "Carpet (without granules)",
-  "Terre battue": "Clay",
-  "Terre battue (synthétique)": "Clay (synthetic)",
-  "voir Infos supplémentaires": "see additional info",
+/** Swiss Tennis gives the surfaces in French: their names in the other languages. */
+const SURFACES: Record<Exclude<Lang, "fr">, Record<string, string>> = {
+  de: {
+    Autres: "Andere",
+    "Dur (asphalt/béton)": "Hartplatz (Asphalt/Beton)",
+    "Dur (synthétique)": "Hartplatz (synthetisch)",
+    "Gazon synthétique (sable de quartz ou de céramique)": "Kunstrasen (Quarz- oder Keramiksand)",
+    "Moquette (avec granules)": "Teppich (mit Granulat)",
+    "Moquette (sans granules)": "Teppich (ohne Granulat)",
+    "Terre battue": "Sand",
+    "Terre battue (synthétique)": "Sand (synthetisch)",
+    "voir Infos supplémentaires": "siehe Zusatzinformationen",
+  },
+  it: {
+    Autres: "Altro",
+    "Dur (asphalt/béton)": "Duro (asfalto/cemento)",
+    "Dur (synthétique)": "Duro (sintetico)",
+    "Gazon synthétique (sable de quartz ou de céramique)": "Erba sintetica (sabbia di quarzo o ceramica)",
+    "Moquette (avec granules)": "Moquette (con granuli)",
+    "Moquette (sans granules)": "Moquette (senza granuli)",
+    "Terre battue": "Terra battuta",
+    "Terre battue (synthétique)": "Terra battuta (sintetica)",
+    "voir Infos supplémentaires": "vedi informazioni supplementari",
+  },
+  en: {
+    Autres: "Other",
+    "Dur (asphalt/béton)": "Hard (asphalt/concrete)",
+    "Dur (synthétique)": "Hard (synthetic)",
+    "Gazon synthétique (sable de quartz ou de céramique)": "Artificial grass (quartz or ceramic sand)",
+    "Moquette (avec granules)": "Carpet (with granules)",
+    "Moquette (sans granules)": "Carpet (without granules)",
+    "Terre battue": "Clay",
+    "Terre battue (synthétique)": "Clay (synthetic)",
+    "voir Infos supplémentaires": "see additional info",
+  },
 };
 
-export function surfaceLabel(s: string, lang: string): string {
-  return lang === "fr" ? s : (SURFACES_EN[s] ?? s);
+export function surfaceLabel(s: string, lang: Lang): string {
+  return lang === "fr" ? s : (SURFACES[lang][s] ?? s);
 }
 
 export function roundLabel(round: number, t: TFunc): string {

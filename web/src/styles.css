@@ -365,6 +365,12 @@ main.container {
   font-size: 13px;
   padding: 6px 10px;
   letter-spacing: 0.03em;
+  font-family: inherit;
+  appearance: none;
+}
+.lang-toggle option {
+  background: var(--surface);
+  color: var(--text);
 }
 
 /* ---------- Search ---------- */
