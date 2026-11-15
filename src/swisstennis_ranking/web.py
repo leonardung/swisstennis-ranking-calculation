@@ -29,8 +29,9 @@ import pyarrow.parquet as pq
 import requests
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import accounts, evaluate, highlights, mail, ranking, stats, winprob
@@ -58,6 +59,9 @@ WHAT_IF_CACHE = 512
 # server only, not in the repository (see read_hidden); checked for changes every this many seconds
 HIDDEN_FILE = "hidden_players.txt"
 HIDDEN_CHECK_SECONDS = 60
+# with accounts, the API paths (and the paths below them) open to everyone; the rest of /api needs
+# a signed-in user. /api/me checks the session itself, /api/meta has no player data (dates, scrape).
+PUBLIC_API = ("/api/config", "/api/meta", "/api/auth", "/api/me", "/api/feedback", "/api/perf")
 # tournaments: their tables (written by `scrape-tournaments`), refreshed every this many hours
 TOURNAMENT_DIR = "tournaments"
 TOURNAMENT_REFRESH_HOURS = 2
@@ -1982,6 +1986,8 @@ def create_app(
             "moved_to": (os.environ.get("MOVED_TO") or None) if moved else None,
             # user accounts on this address, and whether Google sign-in is set up
             "accounts": {"google": bool(os.environ.get("GOOGLE_CLIENT_ID"))} if accounts_on(request) else None,
+            # the data is for signed-in users only (see require_login), on every address
+            "login_required": app.accounts is not None,
         }
 
     # --- accounts (see accounts.py) ----------------------------------------------------------
@@ -2218,6 +2224,17 @@ def create_app(
         """The favourites' card ("me" first): official → today and results since the previous visit."""
         p = app.accounts.profile(signed_in(request))
         return app.my_players(p["favourites"], p["since"], p["player"])
+
+    @api.middleware("http")
+    async def require_login(request: Request, call_next):
+        """With accounts (ACCOUNTS_URL), the data (every /api path but PUBLIC_API) is for signed-in
+        users only (data protection); on another address (the old one) there is no session, so none."""
+        path = request.url.path
+        if app.accounts is not None and path.startswith("/api/") and not any(path == p or path.startswith(p + "/") for p in PUBLIC_API):
+            token = request.cookies.get(accounts.COOKIE)
+            if not accounts_on(request) or await run_in_threadpool(app.accounts.user_of_session, token) is None:
+                return JSONResponse({"detail": "not signed in"}, status_code=401)
+        return await call_next(request)
 
     @api.middleware("http")
     async def time_api(request: Request, call_next):

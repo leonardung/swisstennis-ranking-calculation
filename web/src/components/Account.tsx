@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { accountApi, ApiError } from "../api";
 import type { MyPlayer, User } from "../types";
 import { useAccount } from "../account";
+import { appConfig } from "../config";
 import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
@@ -32,10 +33,20 @@ async function afterSignIn(refresh: () => Promise<User | null>, next: string) {
 
 /** Sign in with email and password or Google; create an account (the password works once the
  * email is verified by a link); ask for a link to choose a new password. */
-function LoginForm({ next, autoFocus = false, onSignedIn }: { next: string; autoFocus?: boolean; onSignedIn?: () => void }) {
+function LoginForm({
+  next,
+  autoFocus = false,
+  onSignedIn,
+  initialMode = "login",
+}: {
+  next: string;
+  autoFocus?: boolean;
+  onSignedIn?: () => void;
+  initialMode?: Mode;
+}) {
   const { t, lang } = useI18n();
   const account = useAccount();
-  const [mode, setMode] = useState<Mode>("login");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [status, setStatus] = useState<SendStatus>("idle");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -136,7 +147,7 @@ function LoginForm({ next, autoFocus = false, onSignedIn }: { next: string; auto
           </>
         ) : (
           <button type="button" className="link-btn" onClick={() => switchTo("login")}>
-            {t("loginToLogin")}
+            {t(initialMode === "signup" ? "loginHaveAccount" : "loginToLogin")}
           </button>
         )}
       </div>
@@ -351,6 +362,39 @@ export function LoginPage() {
           <LoginForm next="/" autoFocus />
         </Card>
       )}
+    </div>
+  );
+}
+
+/** Instead of every data page when signed out (account.locked): the data is for signed-in users
+ * only (data protection). Comes back to the same page once signed in; on the old address, where
+ * nobody can sign in, a link to the new one. Then `children` (shown signed out too). */
+export function LoginWall({ children }: { children?: ReactNode }) {
+  const { t } = useI18n();
+  const account = useAccount();
+  const [movedTo, setMovedTo] = useState<string | null>(null);
+  useEffect(() => {
+    appConfig.then((c) => setMovedTo(c.moved_to)).catch(() => {});
+  }, []);
+  const { pathname, search } = window.location;
+  return (
+    <div className="account-page narrow login-wall">
+      <h1>{t("wallTitle")}</h1>
+      <p>
+        {t("wallText")} <span className="muted">{t("wallFree")}</span>
+      </p>
+      {account.enabled ? (
+        <Card>
+          <LoginForm next={pathname + search} initialMode="signup" autoFocus />
+        </Card>
+      ) : (
+        movedTo && (
+          <a className="btn btn-primary" href={movedTo.replace(/\/$/, "") + pathname + search}>
+            {t("movedLink")}
+          </a>
+        )
+      )}
+      {children}
     </div>
   );
 }

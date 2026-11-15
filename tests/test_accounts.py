@@ -121,6 +121,29 @@ def test_forgot_password(client, mails):
     assert client.post("/api/auth/reset", json={"token": token_of(mails[-1]), "password": "again pw"}, headers=SAME).status_code == 400
 
 
+def test_the_data_needs_a_signed_in_user(client, mails, tmp_path, monkeypatch):
+    assert client.get("/api/config").json()["login_required"] is True
+    data = ["/api/players/search?q=ann", "/api/players/99", "/api/clubs", "/api/highlights", "/api/tournaments", "/api/simulate?player=1&opponent=2", "/api/nothing"]
+    for path in data:
+        assert client.get(path).status_code == 401, path
+    assert client.get("/api/me").json() == {"user": None}
+    sign_up(client, mails)
+    assert client.get("/api/players/99").status_code == 404
+    assert client.get("/api/nothing").status_code == 404
+    client.post("/api/auth/logout", headers=SAME)
+    assert client.get("/api/players/99").status_code == 401
+    client.cookies.set(accounts.COOKIE, "made-up")
+    assert client.get("/api/players/99").status_code == 401
+    # the old address has no sign-in: no data there; without ACCOUNTS_URL (development) it is open
+    monkeypatch.setenv("ACCOUNTS_URL", "https://tennis-radar.ch")
+    other = TestClient(web.create_app(tmp_path, None, None))
+    assert other.get("/api/players/99").status_code == 401
+    monkeypatch.delenv("ACCOUNTS_URL")
+    open_ = TestClient(web.create_app(tmp_path, None, None))
+    assert open_.get("/api/config").json()["login_required"] is False
+    assert open_.get("/api/nothing").status_code == 404
+
+
 def test_changes_need_the_sites_origin(client, mails):
     assert client.post("/api/auth/signup", json={"email": "a@b.ch", "password": PW}).status_code == 403
     assert client.post("/api/auth/signup", json={"email": "a@b.ch", "password": PW}, headers={"Origin": "https://evil.example"}).status_code == 403

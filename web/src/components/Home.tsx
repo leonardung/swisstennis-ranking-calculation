@@ -20,7 +20,8 @@ const TOP_MEDIAN = 1; // N1–R3
 const TOP_WITHIN10 = 0.948; // N1–R3
 const EXACT_C = 0.961;
 
-function Accuracy() {
+/** Also shown signed out, under the sign-in wall: it uses no data from the server. */
+export function Accuracy() {
   const { t, locale } = useI18n();
   const pct = (v: number) => new Intl.NumberFormat(locale, { style: "percent", minimumFractionDigits: 1 }).format(v);
   const int = (v: number) => v.toLocaleString(locale);
