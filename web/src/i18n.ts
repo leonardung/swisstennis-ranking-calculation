@@ -546,7 +546,7 @@ const en = {
   privacyCookies: "A single cookie keeps you signed in (one year, renewed when you come back). Nothing else is stored in your browser for your account.",
   privacyKeep: "Your data stays until you delete your account. Deleting it (My account → Delete my account) erases it at once, backups within 30 days.",
   privacyRights: "Under the Swiss data protection act (nFADP) you can ask what we keep about you, have it corrected or deleted.",
-  privacyHide: "Players: if you do not want to appear on Tennis Radar, write to us and we hide your name, your page and your results (also in your opponents' matches). Your results still count in the calculation, as on the official Swiss Tennis lists, so that the others' values stay right.",
+  privacyHide: "Players: if you do not want to appear on Tennis Radar, write to us and we hide your name, your page and your results (also in your opponents' matches).",
   privacyContact: "Contact: the \"Feedback\" button at the top of every page.",
 };
 
@@ -1096,7 +1096,7 @@ const fr: Record<MsgKey, string> = {
   privacyCookies: "Un seul cookie te garde connecté (un an, prolongé quand tu reviens). Rien d'autre n'est enregistré dans ton navigateur pour ton compte.",
   privacyKeep: "Tes données restent jusqu'à ce que tu supprimes ton compte. La suppression (Mon compte → Supprimer mon compte) les efface tout de suite, les sauvegardes dans les 30 jours.",
   privacyRights: "Selon la loi suisse sur la protection des données (nLPD), tu peux demander ce qu'on garde sur toi, le faire corriger ou supprimer.",
-  privacyHide: "Joueurs : si tu ne veux pas apparaître sur Tennis Radar, écris-nous et on masque ton nom, ta page et tes résultats (aussi dans les matchs de tes adversaires). Tes résultats comptent toujours dans le calcul, comme sur les classements officiels de Swiss Tennis, pour que les valeurs des autres restent justes.",
+  privacyHide: "Joueurs : si tu ne veux pas apparaître sur Tennis Radar, écris-nous et on masque ton nom, ta page et tes résultats (aussi dans les matchs de tes adversaires).",
   privacyContact: "Contact : le bouton « Donner mon avis » en haut de chaque page.",
 };
 
