@@ -15,6 +15,8 @@ export interface Account {
   ready: boolean;
   user: User | null;
   me: MePlayer | null;
+  /** signed out where the data needs a signed-in user: the pages show the sign-in wall */
+  locked: boolean;
   /** fetch the user again; resolves with it */
   refresh: () => Promise<User | null>;
   isFavourite: (id: number) => boolean;
@@ -39,11 +41,17 @@ export function useAccount(): Account {
 export function useAccountState(): Account {
   // undefined: not known yet
   const [config, setConfig] = useState<{ google: boolean } | null | undefined>(undefined);
+  const [loginRequired, setLoginRequired] = useState(false);
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [loginOpen, setLoginOpen] = useState(false);
 
   useEffect(() => {
-    appConfig.then((c) => setConfig(c.accounts ?? null)).catch(() => setConfig(null));
+    appConfig
+      .then((c) => {
+        setLoginRequired(c.login_required);
+        setConfig(c.accounts ?? null);
+      })
+      .catch(() => setConfig(null));
   }, []);
 
   const refresh = useCallback(async (): Promise<User | null> => {
@@ -77,6 +85,7 @@ export function useAccountState(): Account {
       ready: config !== undefined && user !== undefined,
       user: user ?? null,
       me: user?.me ?? null,
+      locked: loginRequired && !user,
       refresh,
       isFavourite: (id) => favourites.has(id),
       toggleFavourite: async (id) => {
@@ -106,5 +115,5 @@ export function useAccountState(): Account {
       },
       closeLogin: () => setLoginOpen(false),
     };
-  }, [config, user, refresh, loginOpen]);
+  }, [config, loginRequired, user, refresh, loginOpen]);
 }

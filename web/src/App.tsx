@@ -13,7 +13,7 @@ import TournamentPage from "./components/TournamentPage";
 import ClubPage from "./components/ClubPage";
 import ClubsPage from "./components/ClubsPage";
 import PerfPage from "./components/PerfPage";
-import { AccountPage, LoginDialog, LoginPage, PrivacyPage, ResetPage } from "./components/Account";
+import { AccountPage, LoginDialog, LoginPage, LoginWall, PrivacyPage, ResetPage } from "./components/Account";
 import { BackendLoading, Spinner } from "./components/common";
 import { AccountContext, useAccountState } from "./account";
 
@@ -94,7 +94,7 @@ export default function App() {
     <AccountContext.Provider value={account}>
       <Header
         meta={meta.data}
-        showSearch={route.page !== "home" && route.page !== "clubs"}
+        showSearch={!account.locked && route.page !== "home" && route.page !== "clubs"}
         section={
           route.page === "tournaments" || route.page === "tournament"
             ? "tournaments"
@@ -118,6 +118,8 @@ export default function App() {
           <AccountPage />
         ) : route.page === "privacy" ? (
           <PrivacyPage />
+        ) : account.locked ? (
+          <LoginWall />
         ) : route.page === "player" ? (
           <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : route.page === "tournaments" ? (
