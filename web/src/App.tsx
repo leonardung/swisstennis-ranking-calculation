@@ -6,7 +6,7 @@ import { startPageTiming } from "./perf";
 import { I18nContext, loadLang, makeT, saveLang, type I18n, type Lang } from "./i18n";
 import Header from "./components/Header";
 import MovedBanner from "./components/MovedBanner";
-import Home from "./components/Home";
+import Home, { Accuracy } from "./components/Home";
 import PlayerPage from "./components/PlayerPage";
 import TournamentsPage from "./components/TournamentsPage";
 import TournamentPage from "./components/TournamentPage";
@@ -119,7 +119,9 @@ export default function App() {
         ) : route.page === "privacy" ? (
           <PrivacyPage />
         ) : account.locked ? (
-          <LoginWall />
+          <LoginWall>
+            <Accuracy />
+          </LoginWall>
         ) : route.page === "player" ? (
           <PlayerPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : route.page === "tournaments" ? (

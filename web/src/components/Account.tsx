@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { accountApi, ApiError } from "../api";
 import type { MyPlayer, User } from "../types";
 import { useAccount } from "../account";
@@ -368,8 +368,8 @@ export function LoginPage() {
 
 /** Instead of every data page when signed out (account.locked): the data is for signed-in users
  * only (data protection). Comes back to the same page once signed in; on the old address, where
- * nobody can sign in, a link to the new one. */
-export function LoginWall() {
+ * nobody can sign in, a link to the new one. Then `children` (shown signed out too). */
+export function LoginWall({ children }: { children?: ReactNode }) {
   const { t } = useI18n();
   const account = useAccount();
   const [movedTo, setMovedTo] = useState<string | null>(null);
@@ -394,6 +394,7 @@ export function LoginWall() {
           </a>
         )
       )}
+      {children}
     </div>
   );
 }
