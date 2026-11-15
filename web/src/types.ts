@@ -449,8 +449,10 @@ export interface TournamentList {
 
 export interface DrawPlayer {
   personId: number | null;
-  name: string;
+  name: string | null;
   class: string | null;
+  /** a player who asked not to be shown: no name, no link */
+  hidden?: boolean;
 }
 
 export interface DrawMatch {

@@ -1,5 +1,5 @@
 /** Labels and small pieces shared by the tournament views. */
-import type { MsgKey, TFunc } from "../i18n";
+import { useI18n, type MsgKey, type TFunc } from "../i18n";
 import { fmtDate } from "../format";
 import { playerHref } from "../hooks";
 import type { AgeInfo, DrawPlayer, TournamentEvent } from "../types";
@@ -139,13 +139,20 @@ export function isoDay(d: Date): string {
 
 /** A player (or a doubles pair) of a draw, linked to their page when known. */
 export function DrawNames({ side, badge = true }: { side: DrawPlayer[]; badge?: boolean }) {
+  const { t } = useI18n();
   if (!side.length) return <span className="muted">–</span>;
   return (
     <span className="draw-names">
       {side.map((p, i) => (
         <span key={i} className="draw-name">
           {i > 0 && <span className="muted"> / </span>}
-          {p.personId != null ? <a href={playerHref(p.personId)}>{p.name}</a> : <span>{p.name}</span>}
+          {p.hidden ? (
+            <span className="muted">{t("hiddenPlayer")}</span>
+          ) : p.personId != null ? (
+            <a href={playerHref(p.personId)}>{p.name}</a>
+          ) : (
+            <span>{p.name}</span>
+          )}
           {badge && p.class && (
             <>
               {" "}

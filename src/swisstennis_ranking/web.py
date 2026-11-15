@@ -54,6 +54,10 @@ PREDICT_MAX_REMOVE = 200
 PREDICT_MAX_ADD = 30
 # answers of simulate() and predict() kept per loaded data (each runs full calculations, ~0.2-0.4 s)
 WHAT_IF_CACHE = 512
+# the players who asked not to be shown, one personId per line ("#" starts a comment); kept on the
+# server only, not in the repository (see read_hidden); checked for changes every this many seconds
+HIDDEN_FILE = "hidden_players.txt"
+HIDDEN_CHECK_SECONDS = 60
 # tournaments: their tables (written by `scrape-tournaments`), refreshed every this many hours
 TOURNAMENT_DIR = "tournaments"
 TOURNAMENT_REFRESH_HOURS = 2
@@ -209,6 +213,37 @@ class State:
     # the clubs, index clubId (the club's number): name, city, players (with a current licence),
     # key (search text)
     club_list: pd.DataFrame | None = None
+    # the players not shown (see read_hidden): not in `people` (no name, page or search hit),
+    # their results not in `match_rows` (nor anyone's results against them), anonymous in draws
+    hidden: frozenset[int] = frozenset()
+
+
+def read_hidden(data_dir: Path) -> frozenset[int]:
+    """The personIds of HIDDEN_FILE (none without it). They stay in the calculation, as on the
+    official lists: everyone else's values do not change. A line that is not a number fails the
+    load (the old state stays) rather than leave a player shown."""
+    path = data_dir / HIDDEN_FILE
+    if not path.exists():
+        return frozenset()
+    ids = set()
+    for n, line in enumerate(path.read_text().splitlines(), 1):
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        if not text.isdigit():
+            raise ValueError(f"{HIDDEN_FILE} line {n}: not a personId: {text!r}")
+        ids.add(int(text))
+    return frozenset(ids)
+
+
+def hide(people: pd.DataFrame, matches: pd.DataFrame, hidden: frozenset[int]) -> tuple[pd.DataFrame, dict, np.ndarray]:
+    """What is shown of the players and their results: `people` less the hidden players; per
+    personId the positions in `matches` of their results shown (none of a hidden player, none
+    against one); which rows of `matches` are shown."""
+    ids = list(hidden)
+    shown = ~(matches["personId"].isin(ids) | matches["adversaryPersonId"].isin(ids)).to_numpy(bool)
+    match_rows = {pid: pos[shown[pos]] for pid, pos in matches.groupby("personId").indices.items() if pid not in hidden}
+    return people[~people.index.isin(ids)], match_rows, shown
 
 
 def _fold(s: pd.Series) -> pd.Series:
@@ -250,7 +285,8 @@ def load_state(data_dir: Path) -> State:
     people["gender"] = p.set_index("personId")["gender"].to_numpy()
     # the licence's age category today (A, 18&U, 45+, ...)
     people["age"] = players.set_index("personId")["ageCategoryRedundant"].reindex(people.index)
-    people = people[people["name"].fillna("") != ""]
+    hidden = read_hidden(data_dir)
+    people, match_rows, shown = hide(people[people["name"].fillna("") != ""], matches, hidden)
     people["key"] = _fold(people["name"]) + " " + people["licence"].fillna("").str.replace(".", "", regex=False)
 
     lists = [d for d in evaluate.publications(history) if d <= today]
@@ -271,7 +307,6 @@ def load_state(data_dir: Path) -> State:
             + " " + club_list.index.astype(str)
         )
     player_rows = rows.groupby("player").indices
-    match_rows = matches.groupby("personId").indices
     model = _winprob_model(data_dir)
     born = winprob.people(players)
     # slim tables indexed by player, built once: scanning or selecting rows of the full tables
@@ -326,6 +361,7 @@ def load_state(data_dir: Path) -> State:
         club_list=club_list,
         official_date=official_date,
         official_class=official["classification"],
+        hidden=hidden,
         highlights=highlights.build(
             history,
             matches,
@@ -344,6 +380,7 @@ def load_state(data_dir: Path) -> State:
             today,
             match_gain,
             match_chance,
+            shown,
         ),
         chance=chance,
         match_chance=match_chance,
@@ -613,6 +650,9 @@ class App:
         self.tournament_scrape = {"running": False, "last_run": None, "last_error": None, "next_run": None}
         # the ranking scrape (and training) and the tournament scrape never run at the same time
         self.scrape_lock = threading.Lock()
+        # one load at a time: each holds a second copy of the tables (the nightly one and the
+        # one of a change of HIDDEN_FILE)
+        self.reload_lock = threading.Lock()
         self.tournaments = load_tournaments(data_dir / TOURNAMENT_DIR)
         self.feedback_limit = RateLimit(FEEDBACK_PER_HOUR)
         self.feedback_lock = threading.Lock()
@@ -633,6 +673,22 @@ class App:
 
     def start(self) -> None:
         threading.Thread(target=self._run, daemon=True).start()
+        threading.Thread(target=self._watch_hidden, daemon=True).start()
+
+    def _hidden_mtime(self) -> float | None:
+        path = self.data_dir / HIDDEN_FILE
+        return path.stat().st_mtime if path.exists() else None
+
+    def _watch_hidden(self) -> None:
+        """Reload when HIDDEN_FILE changes (a player hidden or shown again), without waiting for
+        the nightly update; the old state answers meanwhile."""
+        seen = self._hidden_mtime()
+        while True:
+            time.sleep(HIDDEN_CHECK_SECONDS)
+            now = self._hidden_mtime()
+            if now != seen and self.state is not None:
+                seen = now
+                self._reload()
 
     def _run(self) -> None:
         if (self.data_dir / "history.parquet").exists():
@@ -710,10 +766,11 @@ class App:
             return False
 
     def _reload(self) -> None:
-        try:
-            self.state = load_state(self.data_dir)
-        except Exception as e:
-            self.scrape["last_error"] = f"loading data failed: {e!r}"
+        with self.reload_lock:
+            try:
+                self.state = load_state(self.data_dir)
+            except Exception as e:
+                self.scrape["last_error"] = f"loading data failed: {e!r}"
 
     def _reload_tournaments(self) -> None:
         """Reload only the tournament tables (a new object: requests in flight keep the old one)."""
@@ -1299,8 +1356,17 @@ class App:
         self._levels_cache = (s, live)
         return live
 
+    def _hidden(self) -> frozenset[int]:
+        return frozenset() if self.state is None else self.state.hidden
+
+    def _not_hidden(self, regs: pd.DataFrame) -> pd.DataFrame:
+        """Registrations less the hidden players'."""
+        return regs[~regs["personId"].isin(list(self._hidden())).to_numpy(bool)]
+
     def _person(self, pid: int | None, name: str | None, live: pd.DataFrame) -> dict:
         s = self.state
+        if pid is not None and pid in self._hidden():  # a place in a draw: no name, no link
+            return {"personId": None, "name": None, "class": None, "hidden": True}
         # the ranking's name when the player is on it: upstream names come in either order
         if pid is not None and s is not None and pid in s.people.index:
             name = s.people.at[pid, "name"]
@@ -1448,6 +1514,8 @@ class App:
             i = CATEGORY_INDEX[event.upper()]
             keep &= ((e["strong"] <= i) & (e["weak"] >= i)).to_numpy(bool)
         if player is not None:
+            if player in self._hidden():
+                raise HTTPException(404, f"unknown player {player}")
             regs = t.registrations
             ids = set(regs.loc[regs["personId"].eq(player).fillna(False).to_numpy(bool), "eventId"])
             ids |= set(t.draws.loc[_played_by(t.draws, player), "eventId"])
@@ -1547,7 +1615,7 @@ class App:
         class; unknown players last)."""
         s = self.state
         out = []
-        for _, x in t.registrations.iloc[t.reg_rows.get(eid, np.array([], int))].iterrows():
+        for _, x in self._not_hidden(t.registrations.iloc[t.reg_rows.get(eid, np.array([], int))]).iterrows():
             pid = _int(x["personId"])
             name = " ".join(filter(None, (_str(x["firstname"]), _str(x["lastname"]))))
             out.append({
@@ -1610,23 +1678,27 @@ class App:
             if eid not in at.index:
                 continue
             x = e.iloc[at[eid]]
-            results = []
+            results, reached = [], None
             for _, y in m.iterrows():
                 side = "a" if pid in (_int(y["a1"]), _int(y["a2"])) else "b"
                 winner, score = _int(y["winner"]), _str(y["score"])
                 if winner is None and score is None:  # still to play (placed by the draw)
                     continue
+                reached = int(y["round"])
+                other = "b" if side == "a" else "a"
+                if {_int(y[f"{other}1"]), _int(y[f"{other}2"])} & self._hidden():  # not shown, as on the Matches tab
+                    continue
                 if side == "b" and score:  # from the player's view
                     score = " ".join("-".join(reversed(p.split("-"))) for p in score.split())
                 results.append({
                     "round": int(y["round"]),
-                    "opponent": self._side(y, "b" if side == "a" else "a", live),
+                    "opponent": self._side(y, other, live),
                     "win": None if winner is None else winner == (1 if side == "a" else 2),
                     "score": score,
                     "walkover": bool(_bool(y["walkover"])),
                 })
-            if results:
-                past.append((x["until"], {**self._tournament_item(t, x), "reached": results[-1]["round"] or None, "results": results}))
+            if reached is not None:
+                past.append((x["until"], {**self._tournament_item(t, x), "reached": reached or None, "results": results}))
         past.sort(key=lambda p: (pd.isna(p[0]), -(p[0].value if pd.notna(p[0]) else 0)))
         return {
             "registered": [self._tournament_item(t, x, x["inRange"]) for _, x in registered.iterrows()],
@@ -1677,7 +1749,7 @@ class App:
         if e["matchTypeId"] not in SINGLES:
             raise HTTPException(400, "the outlook is for singles only")
         live = self._levels()
-        regs = t.registrations.iloc[t.reg_rows.get(eid, np.array([], int))]
+        regs = self._not_hidden(t.registrations.iloc[t.reg_rows.get(eid, np.array([], int))])
         regs = regs[regs["personId"].ne(pid).fillna(True).to_numpy(bool)]
         ids = [_int(i) for i in regs["personId"]]
         W = np.array([np.nan if i is None else live["W"].get(i, np.nan) for i in ids], float)

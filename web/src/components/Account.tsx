@@ -588,7 +588,7 @@ export function PrivacyPage() {
   return (
     <div className="account-page narrow privacy">
       <h1>{t("privacyTitle")}</h1>
-      {(["privacyData", "privacyUse", "privacyCookies", "privacyKeep", "privacyRights", "privacyContact"] as const).map((k) => (
+      {(["privacyData", "privacyUse", "privacyCookies", "privacyKeep", "privacyRights", "privacyHide", "privacyContact"] as const).map((k) => (
         <p key={k}>{t(k)}</p>
       ))}
     </div>

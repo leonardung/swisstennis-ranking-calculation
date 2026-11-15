@@ -77,7 +77,7 @@ def _state(chance=None):
         people=pd.DataFrame({"name": [f"P{i}" for i in range(1, 7)]}, index=pd.Index(range(1, 7), name="personId")),
         official_class=pd.Series(["R4", "R2", "R4", "R7", "R3", "R5"], index=range(1, 7)),
         chance=chance or (lambda q: None), official_date=TODAY, clubs=None, updated=TODAY.to_pydatetime(),
-        period=SimpleNamespace(start=TODAY - pd.Timedelta(days=365)),
+        period=SimpleNamespace(start=TODAY - pd.Timedelta(days=365)), hidden=frozenset(),
     )
 
 
@@ -199,6 +199,21 @@ def test_detail_players_and_draw(client):
     final = draw["rounds"][1]["matches"][0]
     assert final["a"] == [{"personId": 2, "name": "P2", "class": "R2"}] and final["winner"] == 1 and final["walkover"] is False
     assert client.get("/api/tournaments/999").status_code == 404
+
+
+def test_hidden_player_in_tournaments(client):
+    """Player 3 hidden: not in the registrations, anonymous in the draw, his matches left out
+    of his opponents' results (the round reached stays)."""
+    s = client.app.state.app.state
+    s.hidden, s.people = frozenset({3}), s.people.drop(index=3)
+    ev = client.get("/api/tournaments/200").json()["events"][0]
+    assert [p["personId"] for p in ev["players"]] == [2, 5, None]
+    semi = client.get("/api/tournaments/300").json()["events"][0]["draw"]["rounds"][0]["matches"][0]
+    assert semi["a"][0]["personId"] == 1 and semi["b"] == [{"personId": None, "name": None, "class": None, "hidden": True}]
+    past = client.get("/api/players/1/tournaments").json()["past"][0]
+    assert past["reached"] == 1 and [x["round"] for x in past["results"]] == [1]  # the semi-final against 3 left out
+    assert client.get("/api/players/3/tournaments").status_code == 404
+    assert client.get("/api/tournaments", params={"player": 3, "when": "past"}).status_code == 404
 
 
 def test_player_registered_past(client):

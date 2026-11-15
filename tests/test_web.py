@@ -354,3 +354,52 @@ def test_highlights_by_age(tmp_path):
     with pytest.raises(HTTPException) as e:
         app.highlights("U99")
     assert e.value.status_code == 400
+
+
+def test_read_hidden(tmp_path):
+    assert web.read_hidden(tmp_path) == frozenset()  # no file: nobody
+    (tmp_path / web.HIDDEN_FILE).write_text("# asked to be hidden\n123\n\n456  # since 2026-11-15\n")
+    assert web.read_hidden(tmp_path) == {123, 456}
+    (tmp_path / web.HIDDEN_FILE).write_text("123\nAnn Vaud\n")
+    with pytest.raises(ValueError, match="line 2"):  # a typo must not leave a player shown
+        web.read_hidden(tmp_path)
+
+
+def test_hidden_players_are_not_shown(tmp_path):
+    """A player of hidden_players.txt: no page, search hit or name, and his results gone from
+    his opponents' matches too; everyone's values unchanged (he stays in the calculation)."""
+    import dataclasses
+
+    from fastapi import HTTPException
+
+    app, matches = _league_app(tmp_path)
+    won = matches["playerWinnerCode"].eq("S").to_numpy()
+    sets = {f"{side}Set{i}WonGames": np.where(won == (side == "player"), 6, 3) if i < 3 else -1
+            for side in ("player", "adversary") for i in (1, 2, 3)}
+    matches = matches.assign(tournamentName="T", adversaryFirstname="X", adversaryLastname="Y", source=410, **sets)
+    lists = app.state.history[["personId", "date", "W", "C", "classification", "rank"]]
+    people = app.state.people.assign(key=web._fold(app.state.people["name"]), licence=None)
+
+    def load(hidden):
+        people_shown, match_rows, _ = web.hide(people, matches, hidden)
+        app.state = dataclasses.replace(app.state, matches=matches, people=people_shown, match_rows=match_rows, hidden=hidden,
+                                        lists_of=lambda ids: lists[lists["personId"].isin(list(ids))])
+
+    load(frozenset())
+    before = {pid: app.player(pid)["today"] for pid in (1, 2, 4)}
+    assert [x["id"] for x in app.search("c", 10)] == [3] and len(app.h2h(1, 3)) == 1
+
+    (tmp_path / web.HIDDEN_FILE).write_text("3\n")
+    load(web.read_hidden(tmp_path))
+    assert {pid: app.player(pid)["today"] for pid in (1, 2, 4)} == before
+    assert app.search("c", 10) == []
+    for call in (lambda: app.player(3), lambda: app.player_matches(3), lambda: app.simulate(1, 3), lambda: app.h2h(3, 1)):
+        with pytest.raises(HTTPException) as e:
+            call()
+        assert e.value.status_code == 404
+    with pytest.raises(HTTPException):
+        app.predict(1, add="win:3")
+    # his results are gone from his opponents' matches (1 lost to him, 2 beat him), the others stay
+    assert app.h2h(1, 3) == [] and app.h2h(2, 3) == [] and len(app.h2h(1, 2)) == 1
+    assert 3 not in app.state.match_rows and sorted(matches.loc[app.state.match_rows[1], "adversaryPersonId"]) == [2, 4]
+    assert [p["id"] for p in app.my_players([3, 2], None, None)["players"]] == [2]
