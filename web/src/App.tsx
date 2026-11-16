@@ -3,7 +3,7 @@ import { api, clearCache } from "./api";
 import { trackEvent, trackView } from "./analytics";
 import { useAsync, useRoute, type Route } from "./hooks";
 import { startPageTiming } from "./perf";
-import { I18nContext, loadLang, makeT, saveLang, type I18n, type Lang } from "./i18n";
+import { I18nContext, loadLang, localeOf, makeT, saveLang, type I18n, type Lang } from "./i18n";
 import Header from "./components/Header";
 import MovedBanner from "./components/MovedBanner";
 import Home, { Accuracy } from "./components/Home";
@@ -22,7 +22,7 @@ export default function App() {
   const i18n = useMemo<I18n>(
     () => ({
       lang,
-      locale: lang === "fr" ? "fr-CH" : "en-GB",
+      locale: localeOf(lang),
       t: makeT(lang),
       setLang: (l) => {
         saveLang(l);

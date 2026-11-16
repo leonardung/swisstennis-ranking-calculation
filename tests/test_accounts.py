@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import get_args
 
 import pandas as pd
 import pytest
@@ -219,3 +220,21 @@ def test_safe_next():
     assert accounts.safe_next("/player/1?x=2") == "/player/1?x=2"
     for bad in (None, "", "https://evil.example", "//evil.example", "/\\evil.example"):
         assert accounts.safe_next(bad) == "/"
+
+
+def test_mails_in_every_language():
+    langs = set(get_args(accounts.Lang))
+    for kind, texts in accounts.MAILS.items():
+        assert set(texts) == langs, kind
+        assert all(len(t) == 4 and all(t) for t in texts.values()), kind
+
+
+@pytest.mark.parametrize("lang", get_args(accounts.Lang))
+def test_forgot_in_each_language(client, mails, lang):
+    sign_up(client, mails)
+    assert client.post("/api/auth/forgot", json={"email": "leo@example.ch", "lang": lang}, headers=SAME).status_code == 204
+    assert (mails[-1][1], mails[-1][3]) == ("reset", lang)
+
+
+def test_unknown_language_refused(client):
+    assert client.post("/api/auth/forgot", json={"email": "leo@example.ch", "lang": "es"}, headers=SAME).status_code == 422

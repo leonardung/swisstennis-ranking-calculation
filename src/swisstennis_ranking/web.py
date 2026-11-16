@@ -128,18 +128,18 @@ class SignUp(BaseModel):
     email: str = Field(max_length=200)
     password: Password
     next: str | None = Field(None, max_length=300)  # the page to return to once verified
-    lang: Literal["fr", "en"] = "fr"
+    lang: accounts.Lang = "fr"
 
 
 class Login(BaseModel):
     email: str = Field(max_length=200)
     password: str = Field(max_length=200)
-    lang: Literal["fr", "en"] = "fr"  # of the verification email sent again to an unverified account
+    lang: accounts.Lang = "fr"  # of the verification email sent again to an unverified account
 
 
 class Forgot(BaseModel):
     email: str = Field(max_length=200)
-    lang: Literal["fr", "en"] = "fr"
+    lang: accounts.Lang = "fr"
 
 
 class LinkToken(BaseModel):

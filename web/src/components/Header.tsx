@@ -1,5 +1,5 @@
 import { navigate, playerHref, tournamentHref } from "../hooks";
-import { useI18n } from "../i18n";
+import { LANGS, useI18n, type Lang } from "../i18n";
 import { fmtDate, fmtDateTime } from "../format";
 import type { Meta } from "../types";
 import SearchBox, { ClubSearchBox, TournamentSearchBox } from "./SearchBox";
@@ -60,14 +60,19 @@ export default function Header({ meta, showSearch, section }: { meta: Meta | nul
           )}
           <FeedbackButton />
           <AccountButton />
-          <button
+          <select
             className="btn btn-ghost lang-toggle"
-            onClick={() => setLang(lang === "en" ? "fr" : "en")}
-            title={t("langToggleTitle")}
-            aria-label={t("langToggleTitle")}
+            value={lang}
+            onChange={(e) => setLang(e.target.value as Lang)}
+            title={t("langLabel")}
+            aria-label={t("langLabel")}
           >
-            {t("langToggle")}
-          </button>
+            {LANGS.map((l) => (
+              <option key={l.lang} value={l.lang} lang={l.lang} title={l.name}>
+                {l.lang.toUpperCase()}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
     </header>

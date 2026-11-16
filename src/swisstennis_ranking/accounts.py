@@ -278,17 +278,28 @@ class Accounts:
 
 # --- emails (Resend) ---------------------------------------------------------------------------
 
+# the languages of the site, so of the emails
+Lang = Literal["fr", "de", "it", "en"]
+
 # kind -> language -> subject, text, button, note
-MAILS = {
+MAILS: dict[str, dict[Lang, tuple[str, str, str, str]]] = {
     "verify": {
         "fr": ("Vérifie ton email pour Tennis Radar", "Bienvenue sur Tennis Radar ! Confirme ton adresse email pour activer ton compte :",
                "Vérifier mon email", "Le lien est valable 24 heures. Si tu n'as pas créé de compte, ignore cet email."),
+        "de": ("Bestätige deine E-Mail-Adresse für Tennis Radar", "Willkommen bei Tennis Radar! Bestätige deine E-Mail-Adresse, um dein Konto zu aktivieren:",
+               "E-Mail-Adresse bestätigen", "Der Link ist 24 Stunden gültig. Wenn du kein Konto erstellt hast, ignoriere diese E-Mail."),
+        "it": ("Conferma la tua email per Tennis Radar", "Benvenuto su Tennis Radar! Conferma il tuo indirizzo email per attivare il tuo account:",
+               "Conferma la mia email", "Il link è valido 24 ore. Se non hai creato un account, ignora questa email."),
         "en": ("Verify your email for Tennis Radar", "Welcome to Tennis Radar! Confirm your email address to activate your account:",
                "Verify my email", "The link works for 24 hours. If you did not create an account, ignore this email."),
     },
     "reset": {
         "fr": ("Ton mot de passe Tennis Radar", "Pour choisir un nouveau mot de passe, clique sur ce lien :",
                "Choisir un nouveau mot de passe", "Le lien est valable une heure. Si tu n'as rien demandé, ignore cet email : ton mot de passe ne change pas."),
+        "de": ("Dein Tennis Radar Passwort", "Um ein neues Passwort zu wählen, klicke auf diesen Link:",
+               "Neues Passwort wählen", "Der Link ist eine Stunde gültig. Wenn du nichts angefordert hast, ignoriere diese E-Mail: Dein Passwort bleibt unverändert."),
+        "it": ("La tua password di Tennis Radar", "Per scegliere una nuova password, clicca su questo link:",
+               "Scegli una nuova password", "Il link è valido un'ora. Se non hai chiesto nulla, ignora questa email: la tua password non cambia."),
         "en": ("Your Tennis Radar password", "To choose a new password, click this link:",
                "Choose a new password", "The link works for one hour. If you did not ask for it, ignore this email: your password stays the same."),
     },
@@ -296,15 +307,18 @@ MAILS = {
     "exists": {
         "fr": ("Ton compte Tennis Radar", "Tu as déjà un compte Tennis Radar avec cette adresse. Mot de passe oublié ? Choisis-en un nouveau :",
                "Choisir un nouveau mot de passe", "Le lien est valable une heure. Si tu n'as rien demandé, ignore cet email."),
+        "de": ("Dein Tennis Radar Konto", "Du hast bereits ein Tennis Radar Konto mit dieser Adresse. Passwort vergessen? Wähle ein neues:",
+               "Neues Passwort wählen", "Der Link ist eine Stunde gültig. Wenn du nichts angefordert hast, ignoriere diese E-Mail."),
+        "it": ("Il tuo account Tennis Radar", "Hai già un account Tennis Radar con questo indirizzo. Password dimenticata? Scegline una nuova:",
+               "Scegli una nuova password", "Il link è valido un'ora. Se non hai chiesto nulla, ignora questa email."),
         "en": ("Your Tennis Radar account", "You already have a Tennis Radar account with this address. Forgot your password? Choose a new one:",
                "Choose a new password", "The link works for one hour. If you did not ask for it, ignore this email."),
     },
 }
 
 
-def send_mail(api_key: str | None, sender: str, to: str, kind: str, url: str, lang: str) -> None:
-    langs = MAILS[kind]
-    subject, intro, button, note = langs.get(lang, langs["fr"])
+def send_mail(api_key: str | None, sender: str, to: str, kind: str, url: str, lang: Lang) -> None:
+    subject, intro, button, note = MAILS[kind][lang]
     if not api_key:  # local testing
         print(f"{kind} link for {to}: {url}", flush=True)
         return

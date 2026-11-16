@@ -636,13 +636,13 @@ function MultiSelect({
   );
 }
 
-/** "dd.mm.yyyy" (fr) or "dd/mm/yyyy" (en) typed, or picked in the browser's calendar; the value is an ISO day. */
+/** "dd.mm.yyyy" (fr, de) or "dd/mm/yyyy" (it, en) typed, or picked in the browser's calendar; the value is an ISO day. */
 function DateField({ label, value, onChange }: { label: string; value: string | undefined; onChange: (iso: string) => void }) {
-  const { t, lang } = useI18n();
+  const { t, locale } = useI18n();
   const id = useId();
   const errId = useId();
   const picker = useRef<HTMLInputElement>(null);
-  const sep = lang === "fr" ? "." : "/";
+  const sep = new Intl.DateTimeFormat(locale).formatToParts(0).find((p) => p.type === "literal")?.value ?? "/";
   const show = (iso: string | undefined) => {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? "");
     return m ? `${m[3]}${sep}${m[2]}${sep}${m[1]}` : "";
