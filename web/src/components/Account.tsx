@@ -13,7 +13,7 @@ import SearchBox from "./SearchBox";
 const PASSWORD_MIN = 8; // accounts.PASSWORD_MIN
 
 type Mode = "login" | "signup" | "forgot";
-type SendStatus = "idle" | "sending" | "sent" | "error" | "limited" | "wrong" | "unverified";
+type SendStatus = "idle" | "sending" | "sent" | "error" | "limited" | "wrong" | "unverified" | "mailFull";
 
 const GOOGLE_ICON = (
   <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
@@ -73,7 +73,9 @@ function LoginForm({
       setStatus("sent");
     } catch (err) {
       const code = err instanceof ApiError ? err.status : 0;
-      setStatus(code === 429 ? "limited" : code === 401 ? "wrong" : code === 403 ? "unverified" : "error");
+      // "email quota": the email provider sends no more today (Google sign-in needs no email)
+      const full = err instanceof ApiError && err.message === "email quota";
+      setStatus(full ? "mailFull" : code === 429 ? "limited" : code === 401 ? "wrong" : code === 403 ? "unverified" : "error");
     }
   };
 
@@ -130,6 +132,7 @@ function LoginForm({
         {status === "wrong" && <p className="neg small">{t("loginWrong")}</p>}
         {status === "unverified" && <p className="neg small">{t("loginUnverified")}</p>}
         {status === "error" && <p className="neg small">{t("loginError")}</p>}
+        {status === "mailFull" && <p className="neg small">{t("loginMailFull")}</p>}
         {status === "limited" && <p className="neg small">{t("feedbackLimited")}</p>}
         <button type="submit" className="btn btn-primary" disabled={status === "sending"}>
           {status === "sending" ? t("feedbackSending") : t(mode === "login" ? "loginSubmit" : mode === "signup" ? "signupSubmit" : "forgotSubmit")}

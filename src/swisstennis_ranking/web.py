@@ -2034,7 +2034,9 @@ def create_app(
         return email
 
     def send(kind: str, to: str, path: str, token: str, lang: str) -> None:
-        """Email a link (verify, reset, exists: see accounts.MAILS) to base_url + path?token=."""
+        """Email a link (verify, reset, exists: see accounts.MAILS) to base_url + path?token=. Not
+        sent: the link is dropped (it does not count as mailed, see Accounts.mailed_recently), 502
+        "email quota" when Resend sends no more for now (the page then suggests Google)."""
         try:
             accounts.send_mail(
                 os.environ.get("RESEND_API_KEY"), os.environ.get("MAIL_FROM", "Tennis Radar <login@tennis-radar.ch>"),
@@ -2042,7 +2044,8 @@ def create_app(
             )
         except Exception as e:  # noqa: BLE001
             print(f"{kind} email not sent: {e!r}", file=sys.stderr, flush=True)
-            raise HTTPException(502, "email not sent") from None
+            app.accounts.drop_link(token)
+            raise HTTPException(502, "email quota" if isinstance(e, accounts.MailQuota) else "email not sent") from None
 
     def signed_in_response(st: accounts.Accounts, uid: int, body: dict) -> Response:
         response = Response(json.dumps(body), media_type="application/json")
@@ -2057,6 +2060,9 @@ def create_app(
         st = store(request)
         same_site(request)
         email = address(request, body.email)
+        known = st.user_by_email(email)
+        if known is not None and st.mailed_recently(known, body.password):
+            return Response(status_code=204)  # the earlier email's link still works
         uid, token = st.sign_up(email, body.password, body.next or "/")
         if token:
             send("verify", email, "/login", token, body.lang)
@@ -2078,9 +2084,10 @@ def create_app(
             raise HTTPException(401, "wrong email or password")
         uid, verified = found
         if not verified:
-            app.login_mail_limit.hit(_ip(request))
-            _, token = st.sign_up(email, body.password, "/")
-            send("verify", email, "/login", token, body.lang)
+            if not st.mailed_recently(uid, body.password):
+                app.login_mail_limit.hit(_ip(request))
+                _, token = st.sign_up(email, body.password, "/")
+                send("verify", email, "/login", token, body.lang)
             raise HTTPException(403, "email not verified")
         return signed_in_response(st, uid, {"next": None})
 
@@ -2092,7 +2099,7 @@ def create_app(
         same_site(request)
         email = address(request, body.email)
         uid = st.user_by_email(email)
-        if uid is not None:
+        if uid is not None and not st.mailed_recently(uid):
             send("reset", email, "/reset", st.reset_link(uid), body.lang)
         return Response(status_code=204)
 

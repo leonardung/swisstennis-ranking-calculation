@@ -32,6 +32,9 @@ import requests
 SESSION_DAYS = 365  # renewed on use (see Accounts.renew)
 # how long the emailed links work: verify the address, reset the password
 LINK_HOURS = {"verify": 24, "reset": 1}
+# at most one email (link) per account this often: another sign-up, sign-in or "forgot" in the
+# meantime sends nothing, the earlier email's link still works (Resend's free plan: 100 a day)
+RESEND_MINUTES = 10
 PASSWORD_MIN = 8
 MAX_FAVOURITES = 200
 COOKIE = "session"
@@ -155,6 +158,24 @@ class Accounts:
 
     def email_of(self, uid: int) -> str:
         return self._query("select email from users where id = ?", (uid,))[0]["email"]
+
+    def mailed_recently(self, uid: int, password: str | None = None) -> bool:
+        """Whether a working link was emailed to the user less than RESEND_MINUTES ago, that makes
+        another email unnecessary: a reset link (it asks for the password), or a verification link
+        that carries `password` (the same sign-up again). A verification link with another password
+        does not count: it may be someone else's sign-up with this address, and its owner would be
+        left with only the link that sets the other's password."""
+        age = " ".join(f"when '{k}' then {h * 3600}" for k, h in LINK_HOURS.items())
+        rows = self._query(
+            f"select password from links where user_id = ? and expires - case kind {age} end > ?",
+            (uid, time.time() - RESEND_MINUTES * 60),
+        )
+        return any(r["password"] is None or (password is not None and check_password(password, r["password"])) for r in rows)
+
+    def drop_link(self, token: str) -> None:
+        """Forget a link whose email could not be sent."""
+        with self.lock, self._connect() as db:
+            db.execute("delete from links where token = ?", (_hash(token),))
 
     def reset_link(self, uid: int) -> str:
         """The token of a link that resets the user's password."""
@@ -317,6 +338,10 @@ MAILS: dict[str, dict[Lang, tuple[str, str, str, str]]] = {
 }
 
 
+class MailQuota(RuntimeError):
+    """Resend sends no more for now (429: the plan's daily or monthly quota, or its rate limit)."""
+
+
 def send_mail(api_key: str | None, sender: str, to: str, kind: str, url: str, lang: Lang) -> None:
     subject, intro, button, note = MAILS[kind][lang]
     if not api_key:  # local testing
@@ -333,6 +358,8 @@ def send_mail(api_key: str | None, sender: str, to: str, kind: str, url: str, la
         headers={"Authorization": f"Bearer {api_key}"},
         json={"from": sender, "to": [to], "subject": subject, "html": body, "text": f"{intro}\n{url}\n\n{note}"},
     )
+    if r.status_code == 429:
+        raise MailQuota(f"Resend: {r.status_code} {r.text[:300]}")
     if r.status_code >= 300:
         raise RuntimeError(f"Resend failed: {r.status_code} {r.text[:300]}")
 

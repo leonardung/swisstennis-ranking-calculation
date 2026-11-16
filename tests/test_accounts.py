@@ -60,12 +60,16 @@ def test_off_without_accounts_url_or_on_another_host(tmp_path, monkeypatch):
     assert other.post("/api/auth/login", json={"email": "a@b.ch", "password": PW}, headers={"Origin": "https://tennis-radar.ch"}).status_code == 404
 
 
-def test_sign_up_verify_then_password(client, mails):
+def test_sign_up_verify_then_password(client, mails, monkeypatch):
     assert client.get("/api/config").json()["accounts"] == {"google": False}
     assert client.get("/api/me").json() == {"user": None}
     r = client.post("/api/auth/signup", json={"email": "leo@example.ch", "password": PW}, headers=SAME)
     assert r.status_code == 204
-    # not verified yet: the password does not sign in, the verification email comes again
+    # not verified yet: the password does not sign in; the verification email comes again, but
+    # not within RESEND_MINUTES of the last one
+    assert log_in(client).status_code == 403
+    assert [m[1] for m in mails] == ["verify"]
+    monkeypatch.setattr(accounts, "RESEND_MINUTES", 0)
     assert log_in(client).status_code == 403
     assert [m[1] for m in mails] == ["verify", "verify"]
     assert log_in(client, password="wrong password").status_code == 401
@@ -102,6 +106,34 @@ def test_someone_elses_sign_up_cannot_set_the_password(client, mails):
     client.post("/api/auth/signup", json={"email": "v@example.ch", "password": "attacker's pw"}, headers=SAME)
     assert mails[-1][1] == "exists" and "/reset?token=" in mails[-1][2]
     assert log_in(client, "v@example.ch", "attacker's pw").status_code == 401
+
+
+def test_at_most_one_email_per_account_every_few_minutes(client, mails, monkeypatch):
+    app = client.app.state.app
+    app.login_mail_limit = app.login_address_limit = web.RateLimit(100)  # many tries here
+    signup = lambda pw=PW: client.post("/api/auth/signup", json={"email": "a@example.ch", "password": pw}, headers=SAME)
+    forgot = lambda: client.post("/api/auth/forgot", json={"email": "a@example.ch"}, headers=SAME)
+    assert signup().status_code == 204 and signup().status_code == 204  # the same sign-up twice: one email
+    assert signup("another password").status_code == 204  # maybe someone else: its own email
+    assert forgot().status_code == 204  # a verification link (with a password) does not hold back a reset link
+    assert [m[1] for m in mails] == ["verify", "verify", "reset"]
+    # a recent reset link (it asks for the password) holds back every other email
+    assert signup().status_code == 204 and signup("third password").status_code == 204 and forgot().status_code == 204
+    assert len(mails) == 3
+    monkeypatch.setattr(accounts, "RESEND_MINUTES", 0)
+    assert forgot().status_code == 204 and len(mails) == 4
+
+
+def test_mail_quota_suggests_google_and_keeps_no_link(client, mails, monkeypatch):
+    def full(*_):
+        raise accounts.MailQuota("Resend: 429 daily_quota_exceeded")
+    monkeypatch.setattr(accounts, "send_mail", full)
+    r = client.post("/api/auth/signup", json={"email": "a@example.ch", "password": PW}, headers=SAME)
+    assert (r.status_code, r.json()["detail"]) == (502, "email quota")
+    # the link was not sent: it does not hold back the next try
+    monkeypatch.setattr(accounts, "send_mail", lambda key, sender, to, kind, url, lang: mails.append((to, kind, url, lang)))
+    assert client.post("/api/auth/signup", json={"email": "a@example.ch", "password": PW}, headers=SAME).status_code == 204
+    assert [m[1] for m in mails] == ["verify"]
 
 
 def test_forgot_password(client, mails):
