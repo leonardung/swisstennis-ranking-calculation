@@ -314,7 +314,7 @@ def test_club_search_and_club_players(tmp_path):
     s = app.state
     clubs = pd.DataFrame({"personId": [1, 2, 5, 3, 3], "clubId": [10, 10, 10, 20, 10],
                           "club": ["TC Sion", "TC Sion", "TC Sion", "TC Sierre", "TC Sion"], "city": ["Sion", "Sion", "Sion", "Sierre", "Sion"],
-                          "canton": "VS"})
+                          "canton": "VS", "lat": 46.2, "lon": 7.4})
     club_list = clubs.groupby("clubId").agg(name=("club", "first"), city=("city", "first"), canton=("canton", "first"), players=("personId", "nunique"))
     club_list["key"] = web._fold(club_list["name"] + " " + club_list["city"]) + " " + club_list.index.astype(str)
     lists = s.history[["personId", "date", "W", "C", "classification", "rank"]]
@@ -333,6 +333,7 @@ def test_club_search_and_club_players(tmp_path):
     one = next(x for x in c["players"] if x["id"] == 2)
     assert one["official"] == {"class": "R4", "rank": 2, "C": 5.0} and one["age"] == "18&U" and one["gender"] == "M"
     assert app.player(1)["clubs"] == [{"id": 10, "name": "TC Sion"}]
+    assert app.me(3)["clubIds"] == [10, 20]  # the Clubs page lists them first
     assert c["tournaments"] == []  # no tournament data
     app.tournaments.tournaments = pd.DataFrame({
         "name": ["Old", "New", "Other"], "city": "Sion", "canton": "VS", "dateBegin": pd.to_datetime(["2025-01-01", "2025-07-01", "2025-08-01"]),

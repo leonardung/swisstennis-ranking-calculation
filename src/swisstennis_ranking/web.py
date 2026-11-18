@@ -1841,6 +1841,8 @@ class App:
             "officialClass": _str(s.official_class.get(pid)),
             "openTo": self.open_filters(pid),
             "clubs": [{"name": _str(c["club"]), "city": _str(c["city"])} for _, c in self._clubs(s, pid).iterrows() if _str(c["city"])],
+            # every club of the player's licences: the Clubs page lists them first
+            "clubIds": [] if s.clubs is None else sorted({int(c) for c in s.clubs.loc[s.clubs["personId"].eq(pid).to_numpy(bool), "clubId"]}),
         }
 
     def my_players(self, ids: list[int], since: float | None, me: int | None) -> dict:

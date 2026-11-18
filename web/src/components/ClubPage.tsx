@@ -1,26 +1,19 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { trackView } from "../analytics";
 import { CLUB_TABS, clubHref, playerHref, tournamentHref, useAsync, useUrlState, type ClubTab } from "../hooks";
-import { useI18n } from "../i18n";
+import { useI18n, type MsgKey, type TFunc } from "../i18n";
 import { categoryIndex, fmt3 } from "../format";
+import { exportTable, type ExportValue } from "../export";
 import type { ClubDetail, ClubPlayer } from "../types";
-import { AsyncStatus, Card, ClassChange, RankChange, Seg, sortRows, useSort } from "./common";
+import { AsyncStatus, Card, ClassChange, RankChange, Seg, sortRows, useSort, type Sort } from "./common";
+import ExportDialog from "./ExportDialog";
 import { dateRange } from "./tournamentUtil";
 
 /** "45+": 45 and older; "16&U": 16 and younger; else null (actives). */
 function ageLimit(age: string | null): { senior: boolean; n: number } | null {
   const m = /^(\d+)(\+|&U)$/.exec(age ?? "");
   return m ? { senior: m[2] === "+", n: Number(m[1]) } : null;
-}
-
-/** A player can play in a team of age category `filter` (interclubs): a senior of that age or
- * older, a junior of that age or younger. */
-function fits(p: ClubPlayer, filter: string): boolean {
-  if (!filter) return true;
-  const f = ageLimit(filter);
-  const a = ageLimit(p.age);
-  return !!f && !!a && f.senior === a.senior && (f.senior ? a.n >= f.n : a.n <= f.n);
 }
 
 /** The age categories of the club's players: juniors youngest first, then seniors. */
@@ -39,20 +32,65 @@ function ageOrder(age: string | null): number | null {
   return l ? (l.senior ? 100 + l.n : l.n) : age ? 50 : null;
 }
 
-type Key = "c" | "name" | "age" | "class" | "rank";
+/** class and rank: today's (else the official one); classOff and rankOff: the official one */
+type Key = "c" | "name" | "age" | "class" | "classOff" | "rank" | "rankOff";
 
 const fold = (s: string) => s.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const classOrder = (cls: string | null | undefined) => {
+  const i = categoryIndex(cls);
+  return i < 0 ? null : i;
+};
 
 const VALUE: Record<Key, (p: ClubPlayer) => number | string | null | undefined> = {
   c: (p) => p.today?.C ?? p.official?.C,
   name: (p) => fold(p.name),
   age: (p) => ageOrder(p.age),
-  class: (p) => {
-    const i = categoryIndex(p.today?.class ?? p.official?.class);
-    return i < 0 ? null : i;
-  },
+  class: (p) => classOrder(p.today?.class ?? p.official?.class),
+  classOff: (p) => classOrder(p.official?.class),
   rank: (p) => p.today?.rank ?? p.official?.rank,
+  rankOff: (p) => p.official?.rank,
 };
+
+/** The "Sort by" menu: each sort the strongest (or A to Z, youngest) first. */
+const SORTS: [Key, MsgKey, boolean][] = [
+  ["c", "sortC", true],
+  ["classOff", "sortClassOfficial", false],
+  ["class", "sortClassToday", false],
+  ["rankOff", "sortRankOfficial", false],
+  ["rank", "sortRankToday", false],
+  ["name", "sortName", false],
+  ["age", "clubAge", false],
+];
+
+type Gender = "M" | "F" | "all";
+
+const round3 = (n: number | null | undefined) => (n == null ? null : Math.round(n * 1000) / 1000);
+
+/** The columns one can export, in their order: the value of a player at a position (from 1). */
+const EXPORT: [string, (t: TFunc) => string, (p: ClubPlayer, pos: number, t: TFunc) => ExportValue][] = [
+  ["pos", () => "#", (_, pos) => pos],
+  ["name", (t) => t("clubPlayer"), (p) => p.name],
+  ["gender", (t) => t("colGender"), (p, _, t) => (p.gender === "M" ? t("sexM") : p.gender === "F" ? t("sexF") : null)],
+  ["age", (t) => t("clubAge"), (p) => p.age],
+  ["classOff", (t) => t("sortClassOfficial"), (p) => p.official?.class],
+  ["class", (t) => t("sortClassToday"), (p) => p.today?.class ?? p.official?.class],
+  ["rankOff", (t) => t("sortRankOfficial"), (p) => p.official?.rank],
+  ["rank", (t) => t("sortRankToday"), (p) => p.today?.rank ?? p.official?.rank],
+  ["cOff", (t) => t("colCOfficial"), (p) => round3(p.official?.C)],
+  ["c", (t) => t("colCToday"), (p) => round3(p.today?.C ?? p.official?.C)],
+  ["id", (t) => t("colId"), (p) => p.id],
+];
+
+/** A file name from texts: letters, digits and dashes. */
+const slug = (...parts: (string | null | undefined)[]) =>
+  parts
+    .filter(Boolean)
+    .join("-")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
 
 export default function ClubPage({ id, tab }: { id: number; tab: ClubTab }) {
   const { t } = useI18n();
@@ -105,21 +143,42 @@ export default function ClubPage({ id, tab }: { id: number; tab: ClubTab }) {
   );
 }
 
-/** The club's players of one gender and interclub age category, sortable by any column. */
+/** The club's players of one gender (or both) and one licence age category (or all), sortable by
+ * any column, and exported as shown. */
 function ClubPlayers({ club: c }: { club: ClubDetail }) {
-  const { t } = useI18n();
-  const [gender, setGender] = useUrlState("g", "M");
+  const { t, locale } = useI18n();
+  const [genderParam, setGender] = useUrlState("g", "M");
+  const gender: Gender = genderParam === "F" || genderParam === "all" ? genderParam : "M";
   const [age, setAge] = useUrlState("age", "");
-  const [sort, th] = useSort<Key>("sort", { key: "c", desc: true });
+  const [sort, th, setSort] = useSort<Key>("sort", { key: "c", desc: true });
+  const [exporting, setExporting] = useState(false);
   const ages = ageOptions(c.players);
-  const shown = c.players.filter((p) => p.gender === gender && fits(p, age));
+  const shown = c.players.filter((p) => (gender === "all" || p.gender === gender) && (!age || p.age === age));
   const rows = sortRows(shown, VALUE[sort.key] ?? VALUE.c, sort.desc);
+  const genderLabel = gender === "all" ? t("clubAllGenders") : gender === "M" ? t("men") : t("women");
+  const sex = (p: ClubPlayer) => (p.gender === "M" ? t("sexM") : p.gender === "F" ? t("sexF") : null);
+  // both genders: the gender before the age
+  const ageText = (p: ClubPlayer) => [gender === "all" ? sex(p) : null, p.age].filter(Boolean).join(" · ");
+  const sortValue = SORTS.some(([k]) => k === sort.key) ? sort.key : "c";
+
+  const onExport = async (format: Parameters<typeof exportTable>[0], keys: string[]) => {
+    const cols = EXPORT.filter(([k]) => keys.includes(k));
+    await exportTable(format, {
+      fileName: slug(c.name ?? String(c.id), gender === "all" ? null : gender, age.replace("&", "")),
+      title: c.name ?? String(c.id),
+      subtitle: [genderLabel, age || t("clubAllAges"), t("clubPlayersCount", { n: rows.length }), new Date().toLocaleDateString(locale)].join(" · "),
+      header: cols.map(([, label]) => label(t)),
+      rows: rows.map((p, i) => cols.map(([, , value]) => value(p, i + 1, t))),
+    });
+  };
+
   return (
     <>
-      <div className="hl-filter">
-        <Seg
+      <div className="hl-filter club-filter">
+        <Seg<Gender>
           value={gender}
           options={[
+            ["all", t("clubAllGenders")],
             ["M", t("men")],
             ["F", t("women")],
           ]}
@@ -133,7 +192,33 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
             </option>
           ))}
         </select>
+        <select
+          className="club-age"
+          value={sortValue}
+          onChange={(e) => {
+            const s = SORTS.find(([k]) => k === e.target.value)!;
+            setSort({ key: s[0], desc: s[2] } satisfies Sort<Key>);
+          }}
+          aria-label={t("clubSortBy")}
+        >
+          {SORTS.map(([k, label]) => (
+            <option key={k} value={k}>
+              {t("clubSortBy")} : {t(label)}
+            </option>
+          ))}
+        </select>
+        <button type="button" className="btn club-export" disabled={rows.length === 0} onClick={() => setExporting(true)}>
+          ⤓ {t("export")}
+        </button>
       </div>
+      {exporting && (
+        <ExportDialog
+          summary={[c.name, genderLabel, age || t("clubAllAges"), t("clubPlayersCount", { n: rows.length })].filter(Boolean).join(" · ")}
+          columns={EXPORT.map(([key, label]) => ({ key, label: label(t) }))}
+          onExport={onExport}
+          onClose={() => setExporting(false)}
+        />
+      )}
       <Card>
         <p className="hint small">{t("clubIntro")}</p>
         {rows.length === 0 ? (
@@ -147,14 +232,14 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
                   {th("name", t("clubPlayer"), { desc: false })}
                   {th("age", t("clubAge"), { className: "club-age-col", desc: false })}
                   {th(
-                    "class",
+                    sort.key === "classOff" ? "classOff" : "class",
                     <>
                       <span className="th-long">{t("clubOfficialToday")}</span>
                       <span className="th-short">{t("clubCategory")}</span>
                     </>,
                     { desc: false },
                   )}
-                  {th("rank", t("clubRankOfficialToday"), { className: "num club-rank-col", desc: false })}
+                  {th(sort.key === "rankOff" ? "rankOff" : "rank", t("clubRankOfficialToday"), { className: "num club-rank-col", desc: false })}
                   {th("c", "C", { className: "num club-c" })}
                 </tr>
               </thead>
@@ -165,9 +250,9 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
                     <td className="club-name">
                       <a href={playerHref(p.id)}>{p.name}</a>
                       {/* on a phone: under the name, its column hidden */}
-                      <small className="muted club-age-sub">{p.age}</small>
+                      <small className="muted club-age-sub">{ageText(p)}</small>
                     </td>
-                    <td className="muted small club-age-col">{p.age}</td>
+                    <td className="muted small club-age-col">{ageText(p)}</td>
                     <td>
                       <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
                       {/* on a phone: under the category, its column hidden */}

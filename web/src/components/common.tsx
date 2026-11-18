@@ -185,27 +185,27 @@ export interface Sort<K extends string> {
   desc: boolean;
 }
 
-/** A table's sort kept in the URL (?param=key-desc or key-asc): the sort, and a header cell that
- * sorts by its column (a second click reverses; `desc`: the first click's direction).
- * `onSort`: called on a click (e.g. back to the first page). */
+/** A table's sort kept in the URL (?param=key-desc or key-asc): the sort, a header cell that
+ * sorts by its column (a second click reverses; `desc`: the first click's direction), and a
+ * setter (e.g. for a "Sort by" menu). `onSort`: called on a change (e.g. back to the first page). */
 export function useSort<K extends string>(
   param: string,
   initial: Sort<K>,
   onSort?: () => void,
-): [Sort<K>, (key: K, label: ReactNode, opts?: { className?: string; desc?: boolean }) => ReactNode] {
+): [Sort<K>, (key: K, label: ReactNode, opts?: { className?: string; desc?: boolean }) => ReactNode, (sort: Sort<K>) => void] {
   const [value, setValue] = useUrlState(param, `${initial.key}-${initial.desc ? "desc" : "asc"}`);
   const [key, dir] = value.split("-");
   const sort: Sort<K> = { key: key as K, desc: dir !== "asc" };
+  const set = (s: Sort<K>) => {
+    setValue(`${s.key}-${s.desc ? "desc" : "asc"}`);
+    onSort?.();
+  };
   const th = (k: K, label: ReactNode, { className = "", desc = true }: { className?: string; desc?: boolean } = {}) => {
     const on = sort.key === k;
     const next = on ? !sort.desc : desc;
     return (
       <th className={`sortable ${className}`} aria-sort={on ? (sort.desc ? "descending" : "ascending") : undefined}>
-        <button type="button" className="sort-btn" onClick={() => {
-            setValue(`${k}-${next ? "desc" : "asc"}`);
-            onSort?.();
-          }}
-        >
+        <button type="button" className="sort-btn" onClick={() => set({ key: k, desc: next })}>
           {label}
           <span className="sort-arrow" aria-hidden>
             {on ? (sort.desc ? "▼" : "▲") : ""}
@@ -214,7 +214,7 @@ export function useSort<K extends string>(
       </th>
     );
   };
-  return [sort, th];
+  return [sort, th, set];
 }
 
 /** The rows sorted by `value` (numbers or texts), missing values last either way. */

@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { useAccount } from "../account";
 import { api } from "../api";
 import { trackView } from "../analytics";
 import { clubHref, useAsync, useUrlState } from "../hooks";
@@ -24,10 +25,11 @@ const VALUE: Record<Key, (c: ClubHit) => number | string | null> = {
 };
 
 /** A search as on the players' home page, then every club in a table sorted by any column, 20 at
- * a time. */
+ * a time: the clubs of the account's player ("me") first. */
 export default function ClubsPage() {
   const { t, locale } = useI18n();
   const st = useAsync((s) => api.clubs(s), []);
+  const mine = useAccount().user?.me?.clubIds;
   const [offsetParam, setOffset] = useUrlState("offset", "0");
   const [sort, th] = useSort<Key>("sort", { key: "name", desc: false }, () => setOffset("0"));
 
@@ -36,7 +38,12 @@ export default function ClubsPage() {
     trackView();
   }, [t]);
 
-  const rows = useMemo(() => sortRows(st.data ?? [], VALUE[sort.key] ?? VALUE.name, sort.desc), [st.data, sort.key, sort.desc]);
+  const rows = useMemo(() => {
+    const sorted = sortRows(st.data ?? [], VALUE[sort.key] ?? VALUE.name, sort.desc);
+    const own = new Set(mine);
+    return [...sorted.filter((c) => own.has(c.id)), ...sorted.filter((c) => !own.has(c.id))];
+  }, [st.data, sort.key, sort.desc, mine]);
+  const isMine = (id: number) => !!mine?.includes(id);
   const offset = Math.min(Math.max(0, Number(offsetParam) || 0), Math.max(0, rows.length - 1));
 
   return (
@@ -63,9 +70,10 @@ export default function ClubsPage() {
               </thead>
               <tbody>
                 {rows.slice(offset, offset + PAGE).map((c) => (
-                  <tr key={c.id}>
+                  <tr key={c.id} className={isMine(c.id) ? "clubs-mine" : undefined}>
                     <td>
                       <a href={clubHref(c.id)}>{c.name}</a>
+                      {isMine(c.id) && <span className="tag clubs-mine-tag">{t("clubMine")}</span>}
                       {/* on a phone: under the name, their columns hidden */}
                       <small className="muted clubs-sub">
                         {[c.city, c.canton, `${t("clubNumber")} ${c.id}`].filter(Boolean).join(" · ")}

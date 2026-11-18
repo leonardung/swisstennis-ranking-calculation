@@ -3048,6 +3048,65 @@ dialog.match-dialog::backdrop {
 .club-page .hl-filter {
   margin: 0 0 16px;
 }
+/* gender, age, sort, then the export button on the right; several lines on a phone */
+.club-page .club-filter {
+  flex-wrap: wrap;
+  align-items: center;
+}
+.club-export {
+  margin-left: auto;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.clubs-mine-tag {
+  margin-left: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.export-body {
+  display: grid;
+  gap: 16px;
+  padding: 16px 20px 20px;
+}
+.export-body fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.export-body legend {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 0;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.export-body legend .link-btn {
+  font-size: 13px;
+  font-weight: 500;
+}
+.export-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px 16px;
+}
+.export-cols label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+}
+.export-error {
+  background: var(--warn-bg);
+  color: var(--warn);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin: 0;
+}
+.export-actions {
+  display: flex;
+  justify-content: flex-end;
+}
 .club-table td {
   white-space: nowrap;
 }

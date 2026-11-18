@@ -577,6 +577,8 @@ export interface MePlayer {
   openTo: { matchType: string | null; age: string | null; event: string | null };
   /** his clubs with a place: "Près de" offers them */
   clubs: { name: string | null; city: string }[];
+  /** every club of his licences: the Clubs page lists them first */
+  clubIds: number[];
 }
 
 export interface User {
