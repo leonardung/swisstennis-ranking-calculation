@@ -7,6 +7,8 @@ import { Seg } from "./common";
 export interface ExportColumn {
   key: string;
   label: string;
+  /** ticked at first (default true) */
+  on?: boolean;
 }
 
 const FORMATS: [ExportFormat, string][] = [
@@ -31,7 +33,7 @@ export default function ExportDialog({
   const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   const [format, setFormat] = useState<ExportFormat>("xlsx");
-  const [picked, setPicked] = useState(() => new Set(columns.map((c) => c.key)));
+  const [picked, setPicked] = useState(() => new Set(columns.filter((c) => c.on !== false).map((c) => c.key)));
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   useEffect(() => showModal(dialog.current!), []);

@@ -66,8 +66,9 @@ type Gender = "M" | "F" | "all";
 
 const round3 = (n: number | null | undefined) => (n == null ? null : Math.round(n * 1000) / 1000);
 
-/** The columns one can export, in their order: the value of a player at a position (from 1). */
-const EXPORT: [string, (t: TFunc) => string, (p: ClubPlayer, pos: number, t: TFunc) => ExportValue][] = [
+/** The columns one can export, in their order: the value of a player at a position (from 1);
+ * the C values unticked at first. */
+const EXPORT: [string, (t: TFunc) => string, (p: ClubPlayer, pos: number, t: TFunc) => ExportValue, boolean?][] = [
   ["pos", () => "#", (_, pos) => pos],
   ["name", (t) => t("clubPlayer"), (p) => p.name],
   ["gender", (t) => t("colGender"), (p, _, t) => (p.gender === "M" ? t("sexM") : p.gender === "F" ? t("sexF") : null)],
@@ -76,9 +77,8 @@ const EXPORT: [string, (t: TFunc) => string, (p: ClubPlayer, pos: number, t: TFu
   ["class", (t) => t("sortClassToday"), (p) => p.today?.class ?? p.official?.class],
   ["rankOff", (t) => t("sortRankOfficial"), (p) => p.official?.rank],
   ["rank", (t) => t("sortRankToday"), (p) => p.today?.rank ?? p.official?.rank],
-  ["cOff", (t) => t("colCOfficial"), (p) => round3(p.official?.C)],
-  ["c", (t) => t("colCToday"), (p) => round3(p.today?.C ?? p.official?.C)],
-  ["id", (t) => t("colId"), (p) => p.id],
+  ["cOff", (t) => t("colCOfficial"), (p) => round3(p.official?.C), false],
+  ["c", (t) => t("colCToday"), (p) => round3(p.today?.C ?? p.official?.C), false],
 ];
 
 /** A file name from texts: letters, digits and dashes. */
@@ -214,7 +214,7 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
       {exporting && (
         <ExportDialog
           summary={[c.name, genderLabel, age || t("clubAllAges"), t("clubPlayersCount", { n: rows.length })].filter(Boolean).join(" · ")}
-          columns={EXPORT.map(([key, label]) => ({ key, label: label(t) }))}
+          columns={EXPORT.map(([key, label, , on]) => ({ key, label: label(t), on }))}
           onExport={onExport}
           onClose={() => setExporting(false)}
         />
