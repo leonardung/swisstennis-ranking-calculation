@@ -102,7 +102,9 @@ async function send<T = void>(method: string, path: string, body?: unknown): Pro
 /** The account (accounts.py): never cached. */
 export const accountApi = {
   me: (signal?: AbortSignal) => fetchJson<{ user: User | null }>("/api/me", signal),
-  signup: (email: string, password: string, next: string, lang: string) => send("POST", "/api/auth/signup", { email, password, next, lang }),
+  /** nothing: the verification email is sent; { next }: signed in at once (local testing) */
+  signup: (email: string, password: string, next: string, lang: string) =>
+    send<{ next: string } | undefined>("POST", "/api/auth/signup", { email, password, next, lang }),
   login: (email: string, password: string, lang: string) => send("POST", "/api/auth/login", { email, password, lang }),
   forgot: (email: string, lang: string) => send("POST", "/api/auth/forgot", { email, lang }),
   reset: (token: string, password: string) => send("POST", "/api/auth/reset", { token, password }),

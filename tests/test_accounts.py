@@ -60,6 +60,19 @@ def test_off_without_accounts_url_or_on_another_host(tmp_path, monkeypatch):
     assert other.post("/api/auth/login", json={"email": "a@b.ch", "password": PW}, headers={"Origin": "https://tennis-radar.ch"}).status_code == 404
 
 
+def test_local_sign_up_signs_in_without_email(tmp_path, monkeypatch, mails):
+    # ACCOUNTS_URL on this machine: no email, the address counts as verified
+    monkeypatch.setenv("ACCOUNTS_URL", "http://localhost:8765")
+    c = TestClient(web.create_app(tmp_path, None, None), base_url="http://localhost:8765")
+    c.app.state.app.state = SimpleNamespace(people=pd.DataFrame(), clubs=None)
+    local = {"Origin": "http://localhost:8765"}
+    r = c.post("/api/auth/signup", json={"email": "leo@example.ch", "password": PW, "next": "/clubs"}, headers=local)
+    assert r.status_code == 200 and r.json() == {"next": "/clubs"} and mails == []
+    assert c.get("/api/me").json()["user"]["email"] == "leo@example.ch"
+    c.post("/api/auth/logout", headers=local)
+    assert c.post("/api/auth/login", json={"email": "leo@example.ch", "password": PW}, headers=local).status_code == 200
+
+
 def test_sign_up_verify_then_password(client, mails, monkeypatch):
     assert client.get("/api/config").json()["accounts"] == {"google": False}
     assert client.get("/api/me").json() == {"user": None}

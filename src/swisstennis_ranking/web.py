@@ -1996,6 +1996,9 @@ def create_app(
 
     base_url = (os.environ.get("ACCOUNTS_URL") or "").rstrip("/")
     secure = base_url.startswith("https:")
+    # local testing (ACCOUNTS_URL on this machine, e.g. http://localhost:8765): no email is sent,
+    # a sign-up signs in at once (the address counts as verified), the other links go to the log
+    local = accounts.hostname(base_url) in ("localhost", "127.0.0.1")
 
     def accounts_on(request: Request) -> bool:
         return app.accounts is not None and request.url.hostname == accounts.hostname(base_url)
@@ -2041,7 +2044,7 @@ def create_app(
         "email quota" when Resend sends no more for now (the page then suggests Google)."""
         try:
             accounts.send_mail(
-                os.environ.get("RESEND_API_KEY"), os.environ.get("MAIL_FROM", "Tennis Radar <login@tennis-radar.ch>"),
+                None if local else os.environ.get("RESEND_API_KEY"), os.environ.get("MAIL_FROM", "Tennis Radar <login@tennis-radar.ch>"),
                 to, kind, f"{base_url}{path}?token={token}", lang,
             )
         except Exception as e:  # noqa: BLE001
@@ -2058,7 +2061,7 @@ def create_app(
     def sign_up(body: SignUp, request: Request):
         """Create an account: an email verifies the address, the password works from then on.
         The answer is the same whether the address has an account already (that one gets an
-        email to reset its password instead)."""
+        email to reset its password instead). Local testing: signed in at once ({"next"})."""
         st = store(request)
         same_site(request)
         email = address(request, body.email)
@@ -2066,6 +2069,9 @@ def create_app(
         if known is not None and st.mailed_recently(known, body.password):
             return Response(status_code=204)  # the earlier email's link still works
         uid, token = st.sign_up(email, body.password, body.next or "/")
+        if token and local:
+            uid, next_ = st.use_link(token, "verify")
+            return signed_in_response(st, uid, {"next": next_})
         if token:
             send("verify", email, "/login", token, body.lang)
         else:

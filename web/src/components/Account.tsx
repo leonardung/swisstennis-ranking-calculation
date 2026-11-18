@@ -67,8 +67,15 @@ function LoginForm({
         await afterSignIn(account.refresh, next);
         return;
       }
-      if (mode === "signup") await accountApi.signup(address, password, next, lang);
-      else await accountApi.forgot(address, lang);
+      if (mode === "signup") {
+        const signedIn = await accountApi.signup(address, password, next, lang);
+        if (signedIn) {
+          trackEvent("signup");
+          onSignedIn?.();
+          await afterSignIn(account.refresh, signedIn.next);
+          return;
+        }
+      } else await accountApi.forgot(address, lang);
       trackEvent(mode === "signup" ? "signup" : "password-forgot");
       setStatus("sent");
     } catch (err) {
