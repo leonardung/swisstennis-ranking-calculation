@@ -166,7 +166,7 @@ class PerfSample(BaseModel):
     page load) until its data is shown."""
 
     kind: Literal["initial", "navigation"]
-    page: str = Field(pattern=r"^(home|tournaments?|clubs?|perf|login|reset|account|privacy|player/[a-z]{1,12})$")
+    page: str = Field(pattern=r"^(home|tournaments?|clubs?|cohorts|perf|login|reset|account|privacy|player/[a-z]{1,12})$")
     ms: float = Field(ge=0, le=120_000)
 
 

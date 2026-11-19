@@ -10,7 +10,8 @@ import { AsyncStatus, Card, Pager, Seg, Standing } from "./common";
 const PAGE = 50;
 
 /** The players born the same year (a birth year and a gender): on the last list of each year,
- * their place among them, category and rank; the best on the latest list first, 50 at a time. */
+ * their place among them, category and rank (the latest year first); the best on the latest list
+ * first, 50 at a time. */
 export default function CohortsPage() {
   const { t, locale } = useI18n();
   const [year, setYear] = useUrlState("year", "");
@@ -21,6 +22,8 @@ export default function CohortsPage() {
   const st = useAsync((s) => api.cohort({ year, gender: g, offset, limit: PAGE }, s), [year, g, offset]);
   const me = useAccount().user?.me?.id;
   const c = st.data;
+  // the latest year first: the columns in view are the ones that matter most
+  const cols = c ? c.dates.map((_, i) => i).reverse() : [];
 
   useEffect(() => {
     document.title = `${t("cohortsTitle")} · ${t("appName")}`;
@@ -74,9 +77,9 @@ export default function CohortsPage() {
                   <thead>
                     <tr>
                       <th>{t("player")}</th>
-                      {c.dates.map((d, i) => (
-                        <th key={d} className="num" title={t("cohortsOf", { n: fmtInt(c.of[i], locale) })}>
-                          {d.slice(0, 4)}
+                      {cols.map((i) => (
+                        <th key={c.dates[i]} className="num" title={t("cohortsOf", { n: fmtInt(c.of[i], locale) })}>
+                          {c.dates[i].slice(0, 4)}
                           <small className="muted cohort-of">/{fmtInt(c.of[i], locale)}</small>
                         </th>
                       ))}
@@ -88,16 +91,19 @@ export default function CohortsPage() {
                         <td className="cohort-name">
                           <a href={playerHref(p.id)}>{p.name}</a>
                         </td>
-                        {p.ranks.map((r, i) => (
-                          <td key={c.dates[i]} className="num cohort-cell">
-                            {r && (
-                              <>
-                                <strong>{fmtInt(r.peer, locale)}</strong>
-                                <Standing cls={r.class} rank={r.rank} />
-                              </>
-                            )}
-                          </td>
-                        ))}
+                        {cols.map((i) => {
+                          const r = p.ranks[i];
+                          return (
+                            <td key={c.dates[i]} className="num cohort-cell">
+                              {r && (
+                                <>
+                                  <strong>{fmtInt(r.peer, locale)}</strong>
+                                  <Standing cls={r.class} rank={r.rank} />
+                                </>
+                              )}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
