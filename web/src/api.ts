@@ -152,8 +152,8 @@ export const api = {
         (value != null ? `&value=${encodeURIComponent(value)}` : ""),
       signal,
     ),
-  boardMatches: (key: string, id: number, signal?: AbortSignal) =>
-    get<ListedMatch[]>(`/api/highlights/${key}/${id}`, signal),
+  boardMatches: (key: string, id: number, period: "year" | "all", signal?: AbortSignal) =>
+    get<ListedMatch[]>(`/api/highlights/${key}/${id}${period === "all" ? "?period=all" : ""}`, signal),
   highlights: (age: string, signal?: AbortSignal) =>
     get<Highlights>(`/api/highlights${age ? `?age=${age}` : ""}`, signal),
   clubs: (signal?: AbortSignal) => get<ClubHit[]>("/api/clubs", signal),

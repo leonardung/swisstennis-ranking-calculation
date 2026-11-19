@@ -1258,18 +1258,22 @@ class App:
         except KeyError:
             raise HTTPException(400, f"unknown statistic {key} {value or ''}".strip()) from None
 
-    def board_matches(self, key: str, pid: int) -> list[dict]:
+    def board_matches(self, key: str, pid: int, period: str = "year") -> list[dict]:
+        """The matches behind a player's row on a leaderboard of the last year or of all time."""
         s = self.s()
         # a leaderboard player may have no matches in today's period: known is enough
         if pid not in s.people.index:
             raise HTTPException(404, f"unknown player {pid}")
         if key not in ("streak", "longest_super_tiebreak", "biggest_upset") and key not in highlights.RATIOS:
             raise HTTPException(404, f"unknown leaderboard {key}")
+        if period not in ("year", "all"):
+            raise HTTPException(400, "period must be year or all")
+        start = highlights.EVER if period == "all" else highlights.since(s.today)
         m = s.matches.iloc[s.match_rows.get(pid, np.array([], int))]
         if key == "biggest_upset":
-            m = m.loc[highlights.upsets(m, s.history, highlights.since(s.today), s.today)["row"].head(1)]
+            m = m.loc[highlights.upsets(m, s.history, start, s.today)["row"].head(1)]
         else:
-            m = highlights.board_matches(m, s.today, key)
+            m = highlights.board_matches(m, s.today, key, start)
         m = stats.describe(m)
         return stats.match_list(self._with_categories(s, m, pid))
 
@@ -2403,8 +2407,8 @@ def create_app(
         return app.stat_matches(pid, range, key, value)
 
     @api.get("/api/highlights/{key}/{pid}")
-    def board_matches(key: str, pid: int):
-        return app.board_matches(key, pid)
+    def board_matches(key: str, pid: int, period: str = "year"):
+        return app.board_matches(key, pid, period)
 
     @api.get("/api/highlights")
     def highlights(age: str = ""):

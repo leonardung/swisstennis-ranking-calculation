@@ -32,7 +32,7 @@ def test_leaderboards_count_tiebreaks_three_sets_and_the_longest_streak():
         (1, 2, "2019-01-01", "N", ((6, 7), (6, 7))),  # older than the period (a year)
         (2, 1, "2026-01-01", "N", lost),
     ])
-    b = highlights.leaderboards(m, TODAY)
+    [b] = highlights.leaderboards(m, TODAY)
     r = b.loc[1]
     # tiebreaks: 7-6 sets and the match tiebreak
     assert (r["tb_won"], r["tb_lost"], r["three_won"], r["three_lost"]) == (2, 1, 1, 1)
@@ -99,11 +99,15 @@ def test_a_streak_counts_when_its_last_win_is_in_the_period():
         (2, 1, "2024-05-01", "N", won),
         (2, 1, "2026-01-01", "S", won),
     ])
-    b = highlights.leaderboards(m, TODAY)
+    [b] = highlights.leaderboards(m, TODAY)
     assert b.loc[1, "streak"] == 3 and b.loc[1, "start"] == pd.Timestamp("2025-08-01") and not b.loc[1, "ongoing"]
     assert b.loc[1, "other_sets"] == 4  # the other boards: the period's matches only
     assert b.loc[2, "streak"] == 1
     assert len(highlights.board_matches(m[m["personId"] == 1], TODAY, "streak")) == 3
+    # all time: every result counts, the longest run of each player whenever it ended
+    year, ever = highlights.leaderboards(m, TODAY, starts=(None, highlights.EVER))
+    assert year.equals(b) and ever.loc[2, "streak"] == 4 and ever.loc[1, "other_sets"] == 8
+    assert len(highlights.board_matches(m[m["personId"] == 2], TODAY, "streak", highlights.EVER)) == 4
 
 
 def test_a_streak_ends_after_two_years_without_a_result():
@@ -115,7 +119,7 @@ def test_a_streak_ends_after_two_years_without_a_result():
         (1, 2, "2025-01-01", "S", won),  # under two years: the same one
         (1, 2, "2026-01-01", "S", won),
     ])
-    b = highlights.leaderboards(m, TODAY)
+    [b] = highlights.leaderboards(m, TODAY)
     assert b.loc[1, "streak"] == 3 and b.loc[1, "start"] == pd.Timestamp("2023-03-01") and b.loc[1, "ongoing"]
 
 

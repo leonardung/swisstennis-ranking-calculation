@@ -169,8 +169,13 @@ function MtbScore({ score }: { score: string }) {
   return <span className={mine > theirs ? "pos" : "neg"}>{score}</span>;
 }
 
-function Leaderboards({ data, filter }: { data: Data["leaderboards"]; filter: Filter }) {
+function Leaderboards({ data: both, filter }: { data: Data["leaderboards"]; filter: Filter }) {
   const { t, locale } = useI18n();
+  const [periodParam, setPeriod] = useUrlState("lbperiod", "year");
+  const period = periodParam === "all" && both.all ? "all" : "year";
+  const data = (period === "all" && both.all) || both;
+  const periods: ["year" | "all", string][] = [["year", t("hlBoardsYear")]];
+  if (both.all) periods.push(["all", t("hlBoardsAll")]);
   // the rows of boards shown in full: their indexes, e.g. "01"
   const [openParam, setOpenParam] = useUrlState("lbmore", "");
   const isOpen = (row: number) => openParam.includes(String(row));
@@ -180,9 +185,9 @@ function Leaderboards({ data, filter }: { data: Data["leaderboards"]; filter: Fi
   const boards = data.players[filter.gender]?.[filter.group];
   const pct = (v: number) => new Intl.NumberFormat(locale, { style: "percent", maximumFractionDigits: 0 }).format(v);
   return (
-    <Card title={t("hlBoardsTitle")} className="hl-card">
+    <Card title={t("hlBoardsTitle")} className="hl-card" actions={<Seg value={period} options={periods} onChange={setPeriod} />}>
       {query && <MatchListDialog key={query.key} query={query} onClose={() => setQuery(null)} />}
-      <p className="hint small">{t("hlBoardsIntro", { since: fmtDate(data.since, locale) })}</p>
+      <p className="hint small">{t(period === "all" ? "hlBoardsIntroAll" : "hlBoardsIntro", { since: fmtDate(data.since, locale) })}</p>
       {BOARD_ROWS.map((row, ri) => {
         const open = isOpen(ri);
         return (
@@ -201,9 +206,9 @@ function Leaderboards({ data, filter }: { data: Data["leaderboards"]; filter: Fi
                       {...opens(
                         () =>
                           setQuery({
-                            key: `${k}:${r.player.id}`,
+                            key: `${k}:${r.player.id}:${period}`,
                             title: `${r.player.name} · ${t(label)}`,
-                            load: (sig) => api.boardMatches(k, r.player.id, sig),
+                            load: (sig) => api.boardMatches(k, r.player.id, period, sig),
                           }),
                         t("showMatches"),
                       )}

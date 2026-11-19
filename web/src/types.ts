@@ -376,8 +376,15 @@ export interface MoverList {
   players: Mover[];
 }
 
+export interface Leaderboards {
+  since: string;
+  min_played: Partial<Record<BoardKey, number>>;
+  players: Record<string, Record<HlGroup, Record<BoardKey, BoardRow[]>>>;
+}
+
 export interface Highlights {
-  leaderboards: { since: string; min_played: Partial<Record<BoardKey, number>>; players: Record<string, Record<HlGroup, Record<BoardKey, BoardRow[]>>> };
+  /** the last 12 months, and all time (all) */
+  leaderboards: Leaderboards & { all?: Leaderboards };
   upsets: { from: string; to: string; matches: Upset[] };
   movers: { today: MoverList; season?: MoverList };
 }
