@@ -422,6 +422,9 @@ export interface TournamentSummary {
   players: number;
   inRange: number | null;
   surface?: string | null;
+  /** the entry fee's first amount (CHF; null: not given) and its text */
+  fee?: number | null;
+  entryFee?: string | null;
 }
 
 /** a tournament found by name (GET /api/tournaments/search) */

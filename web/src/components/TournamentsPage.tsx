@@ -253,6 +253,8 @@ export default function TournamentsPage() {
                 <option value="date">{t("sortDateAsc")}</option>
                 <option value="-date">{t("sortDateDesc")}</option>
                 <option value="players">{t("sortPlayers")}</option>
+                <option value="fee">{t("sortFeeAsc")}</option>
+                <option value="-fee">{t("sortFeeDesc")}</option>
                 <option value="inRange" disabled={!fieldFilter} title={fieldFilter ? undefined : t("sortInRangeHint")}>
                   {t("sortInRange")}
                 </option>
@@ -890,6 +892,7 @@ function TournamentCard({ tr, fieldRange }: { tr: TournamentListItem; fieldRange
           {tr.distanceKm != null && <span>{t("distanceKm", { km: Math.round(tr.distanceKm) })}</span>}
           {tr.surface && <span>{surfaceLabel(tr.surface, lang)}</span>}
           <span>{t("playersN", { n: fmtInt(tr.players, locale) })}</span>
+          {tr.fee != null && <span title={tr.entryFee ?? undefined}>{t("feeChf", { fee: tr.fee.toLocaleString(locale) })}</span>}
           {fieldRange && tr.inRange != null && <span className="strong">{t("inRangeN", { n: fmtInt(tr.inRange, locale), range: fieldRange })}</span>}
         </div>
       </header>

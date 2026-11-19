@@ -80,7 +80,7 @@ LOGIN_MAILS_PER_HOUR = 5
 LOGIN_MAILS_PER_ADDRESS_HOUR = 3
 LOGIN_CHECKS_PER_HOUR = 30
 LOGIN_CHECKS_PER_ADDRESS_HOUR = 10
-TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "inRange", "suggested")
+TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "fee", "-fee", "inRange", "suggested")
 TOURNAMENT_WHEN = ("upcoming", "live", "past")
 AGE_KINDS = ("actives", "juniors", "seniors")  # the order of the age options
 SINGLES = (1, 2)  # match types: men's and women's singles
@@ -531,6 +531,7 @@ def load_tournaments(tdir: Path) -> Tournaments:
     e["strong"] = (e["upperRankingId"].astype(float) - 1).clip(0, last).fillna(0).astype(int)
     e["weak"] = (e["lowerRankingId"].astype(float) - 1).clip(0, last).fillna(last).astype(int)
     t["players"] = e.groupby("tournamentId")["players"].sum().reindex(t.index).fillna(0).astype(int)
+    t["fee"] = entry_fee(t["entryFee"])
 
     located = t.dropna(subset=["lat", "lon"])
     cities = located.groupby(located["city"].astype(object))[["lat", "lon"]].mean()
@@ -613,6 +614,14 @@ def _in_range(t: Tournaments, level: pd.Series, events: pd.Series, strong: int, 
 def _played_by(draws: pd.DataFrame, pid: int) -> np.ndarray:
     """Mask of the draw rows where `pid` played (on either side)."""
     return draws[["a1", "a2", "b1", "b2"]].eq(pid).fillna(False).any(axis=1).to_numpy(bool)
+
+
+def entry_fee(text: pd.Series) -> pd.Series:
+    """The first amount of the entry fee texts (e.g. 70 of "CHF 70.- / members 60.-"); NaN without
+    one or for 0 (a fee not given)."""
+    fee = text.astype(object).fillna("").astype(str).str.extract(r"(\d+(?:[.,]\d+)?)", expand=False)
+    fee = pd.to_numeric(fee.str.replace(",", ".", regex=False), errors="coerce")
+    return fee.where(fee > 0)
 
 
 def _tournament_summary(tid: int, r: pd.Series) -> dict:
@@ -1563,12 +1572,14 @@ class App:
         g = k.groupby("tournamentId").agg(
             dateBegin=("dateBegin", "first"), distance=("distance", "first"), players=("players", "sum"),
             inRange=("inRange", "sum"), score=("score", "max"),
-        )
+        ).join(t.tournaments["fee"])
         by, ascending = {
             "date": (["dateBegin"], [True]),
             "-date": (["dateBegin"], [False]),
             "distance": (["distance", "dateBegin"], [True, True]),
             "players": (["players", "dateBegin"], [False, True]),
+            "fee": (["fee", "dateBegin"], [True, True]),
+            "-fee": (["fee", "dateBegin"], [False, True]),
             "inRange": (["inRange", "dateBegin"], [False, True]),
             "suggested": (["score", "dateBegin"], [False, True]),
         }[sort]
@@ -1582,6 +1593,8 @@ class App:
                 **_tournament_summary(tid, t.tournaments.loc[tid]),
                 "distanceKm": _num(x["distance"], 1),
                 "players": int(x["players"]),
+                "fee": _num(x["fee"], 2),
+                "entryFee": _str(t.tournaments.at[tid, "entryFee"]),
                 "inRange": int(x["inRange"]) if field else None,
                 "events": [_event_summary(t, y, y["inRange"] if field else None) for _, y in ev.iterrows()],
             })

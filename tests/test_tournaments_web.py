@@ -163,6 +163,8 @@ def test_list_in_range_distance_sorts_and_paging(client):
     assert _ids(client.get("/api/tournaments", params={"radius": 50})) == [200, 100]  # radius without near: ignored
     assert _ids(client.get("/api/tournaments", params={"sort": "-date"})) == [100, 200]
     assert _ids(client.get("/api/tournaments", params={"sort": "players"})) == [200, 100]
+    r = client.get("/api/tournaments", params={"sort": "-fee"}).json()["tournaments"]  # same fee: by date
+    assert [(t["id"], t["fee"], t["entryFee"]) for t in r] == [(200, 40.0, "40"), (100, 40.0, "40")]
     r = client.get("/api/tournaments", params={"limit": 1, "offset": 1}).json()
     assert r["total"] == 2 and [t["id"] for t in r["tournaments"]] == [100]
     assert len(client.get("/api/tournaments", params={"limit": 1000}).json()["tournaments"]) == 2  # clamped
@@ -354,3 +356,8 @@ def test_open_filters(client):
     app.state.people.loc[4, "gender"] = None
     assert app.open_filters(4)["matchType"] is None
     assert client.get("/api/tournaments?matchType=1,3,5&age=1&event=R7").status_code == 200
+
+
+def test_entry_fee_is_the_first_amount():
+    fees = web.entry_fee(pd.Series(["CHF 70.- / members 60.-", "55,50 CHF", "0", "free", None]))
+    assert fees.tolist()[:2] == [70.0, 55.5] and fees.iloc[2:].isna().all()
