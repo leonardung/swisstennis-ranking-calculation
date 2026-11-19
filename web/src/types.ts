@@ -644,3 +644,33 @@ export interface MyPlayers {
   since: string;
   players: MyPlayer[];
 }
+
+// ---------- Birth years ----------
+
+/** a player's standing on a year's last list among the players born the same year (same gender) */
+export interface CohortCell {
+  class: string | null;
+  rank: number | null;
+  /** place among them (category, then rank, then C) */
+  peer: number;
+}
+
+/** GET /api/cohorts: the players born in `year`, one cell per date (null: not on that list) */
+export interface Cohort {
+  year: number;
+  gender: "M" | "F";
+  /** the birth years to choose from, the latest first */
+  years: number[];
+  /** the last list of each year, and how many of them were on it */
+  dates: string[];
+  of: number[];
+  total: number;
+  players: { id: number; name: string; ranks: (CohortCell | null)[] }[];
+}
+
+/** GET /api/players/{id}/cohort */
+export interface PlayerCohort {
+  birth: number | null;
+  gender: string | null;
+  ranks: (CohortCell & { date: string; of: number })[];
+}

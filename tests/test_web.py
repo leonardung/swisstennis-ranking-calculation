@@ -413,3 +413,26 @@ def test_hidden_players_are_not_shown(tmp_path):
     assert app.h2h(1, 3) == [] and app.h2h(2, 3) == [] and len(app.h2h(1, 2)) == 1
     assert 3 not in app.state.match_rows and sorted(matches.loc[app.state.match_rows[1], "adversaryPersonId"]) == [2, 4]
     assert [p["id"] for p in app.my_players([3, 2], None, None)["players"]] == [2]
+
+
+def test_cohort_places_the_players_born_the_same_year(tmp_path):
+    from dataclasses import replace
+
+    app, _ = _league_app(tmp_path)
+    people = app.state.people.assign(birth=[2010, 2010, 2010, 2011, 2010])  # 5: a woman
+    h = pd.DataFrame({
+        "personId": [1, 2, 3, 1, 2, 4],
+        "date": pd.to_datetime(["2024-04-01", "2024-10-01", "2024-10-01", "2025-10-01", "2025-10-01", "2025-10-01"]),
+        "classification": ["R6", "R5", "R4", "R3", "R5", "R1"], "rank": [900, 800, 500, 300, 800, 50], "C": [3.0, 4.0, 5.0, 7.0, 4.0, 9.0],
+    })
+    app.state = replace(app.state, people=people, lists_of=lambda ids: h[h["personId"].isin(list(ids))])
+    c = app.cohort(2010, "M")
+    # the last list of each year; 4 is born in 2011
+    assert (c["dates"], c["of"], c["total"], c["years"]) == (["2024-10-01", "2025-10-01"], [2, 2], 3, [2011, 2010])
+    assert [(p["id"], [r and r["peer"] for r in p["ranks"]]) for p in c["players"]] == [(1, [None, 1]), (2, [2, 2]), (3, [1, None])]
+    assert [p["id"] for p in app.cohort(2010, "M", offset=1, limit=1)["players"]] == [2]
+    mine = app.player_cohort(2)
+    assert mine["birth"] == 2010 and [(r["date"], r["peer"], r["of"], r["class"]) for r in mine["ranks"]] == [
+        ("2024-10-01", 2, 2, "R5"), ("2025-10-01", 2, 2, "R5")]
+    assert app.player_cohort(5)["ranks"] == []
+    assert app.cohort(None, "M")["year"] == 2011  # no year with web.COHORT_DEFAULT_MIN ranked: the latest

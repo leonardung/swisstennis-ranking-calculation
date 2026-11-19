@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { useChartColors } from "../chartTheme";
-import { playerHref, useAsync, useUrlState } from "../hooks";
+import { cohortHref, playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
 import type { CareerWin, PlayerDetail } from "../types";
@@ -209,7 +209,63 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
       </Card>
 
       <CareerCard playerId={player.id} />
+      <CohortCard playerId={player.id} />
     </div>
+  );
+}
+
+/** The player's place among the players born the same year (same gender), on the last list of
+ * each year; nothing without a birth year or a list. */
+function CohortCard({ playerId }: { playerId: number }) {
+  const { t, locale } = useI18n();
+  const st = useAsync((s) => api.playerCohort(playerId, s), [playerId]);
+  const c = st.data;
+  if (!c || c.birth == null || c.ranks.length === 0) return null;
+  return (
+    <Card
+      title={t(c.gender === "F" ? "cohortTitleF" : "cohortTitleM", { year: c.birth })}
+      className="cohort-card"
+      actions={
+        <a className="btn btn-ghost" href={cohortHref(c.birth, c.gender ?? "M")}>
+          {t("cohortSeeAll")}
+        </a>
+      }
+    >
+      <div className="table-wrap">
+        <table className="data cohort-table">
+          <thead>
+            <tr>
+              <th />
+              {c.ranks.map((r) => (
+                <th key={r.date} className="num">
+                  {r.date.slice(0, 4)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">{t("cohortPlace")}</th>
+              {c.ranks.map((r) => (
+                <td key={r.date} className="num">
+                  <strong>{fmtInt(r.peer, locale)}</strong>
+                  <small className="muted cohort-of">/{fmtInt(r.of, locale)}</small>
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <th scope="row">{t("cohortStanding")}</th>
+              {c.ranks.map((r) => (
+                <td key={r.date} className="num">
+                  <Standing cls={r.class} rank={r.rank} />
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="hint small">{t("cohortsHelp")}</p>
+    </Card>
   );
 }
 

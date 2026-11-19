@@ -69,12 +69,17 @@ def fold(q: pd.DataFrame) -> np.ndarray:
     return (pd.util.hash_pandas_object(pd.DataFrame({"a": a, "b": b, "date": q["date"]}), index=False) % 2).to_numpy()
 
 
+def birth_year(licence: pd.Series) -> pd.Series:
+    """The birth year in licence numbers (their second part: 916.03.222.0 → 2003); NaN without one."""
+    yy = pd.to_numeric(licence.astype(object).fillna("").astype(str).str.split(".").str[1], errors="coerce")
+    return pd.Series(np.where(yy > BIRTH_CENTURY_CUT, 1900 + yy, 2000 + yy), index=licence.index)
+
+
 def people(players: pd.DataFrame) -> pd.DataFrame:
     """Index personId: birth year (from the licence number) and female (1 / 0)."""
-    yy = pd.to_numeric(players["licenceNumber"].str.split(".").str[1], errors="coerce")
     return pd.DataFrame(
         {
-            "birth": np.where(yy > BIRTH_CENTURY_CUT, 1900 + yy, 2000 + yy),
+            "birth": birth_year(players["licenceNumber"]).to_numpy(),
             "female": players["gender"].map({"F": 1.0, "M": 0.0}).to_numpy(),
         },
         index=pd.Index(players["personId"].to_numpy(), name="personId"),

@@ -1,5 +1,7 @@
 import type {
   Career,
+  Cohort,
+  PlayerCohort,
   ClubDetail,
   ClubHit,
   FullAccessEntry,
@@ -138,6 +140,12 @@ export const api = {
   matches: (id: number, season: number, signal?: AbortSignal) =>
     get<MatchesResponse>(`/api/players/${id}/matches?season=${season}`, signal),
   career: (id: number, signal?: AbortSignal) => get<Career>(`/api/players/${id}/career`, signal),
+  playerCohort: (id: number, signal?: AbortSignal) => get<PlayerCohort>(`/api/players/${id}/cohort`, signal),
+  cohort: (q: { year?: string; gender: string; offset: number; limit: number }, signal?: AbortSignal) =>
+    get<Cohort>(
+      `/api/cohorts?${new URLSearchParams({ gender: q.gender, offset: String(q.offset), limit: String(q.limit), ...(q.year ? { year: q.year } : {}) })}`,
+      signal,
+    ),
   /** what-if: made-up results, played matches left out (ids), matches against players (win:id) */
   predict: (id: number, q: { results: string; remove: string; add: string }, signal?: AbortSignal) =>
     get<PredictResponse>(`/api/players/${id}/predict?${new URLSearchParams(q)}`, signal),

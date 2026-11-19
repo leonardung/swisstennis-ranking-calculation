@@ -80,6 +80,8 @@ LOGIN_MAILS_PER_HOUR = 5
 LOGIN_MAILS_PER_ADDRESS_HOUR = 3
 LOGIN_CHECKS_PER_HOUR = 30
 LOGIN_CHECKS_PER_ADDRESS_HOUR = 10
+# the birth year shown first: the latest with this many players on today's list
+COHORT_DEFAULT_MIN = 50
 TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "fee", "-fee", "inRange", "suggested")
 TOURNAMENT_WHEN = ("upcoming", "live", "past")
 AGE_KINDS = ("actives", "juniors", "seniors")  # the order of the age options
@@ -197,7 +199,7 @@ class State:
     rows: pd.DataFrame  # the period's match rows with opp_w and counted
     player_rows: dict  # player number -> positions in `rows`
     number: pd.Series  # personId -> player number
-    people: pd.DataFrame  # index personId: name, licence, gender, key (search text)
+    people: pd.DataFrame  # index personId: name, licence, gender, birth (year), key (search text)
     official_date: pd.Timestamp
     official_class: pd.Series  # personId -> category on the official list in force
     # home page by age ("" or a key of highlights.AGES): leaderboards, upsets of the week,
@@ -287,6 +289,7 @@ def load_state(data_dir: Path) -> State:
         people["name"] = name.reindex(people.index).combine_first(people.get("name", pd.Series(dtype=str)))
     people["licence"] = players.set_index("personId")["licenceNumber"].reindex(people.index)
     people["gender"] = p.set_index("personId")["gender"].to_numpy()
+    people["birth"] = winprob.birth_year(people["licence"])
     # the licence's age category today (A, 18&U, 45+, ...)
     people["age"] = players.set_index("personId")["ageCategoryRedundant"].reindex(people.index)
     hidden = read_hidden(data_dir)
@@ -1282,6 +1285,77 @@ class App:
         if age not in h:
             raise HTTPException(400, f"age must be one of {', '.join(highlights.AGES)}")
         return h[age]
+
+    # --- birth years ---------------------------------------------------------------------------
+
+    @staticmethod
+    def _cohort(s: State, year: int, gender: str) -> pd.DataFrame:
+        """The players born in `year` of `gender` (a licence today) on the last published list of
+        each year: personId, day, classification, rank, peer (their place among them on that
+        list: by category, then rank, then C) and of (how many of them were on it)."""
+        people = s.people
+        ids = people.index[((people["birth"] == year) & (people["gender"] == gender)).to_numpy(bool)]
+        h = s.lists_of(ids)
+        h = h[h["classification"].isin(evaluate.CATEGORIES).to_numpy(bool)].assign(day=lambda h: h["date"].dt.normalize())
+        h = h[(h["day"] == h.groupby(h["day"].dt.year)["day"].transform("max")).to_numpy(bool)]
+        h = h.drop_duplicates(["personId", "day"], keep="last").assign(level=lambda h: h["classification"].map(highlights.LEVEL))
+        h = h.sort_values(["day", "level", "rank", "C"], ascending=[True, True, True, False], na_position="last", kind="stable")
+        return h.assign(peer=h.groupby("day").cumcount() + 1, of=h.groupby("day")["personId"].transform("size"))
+
+    def cohort(self, year: int | None, gender: str, offset: int = 0, limit: int = 50) -> dict:
+        """The players born in `year` (by default the latest year with COHORT_DEFAULT_MIN players
+        ranked) of `gender` and, on the last list of each year, their category, rank and place
+        among them (see _cohort): the best on the latest list first (then those who left a list
+        earlier, by their last place); the birth years to choose from."""
+        s = self.s()
+        if gender not in ("M", "F"):
+            raise HTTPException(400, "gender must be M or F")
+        births = s.people.loc[s.people["gender"].eq(gender).to_numpy(bool), "birth"].dropna().astype(int)
+        if year is None:
+            ranked = births[births.index.isin(s.p.loc[s.p["on_list"].to_numpy(bool), "personId"])].value_counts()
+            ranked = ranked[ranked >= COHORT_DEFAULT_MIN]
+            year = int(ranked.index.max()) if len(ranked) else int(births.max()) if len(births) else 2000
+        h = self._cohort(s, year, gender)
+        days = sorted(pd.to_datetime(h["day"].unique()))
+        last = h.sort_values("day", kind="stable").drop_duplicates("personId", keep="last")
+        page = last.sort_values(["day", "peer"], ascending=[False, True], kind="stable")["personId"].iloc[offset : offset + limit]
+        mine = h[h["personId"].isin(page).to_numpy(bool)]
+        cells = {(r.personId, r.day): {"class": _str(r.classification), "rank": _int(r.rank), "peer": int(r.peer)} for r in mine.itertuples()}
+        return {
+            "year": year,
+            "gender": gender,
+            "years": sorted(births.unique().tolist(), reverse=True),
+            "dates": [d.date().isoformat() for d in days],
+            "of": [int(n) for n in h.groupby("day")["of"].first().reindex(days)],
+            "total": len(last),
+            "players": [
+                {
+                    "id": int(pid),
+                    "name": s.people.at[pid, "name"],
+                    "ranks": [cells.get((pid, d)) for d in days],
+                }
+                for pid in page
+            ],
+        }
+
+    def player_cohort(self, pid: int) -> dict:
+        """The player's birth year and place among the players born that year of the same gender
+        on the last list of each year (see _cohort); none without a birth year."""
+        s = self.s()
+        if pid not in s.people.index:
+            raise HTTPException(404, f"unknown player {pid}")
+        birth, gender = s.people.at[pid, "birth"], s.people.at[pid, "gender"]
+        if pd.isna(birth) or gender not in ("M", "F"):
+            return {"birth": None, "gender": _str(gender), "ranks": []}
+        h = self._cohort(s, int(birth), gender)
+        return {
+            "birth": int(birth),
+            "gender": gender,
+            "ranks": [
+                {"date": r["day"].date().isoformat(), "class": _str(r["classification"]), "rank": _int(r["rank"]), "peer": int(r["peer"]), "of": int(r["of"])}
+                for _, r in h[h["personId"] == pid].iterrows()
+            ],
+        }
 
     def clubs(self) -> list[dict]:
         """Every club, by name."""
@@ -2413,6 +2487,14 @@ def create_app(
     @api.get("/api/highlights")
     def highlights(age: str = ""):
         return app.highlights(age)
+
+    @api.get("/api/cohorts")
+    def cohort(gender: str, year: int | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
+        return app.cohort(year, gender, offset, limit)
+
+    @api.get("/api/players/{pid}/cohort")
+    def player_cohort(pid: int):
+        return app.player_cohort(pid)
 
     @api.get("/api/clubs")
     def clubs():

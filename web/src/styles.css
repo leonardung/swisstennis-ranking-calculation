@@ -3415,3 +3415,22 @@ dialog.match-dialog::backdrop {
 .privacy p {
   line-height: 1.6;
 }
+
+/* players born the same year: a column per year, the names stay in view when scrolling */
+.cohort-table th,
+.cohort-table td {
+  white-space: nowrap;
+}
+.cohort-table .cohort-name {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.cohort-cell strong {
+  margin-right: 4px;
+}
+.cohort-of {
+  margin-left: 1px;
+  font-weight: normal;
+}

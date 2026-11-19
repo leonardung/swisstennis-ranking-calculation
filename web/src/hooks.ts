@@ -124,6 +124,7 @@ export type Route =
   | { page: "tournaments" }
   | { page: "tournament"; id: number; eventId: number | null }
   | { page: "clubs" }
+  | { page: "cohorts" }
   | { page: "club"; id: number; tab: ClubTab }
   | { page: "perf" }
   | { page: "login" }
@@ -141,6 +142,7 @@ export function parsePath(path: string): Route {
   if (/^\/tournaments\/?$/.test(path)) return { page: "tournaments" };
   if (/^\/perf\/?$/.test(path)) return { page: "perf" };
   if (/^\/clubs\/?$/.test(path)) return { page: "clubs" };
+  if (/^\/cohorts\/?$/.test(path)) return { page: "cohorts" };
   if (/^\/login\/?$/.test(path)) return { page: "login" };
   if (/^\/reset\/?$/.test(path)) return { page: "reset" };
   if (/^\/account\/?$/.test(path)) return { page: "account" };
@@ -154,6 +156,10 @@ export function parsePath(path: string): Route {
 
 export function playerHref(id: number, tab?: Tab): string {
   return tab && tab !== "overview" ? `/player/${id}/${tab}` : `/player/${id}`;
+}
+
+export function cohortHref(year: number, gender: string): string {
+  return `/cohorts?year=${year}&gender=${gender}`;
 }
 
 export function clubHref(id: number, tab?: ClubTab): string {
