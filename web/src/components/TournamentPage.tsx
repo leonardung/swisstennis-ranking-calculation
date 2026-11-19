@@ -6,7 +6,7 @@ import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateTime, fmtInt } from "../format";
 import type { DrawMatch, DrawPlayer, DrawRound, TournamentDetail, TournamentEventDetail } from "../types";
 import { AsyncStatus, Card, CategoryBadge, Hint } from "./common";
-import { DrawNames, dateRange, eventKind, eventTitle, roundLabel, surfaceLabel } from "./tournamentUtil";
+import { DrawNames, MaskedName, dateRange, eventKind, eventTitle, roundLabel, surfaceLabel } from "./tournamentUtil";
 
 export default function TournamentPage({ id, eventId }: { id: number; eventId: number | null }) {
   const { t, locale } = useI18n();
@@ -202,6 +202,7 @@ function EventView({ event }: { event: TournamentEventDetail }) {
           </div>
         }
       >
+        {event.masked && <p className="hint small">{t("maskedJuniorsHint")}</p>}
         {event.players.length === 0 ? (
           <p className="muted">{t("noRegistrations")}</p>
         ) : (
@@ -223,7 +224,7 @@ function EventView({ event }: { event: TournamentEventDetail }) {
                   <tr key={p.personId ?? p.licence ?? i}>
                     <td className="num muted hide-phone">{i + 1}</td>
                     <th scope="row">
-                      {p.personId != null ? <a href={playerHref(p.personId)}>{p.name}</a> : p.name}
+                      {p.masked ? <MaskedName /> : p.personId != null ? <a href={playerHref(p.personId)}>{p.name}</a> : p.name}
                       {p.personId == null && p.licence && <small className="muted mono"> {p.licence}</small>}
                     </th>
                     <td>

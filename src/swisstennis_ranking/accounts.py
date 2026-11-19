@@ -9,6 +9,8 @@ for requests to that hostname: the old address served by the same app has no acc
                                 without a key the link is printed to the log (local testing)
     GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
                                 "Sign in with Google" (redirect URI <ACCOUNTS_URL>/api/auth/google/callback)
+    ADMIN_EMAILS                the admins (comma separated): they give other addresses full
+                                access (the names of the juniors in junior events) and have it
 
 One account per email: Google and the password with the same address are the same account.
 Passwords are stored as scrypt hashes; tokens (sessions, links) as SHA-256: a copy of the
@@ -73,6 +75,10 @@ create table if not exists links (
     next text not null,
     expires real not null,
     password text  -- verify: the password chosen at sign-up, the account's once verified
+);
+create table if not exists full_access (
+    email text primary key,  -- lower case: the account of this address, now or once signed up
+    added real not null
 );
 create table if not exists favourites (
     user_id integer not null references users (id) on delete cascade,
@@ -276,6 +282,26 @@ class Accounts:
             "email": u["email"], "player": u["player_id"], "favourites": favs, "since": u["prev_seen"],
             "password": u["password"] is not None, "google": u["google_sub"] is not None,
         }
+
+    # --- full access (the admins grant it: see web.py) -------------------------------------------
+
+    def full_access_list(self) -> list[dict]:
+        """The addresses with full access, in the order added, and whether a (verified) account
+        has that address yet."""
+        rows = self._query(
+            "select f.email, f.added, exists(select 1 from users u where u.email = f.email and u.verified) as account"
+            " from full_access f order by f.added"
+        )
+        return [{"email": r["email"], "added": r["added"], "account": bool(r["account"])} for r in rows]
+
+    def has_full_access(self, email: str) -> bool:
+        return bool(self._query("select 1 from full_access where email = ?", (email,)))
+
+    def grant_full_access(self, email: str) -> None:
+        self._query("insert or ignore into full_access values (?, ?)", (email, time.time()))
+
+    def revoke_full_access(self, email: str) -> None:
+        self._query("delete from full_access where email = ?", (email,))
 
     def set_player(self, uid: int, pid: int | None) -> None:
         self._query("update users set player_id = ? where id = ?", (pid, uid))

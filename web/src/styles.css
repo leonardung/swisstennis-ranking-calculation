@@ -3322,6 +3322,23 @@ dialog.match-dialog::backdrop {
   align-items: center;
   gap: 10px;
 }
+.full-access-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+.full-access-add input {
+  flex: 1 1 220px;
+}
+.full-access-remove {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 13px;
+}
+.masked-name {
+  letter-spacing: 1px;
+}
 .fav-btn {
   background: none;
   border: none;

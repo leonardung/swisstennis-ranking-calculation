@@ -161,6 +161,16 @@ export function isoDay(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/** A junior's name in a juniors' event, not shown (as on Swiss Tennis). */
+export function MaskedName() {
+  const { t } = useI18n();
+  return (
+    <span className="muted masked-name" title={t("maskedJunior")} aria-label={t("maskedJunior")}>
+      •••••• ••••••
+    </span>
+  );
+}
+
 /** A player (or a doubles pair) of a draw, linked to their page when known. */
 export function DrawNames({ side, badge = true }: { side: DrawPlayer[]; badge?: boolean }) {
   const { t } = useI18n();
@@ -172,6 +182,8 @@ export function DrawNames({ side, badge = true }: { side: DrawPlayer[]; badge?: 
           {i > 0 && <span className="muted"> / </span>}
           {p.hidden ? (
             <span className="muted">{t("hiddenPlayer")}</span>
+          ) : p.masked ? (
+            <MaskedName />
           ) : p.personId != null ? (
             <a href={playerHref(p.personId)}>{p.name}</a>
           ) : (

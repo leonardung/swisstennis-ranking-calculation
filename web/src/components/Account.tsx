@@ -7,6 +7,7 @@ import { trackEvent } from "../analytics";
 import { navigate, playerHref, showModal, useAsync } from "../hooks";
 import { useI18n } from "../i18n";
 import { AsyncStatus, Card, CategoryBadge, ClassChange, Delta, RankChange, Spinner } from "./common";
+import FullAccessCard from "./FullAccessCard";
 import { MatchTable } from "./MatchListDialog";
 import SearchBox from "./SearchBox";
 
@@ -486,6 +487,7 @@ export function AccountPage() {
       </Card>
       <FavouritesCard />
       <PasswordCard hasPassword={user.hasPassword} />
+      {user.admin && <FullAccessCard />}
       <Card title={t("accountSection")}>
         <p>
           {t("accountEmail")}: <strong>{user.email}</strong>

@@ -2,6 +2,7 @@ import type {
   Career,
   ClubDetail,
   ClubHit,
+  FullAccessEntry,
   ListedMatch,
   Highlights,
   MatchesResponse,
@@ -115,6 +116,10 @@ export const accountApi = {
   deleteAccount: () => send("DELETE", "/api/me"),
   favourite: (id: number, on: boolean) => send(on ? "PUT" : "DELETE", `/api/me/favourites/${id}`),
   myPlayers: (signal?: AbortSignal) => fetchJson<MyPlayers>("/api/me/players", signal),
+  /** admins only */
+  fullAccess: (signal?: AbortSignal) => fetchJson<{ emails: FullAccessEntry[] }>("/api/admin/full-access", signal),
+  grantFullAccess: (email: string) => send("PUT", `/api/admin/full-access/${encodeURIComponent(email)}`),
+  revokeFullAccess: (email: string) => send("DELETE", `/api/admin/full-access/${encodeURIComponent(email)}`),
   /** where "Sign in with Google" starts, coming back to `next` */
   googleHref: (next: string) => `/api/auth/google?next=${encodeURIComponent(next)}`,
 };

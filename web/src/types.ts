@@ -453,6 +453,8 @@ export interface DrawPlayer {
   class: string | null;
   /** a player who asked not to be shown: no name, no link */
   hidden?: boolean;
+  /** a junior in a juniors' event: the class only */
+  masked?: boolean;
 }
 
 export interface DrawMatch {
@@ -473,10 +475,13 @@ export interface DrawRound {
 export interface RegisteredPlayer {
   personId: number | null;
   licence: string | null;
-  name: string;
+  /** null when masked */
+  name: string | null;
   class: string | null;
   officialClass: string | null;
   C: number | null;
+  /** a junior in a juniors' event: the classes only (no name, licence, link or C) */
+  masked?: boolean;
 }
 
 export interface TournamentEventDetail {
@@ -494,6 +499,8 @@ export interface TournamentEventDetail {
   applicants: number | null;
   players: RegisteredPlayer[];
   draw: { rounds: DrawRound[] } | null;
+  /** a juniors' event seen without full access: the players' classes only */
+  masked?: boolean;
 }
 
 export interface TournamentDetail {
@@ -588,6 +595,19 @@ export interface User {
   hasPassword: boolean;
   /** signs in with Google too */
   google: boolean;
+  /** gives full access to other addresses (ADMIN_EMAILS) */
+  admin?: boolean;
+  /** sees the juniors' names in juniors' events */
+  fullAccess?: boolean;
+}
+
+/** an address given full access by an admin */
+export interface FullAccessEntry {
+  email: string;
+  /** seconds since 1970 */
+  added: number;
+  /** an account with this address exists (verified) */
+  account: boolean;
 }
 
 /** A player on the "My favourites" card: "me" first, then the favourites. */

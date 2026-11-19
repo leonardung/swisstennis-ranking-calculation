@@ -1367,25 +1367,28 @@ class App:
         """Registrations less the hidden players'."""
         return regs[~regs["personId"].isin(list(self._hidden())).to_numpy(bool)]
 
-    def _person(self, pid: int | None, name: str | None, live: pd.DataFrame) -> dict:
+    def _person(self, pid: int | None, name: str | None, live: pd.DataFrame, masked: bool = False) -> dict:
         s = self.state
         if pid is not None and pid in self._hidden():  # a place in a draw: no name, no link
             return {"personId": None, "name": None, "class": None, "hidden": True}
+        if masked:  # a junior: the class only
+            return {"personId": None, "name": None, "class": None if pid is None else _str(live["class"].get(pid)), "masked": True}
         # the ranking's name when the player is on it: upstream names come in either order
         if pid is not None and s is not None and pid in s.people.index:
             name = s.people.at[pid, "name"]
         return {"personId": pid, "name": _str(name) or None, "class": None if pid is None else _str(live["class"].get(pid))}
 
-    def _side(self, x: pd.Series, side: str, live: pd.DataFrame) -> list[dict]:
-        """The player(s) of side a or b of a draw row; doubles names are "X / Y"."""
+    def _side(self, x: pd.Series, side: str, live: pd.DataFrame, masked: bool = False) -> list[dict]:
+        """The player(s) of side a or b of a draw row; doubles names are "X / Y". `masked`: their
+        classes only."""
         ids = [i for i in (_int(x[f"{side}1"]), _int(x[f"{side}2"])) if i is not None]
         name = _str(x[f"{side}Name"])
         if not ids:  # players without licence (from the draw)
-            return [] if name is None else [self._person(None, n, live) for n in name.split(" / ")]
+            return [] if name is None else [self._person(None, n, live, masked) for n in name.split(" / ")]
         names = (name or "").split(" / ") if len(ids) == 2 else [name]
         if len(names) != len(ids):
             names = [None] * len(ids)
-        return [self._person(i, n, live) for i, n in zip(ids, names)]
+        return [self._person(i, n, live, masked) for i, n in zip(ids, names)]
 
     def _class_of(self, s: State, r: pd.Series) -> str | None:
         """Today's class of the player (row r of s.p), else his official one."""
@@ -1585,13 +1588,19 @@ class App:
             "updated": None if t.updated is None else t.updated.isoformat(timespec="seconds"),
         }
 
-    def tournament(self, tid: int) -> dict:
+    def tournament(self, tid: int, full: bool = False) -> dict:
+        """A tournament and its events. The juniors' events show their players' classes only (no
+        name, no link, as on Swiss Tennis), unless the user has `full` access."""
         t = self.tournaments
         if tid not in t.tournaments.index:
             raise HTTPException(404, f"unknown tournament {tid}")
         r = t.tournaments.loc[tid]
         live = self._levels()
         ev = t.events[t.events["tournamentId"] == tid].sort_values(["matchTypeId", "ageCategoryId", "strong", "eventId"])
+
+        def masked(e: pd.Series) -> bool:
+            return not full and (t.ages.get(int(e["ageCategoryId"])) or {}).get("kind") == "juniors"
+
         return {
             **_tournament_summary(tid, r),
             "drawingTime": _day(r["drawingTime"]),
@@ -1607,16 +1616,17 @@ class App:
                     # passed drawing date does not mean it is published
                     "pdfUrl": _str(e["pdfUrl"]) if e["hasDraw"] else None,
                     "applicants": _int(e["applicants"]),
-                    "players": self._registered(t, int(e["eventId"]), live),
-                    "draw": self._draw(t, int(e["eventId"]), live),
+                    "players": self._registered(t, int(e["eventId"]), live, masked(e)),
+                    "draw": self._draw(t, int(e["eventId"]), live, masked(e)),
+                    "masked": masked(e),
                 }
                 for _, e in ev.iterrows()
             ],
         }
 
-    def _registered(self, t: Tournaments, eid: int, live: pd.DataFrame) -> list[dict]:
+    def _registered(self, t: Tournaments, eid: int, live: pd.DataFrame, masked: bool = False) -> list[dict]:
         """The players registered in an event, strongest first (today's C, then the official
-        class; unknown players last)."""
+        class; unknown players last). `masked`: their classes only."""
         s = self.state
         out = []
         for _, x in self._not_hidden(t.registrations.iloc[t.reg_rows.get(eid, np.array([], int))]).iterrows():
@@ -1629,10 +1639,13 @@ class App:
                 "C": None if pid is None else _num(live["C"].get(pid)),
             })
         out.sort(key=lambda p: (p["C"] is None, -(p["C"] or 0), CATEGORY_INDEX.get(p["officialClass"], 99), p["name"] or ""))
+        if masked:
+            return [{**p, "personId": None, "name": None, "masked": True, "licence": None, "C": None} for p in out]
         return out
 
-    def _draw(self, t: Tournaments, eid: int, live: pd.DataFrame) -> dict | None:
-        """The results of an event by round, first round first; None without results."""
+    def _draw(self, t: Tournaments, eid: int, live: pd.DataFrame, masked: bool = False) -> dict | None:
+        """The results of an event by round, first round first; None without results. `masked`:
+        the players' classes only."""
         d = t.draws.iloc[t.draw_rows.get(eid, np.array([], int))]
         if d.empty:
             return None
@@ -1641,8 +1654,8 @@ class App:
             matches = [
                 {
                     "slot": int(x["slot"]),
-                    "a": self._side(x, "a", live),
-                    "b": self._side(x, "b", live),
+                    "a": self._side(x, "a", live, masked),
+                    "b": self._side(x, "b", live, masked),
                     "winner": _int(x["winner"]),
                     "score": _str(x["score"]),
                     "walkover": bool(_bool(x["walkover"])),
@@ -1999,6 +2012,8 @@ def create_app(
     # local testing (ACCOUNTS_URL on this machine, e.g. http://localhost:8765): no email is sent,
     # a sign-up signs in at once (the address counts as verified), the other links go to the log
     local = accounts.hostname(base_url) in ("localhost", "127.0.0.1")
+    # they give other addresses full access, and have it (see accounts.py)
+    admins = frozenset(e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip())
 
     def accounts_on(request: Request) -> bool:
         return app.accounts is not None and request.url.hostname == accounts.hostname(base_url)
@@ -2019,6 +2034,22 @@ def create_app(
         if uid is None:
             raise HTTPException(401, "not signed in")
         return uid
+
+    def viewer(request: Request) -> str | None:
+        """The signed-in user's email (None: signed out, or no accounts at this address)."""
+        if not accounts_on(request):
+            return None
+        uid = app.accounts.user_of_session(request.cookies.get(accounts.COOKIE))
+        return None if uid is None else app.accounts.email_of(uid)
+
+    def full_access(email: str | None) -> bool:
+        return email is not None and (email in admins or app.accounts.has_full_access(email))
+
+    def admin(request: Request) -> accounts.Accounts:
+        """The store, for an admin only (401 signed out, 403 not an admin)."""
+        if app.accounts.email_of(signed_in(request)) not in admins:
+            raise HTTPException(403, "admins only")
+        return app.accounts
 
     def set_session(response: Response, token: str) -> None:
         response.set_cookie(
@@ -2197,7 +2228,30 @@ def create_app(
         return {"user": {
             "email": p["email"], "me": app.me(p["player"]), "favourites": p["favourites"],
             "hasPassword": p["password"], "google": p["google"],
+            "admin": p["email"] in admins, "fullAccess": full_access(p["email"]),
         }}
+
+    @api.get("/api/admin/full-access")
+    def full_access_list(request: Request):
+        """The addresses with full access (the admins excepted: they have it anyway)."""
+        return {"emails": admin(request).full_access_list()}
+
+    @api.put("/api/admin/full-access/{email}", status_code=204)
+    def grant_full_access(email: str, request: Request):
+        st = admin(request)
+        same_site(request)
+        email = email.strip().lower()
+        if not mail.EMAIL.fullmatch(email):
+            raise HTTPException(400, "invalid email")
+        st.grant_full_access(email)
+        return Response(status_code=204)
+
+    @api.delete("/api/admin/full-access/{email}", status_code=204)
+    def revoke_full_access(email: str, request: Request):
+        st = admin(request)
+        same_site(request)
+        st.revoke_full_access(email.strip().lower())
+        return Response(status_code=204)
 
     @api.put("/api/me")
     def set_me(body: MeUpdate, request: Request):
@@ -2379,8 +2433,8 @@ def create_app(
         return app.tournament_search(q, limit)
 
     @api.get("/api/tournaments/{tid}")
-    def tournament(tid: int):
-        return app.tournament(tid)
+    def tournament(tid: int, request: Request):
+        return app.tournament(tid, full_access(viewer(request)))
 
     @api.get("/api/players/{pid}/tournaments")
     def player_tournaments(pid: int):

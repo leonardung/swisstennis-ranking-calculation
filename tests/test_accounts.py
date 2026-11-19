@@ -73,6 +73,35 @@ def test_local_sign_up_signs_in_without_email(tmp_path, monkeypatch, mails):
     assert c.post("/api/auth/login", json={"email": "leo@example.ch", "password": PW}, headers=local).status_code == 200
 
 
+def test_admins_grant_full_access(tmp_path, monkeypatch, mails):
+    monkeypatch.setenv("ACCOUNTS_URL", SITE)
+    monkeypatch.setenv("ADMIN_EMAILS", " Boss@Example.ch, ")
+    c = TestClient(web.create_app(tmp_path, None, None))
+    c.app.state.app.state = SimpleNamespace(people=pd.DataFrame(), clubs=None)
+    sign_up(c, mails, email="leo@example.ch")
+    me = c.get("/api/me").json()["user"]
+    assert (me["admin"], me["fullAccess"]) == (False, False)
+    assert c.get("/api/admin/full-access").status_code == 403
+    assert c.put("/api/admin/full-access/x@example.ch", headers=SAME).status_code == 403
+    c.post("/api/auth/logout", headers=SAME)
+    assert c.get("/api/admin/full-access").status_code == 401
+    sign_up(c, mails, email="boss@example.ch")
+    me = c.get("/api/me").json()["user"]
+    assert (me["admin"], me["fullAccess"]) == (True, True)
+    assert c.put("/api/admin/full-access/Leo@Example.ch", headers=SAME).status_code == 204
+    assert c.put("/api/admin/full-access/new@example.ch", headers=SAME).status_code == 204  # no account yet
+    assert c.put("/api/admin/full-access/not-an-email", headers=SAME).status_code == 400
+    assert c.put("/api/admin/full-access/a@example.ch").status_code == 403  # another site's page
+    got = c.get("/api/admin/full-access").json()["emails"]
+    assert [(e["email"], e["account"]) for e in got] == [("leo@example.ch", True), ("new@example.ch", False)]
+    c.post("/api/auth/logout", headers=SAME)
+    assert log_in(c).status_code == 200 and c.get("/api/me").json()["user"]["fullAccess"] is True
+    c.post("/api/auth/logout", headers=SAME)
+    assert log_in(c, email="boss@example.ch").status_code == 200
+    assert c.delete("/api/admin/full-access/leo@example.ch", headers=SAME).status_code == 204
+    assert [e["email"] for e in c.get("/api/admin/full-access").json()["emails"]] == ["new@example.ch"]
+
+
 def test_sign_up_verify_then_password(client, mails, monkeypatch):
     assert client.get("/api/config").json()["accounts"] == {"google": False}
     assert client.get("/api/me").json() == {"user": None}
@@ -89,6 +118,7 @@ def test_sign_up_verify_then_password(client, mails, monkeypatch):
     assert client.post("/api/auth/verify", json={"token": token_of(mails[0])}, headers=SAME).status_code == 200
     assert client.get("/api/me").json() == {"user": {
         "email": "leo@example.ch", "me": None, "favourites": [], "hasPassword": True, "google": False,
+        "admin": False, "fullAccess": False,
     }}
     # every link is used up by the verification
     assert client.post("/api/auth/verify", json={"token": token_of(mails[1])}, headers=SAME).status_code == 400

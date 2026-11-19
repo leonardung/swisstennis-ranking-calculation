@@ -201,6 +201,23 @@ def test_detail_players_and_draw(client):
     assert client.get("/api/tournaments/999").status_code == 404
 
 
+def test_junior_events_show_classes_only(client):
+    """As on Swiss Tennis: in a juniors' event, the players' classes without name, link or C,
+    unless the user has full access."""
+    app = client.app.state.app
+    app.tournaments.events["ageCategoryId"] = 3  # every event: juniors (16&U)
+    ev = client.get("/api/tournaments/200").json()["events"][0]  # signed out: no full access
+    assert ev["masked"] and [p["class"] for p in ev["players"]] == ["R2", "R3", "R4", None]  # still strongest first
+    assert ev["players"][0] == {"personId": None, "name": None, "class": "R2", "licence": None, "officialClass": "R2", "C": None, "masked": True}
+    assert ev["players"][-1]["name"] is None  # a player without licence too
+    final = client.get("/api/tournaments/300").json()["events"][0]["draw"]["rounds"][1]["matches"][0]
+    assert final["a"] == [{"personId": None, "name": None, "class": "R2", "masked": True}] and final["score"] == "6-2 3-6 10-8"
+    full = app.tournament(200, full=True)["events"][0]
+    assert not full["masked"] and full["players"][0]["name"] == "P2"
+    app.tournaments.events["ageCategoryId"] = 7  # seniors: shown
+    assert not client.get("/api/tournaments/200").json()["events"][0]["masked"]
+
+
 def test_hidden_player_in_tournaments(client):
     """Player 3 hidden: not in the registrations, anonymous in the draw, his matches left out
     of his opponents' results (the round reached stays)."""
