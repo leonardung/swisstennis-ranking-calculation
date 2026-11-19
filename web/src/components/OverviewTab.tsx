@@ -236,8 +236,22 @@ function CareerCard({ playerId }: { playerId: number }) {
               <strong>{c.last_year! - c.first_year! + 1}</strong>
               <span>{t("careerYears", { from: c.first_year!, to: c.last_year!, n: c.seasons })}</span>
             </div>
+            <div className="summary-item">
+              <strong>{fmtInt(c.competitions, locale)}</strong>
+              <span>{t("careerCompetitions")}</span>
+            </div>
+            {c.best_class && (
+              <div className="summary-item">
+                <strong>
+                  <Standing cls={c.best_class.class} rank={c.best_class.rank} />
+                </strong>
+                <span>{t("careerBestClass", { date: fmtDate(c.best_class.date, locale) })}</span>
+              </div>
+            )}
           </div>
           <CareerWins title={t("bestWins")} wins={c.best_wins} />
+          <CareerWins title={t("strongestThen")} wins={c.strongest_then ? [c.strongest_then] : []} results />
+          <CareerWins title={t("strongestNow")} wins={c.strongest_now ? [c.strongest_now] : []} results />
           <CareerWins title={t("firstWins")} wins={c.first_wins} />
         </>
       )}
@@ -245,8 +259,8 @@ function CareerCard({ playerId }: { playerId: number }) {
   );
 }
 
-/** Wins, each with the opponent's category then beside it. */
-function CareerWins({ title, wins }: { title: string; wins: CareerWin[] }) {
+/** Wins (or matches: `results` marks each win or loss), each with the opponent's category beside it. */
+function CareerWins({ title, wins, results }: { title: string; wins: CareerWin[]; results?: boolean }) {
   if (wins.length === 0) return null;
   return (
     <div className="career-wins">
@@ -255,7 +269,7 @@ function CareerWins({ title, wins }: { title: string; wins: CareerWin[] }) {
         {wins.map((w) => (
           <li key={`${w.date}-${w.opponent.id ?? w.opponent.name}`}>
             <CategoryBadge cls={w.opponent.class} />
-            <CareerWinLine w={w} />
+            <CareerWinLine w={w} result={results} />
           </li>
         ))}
       </ul>
@@ -264,11 +278,12 @@ function CareerWins({ title, wins }: { title: string; wins: CareerWin[] }) {
 }
 
 /** A win (its category is shown beside): the opponent's rank then, score, date, tournament and the player then. */
-function CareerWinLine({ w }: { w: CareerWin }) {
+function CareerWinLine({ w, result }: { w: CareerWin; result?: boolean }) {
   const { t, locale } = useI18n();
   return (
     <div className="career-win">
       <span className="hl-who">
+        {result && <span className={w.result === "win" ? "pos" : "neg"}>{t(w.result)}</span>}
         {w.opponent.rank != null && <small className="muted">#{fmtInt(w.opponent.rank, locale)}</small>}
         {w.opponent.id != null ? <a href={playerHref(w.opponent.id)}>{w.opponent.name}</a> : w.opponent.name}
         <span className="mono small">{w.score}</span>

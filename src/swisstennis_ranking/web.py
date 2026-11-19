@@ -1341,8 +1341,18 @@ class App:
         return stats.match_list(self._with_categories(s, m, pid))
 
     def career(self, pid: int) -> dict:
+        """stats.career(), the opponents' standing today (the official list in force, else
+        today's) and the player's best standing on a published list (category, then rank)."""
+        s = self.s()
         m, _ = self._stats_matches(pid, "all")
-        return stats.career(m)
+        ids = m["adversaryPersonId"].dropna().astype(int).unique()
+        off = self._officials(s, ids)[["classification", "rank"]].rename(columns={"classification": "class"})
+        today = s.p.loc[s.p["on_list"].to_numpy(bool), ["personId", "class", "rank"]].set_index("personId")
+        out = stats.career(m, off.combine_first(today.reindex(ids)))
+        own = s.lists_of([pid]).assign(day=lambda h: h["date"].dt.normalize()).sort_values("date")
+        best = stats.strongest(own.rename(columns={"date": "listed", "day": "date"}), "classification", "rank")
+        out["best_class"] = None if best is None else {"class": _str(best["classification"]), "rank": _int(best["rank"]), "date": best["date"].date().isoformat()}
+        return out
 
     # --- tournaments -------------------------------------------------------------------------
 

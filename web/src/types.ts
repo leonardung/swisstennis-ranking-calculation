@@ -277,6 +277,7 @@ export interface CareerWin {
   opponent: OpponentRef;
   own: Standing;
   score: string;
+  result: "win" | "loss";
   opponent_value?: number | null;
 }
 
@@ -292,6 +293,13 @@ export interface Career {
   best_wins: CareerWin[];
   /** the first win against each category (N1 to R8) */
   first_wins: CareerWin[];
+  /** tournaments, and interclub leagues and other unnumbered competitions per year */
+  competitions: number;
+  /** the best standing on a published list (category, then rank) */
+  best_class: { class: string | null; rank: number | null; date: string } | null;
+  /** the strongest opponent played (no walkover): by the category at the match, by today's */
+  strongest_then: CareerWin | null;
+  strongest_now: CareerWin | null;
 }
 
 export interface MoveUp {

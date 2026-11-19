@@ -207,9 +207,28 @@ def _valued(m: pd.DataFrame) -> pd.DataFrame:
     return m.assign(value=value).dropna(subset=["value"])
 
 
-def career(m: pd.DataFrame) -> dict:
+def competitions(m: pd.DataFrame) -> int:
+    """The competitions of result rows: a tournament (its name starts with its number), else a
+    name per year (an interclub league, a tournament abroad)."""
+    name = m["tournamentName"].fillna("").astype(str).str.strip()
+    return int(name.where(name.str.match(r"\d+ "), name + "|" + m["date"].dt.year.astype(str)).nunique())
+
+
+def strongest(m: pd.DataFrame, cls: str, rank: str) -> pd.Series | None:
+    """The row of `m` whose `cls` column is the best category (then the best `rank`, then the
+    latest); None without one."""
+    level = m[cls].map({c: i for i, c in enumerate(CATEGORIES)})
+    m = m.assign(_level=level, _rank=m[rank]).dropna(subset=["_level"])
+    if m.empty:
+        return None
+    return m.sort_values(["_level", "_rank", "date"], ascending=[True, True, False], na_position="last", kind="stable").iloc[0]
+
+
+def career(m: pd.DataFrame, current: pd.DataFrame | None = None) -> dict:
     """A player's whole career (describe()d and with_categories()d matches, in date order):
-    matches, first and last year, the best wins and the first win against each category."""
+    matches, competitions, first and last year, the best wins, the first win against each
+    category and the strongest opponent played (not a walkover): by the category then and, with
+    `current` (index personId: class, rank, the opponents' standing today), by today's."""
     wins = m[(m["result"] == "win") & (m["how"] != "walkover")]
     best = _valued(wins).nlargest(CAREER_BEST_WINS, "value")
 
@@ -221,7 +240,20 @@ def career(m: pd.DataFrame) -> dict:
             "opponent": opponent,
             "own": own,
             "score": r["score"],
+            "result": r["result"],
         }
+
+    played = m[m["how"] != "walkover"]
+    then = strongest(played, "opp_class", "opp_rank")
+    now = None
+    if current is not None and not played.empty:
+        known = played.dropna(subset=["adversaryPersonId"])
+        cur = current.reindex(known["adversaryPersonId"].astype(int).to_numpy())
+        now = strongest(known.assign(now_class=cur["class"].to_numpy(), now_rank=cur["rank"].to_numpy()), "now_class", "now_rank")
+    strongest_now = None
+    if now is not None:
+        strongest_now = row(now)
+        strongest_now["opponent"] |= {"class": _str(now["now_class"]), "rank": _id(now["now_rank"])}
 
     firsts = wins[wins["opp_class"].isin(CATEGORIES[:-1])].drop_duplicates("opp_class")
     firsts = firsts.sort_values("opp_class", key=lambda c: c.map(CATEGORIES.index))
@@ -235,6 +267,9 @@ def career(m: pd.DataFrame) -> dict:
         "seasons": int(years.nunique()),
         "best_wins": [{**row(r), "opponent_value": _num(r["value"])} for _, r in best.iterrows()],
         "first_wins": [row(r) for _, r in firsts.iterrows()],
+        "competitions": competitions(m),
+        "strongest_then": None if then is None else row(then),
+        "strongest_now": strongest_now,
     }
 
 

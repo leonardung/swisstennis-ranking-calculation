@@ -221,14 +221,23 @@ def test_career_and_ranks_at_the_time():
     history = pd.DataFrame({"personId": [1, 2, 1, 2], "date": pd.to_datetime(["2025-04-01"] * 2 + ["2026-04-01"] * 2),
                             "classification": ["R5", "R4", "R3", "R2"], "rank": [900, 700, 300, 150],
                             "W": [4.5, 5.5, 6.5, 7.5]})
+    m = m.assign(adversaryPersonId=pd.array([3, 2, 2, 2], "Int64"), tournamentName=["1 Cup", "1 Cup", "IC 2L", "IC 2L"])
+    history = pd.concat([history, pd.DataFrame({"personId": [3], "date": pd.to_datetime(["2025-04-01"]),
+                                                "classification": ["R6"], "rank": [1200], "W": [3.5]})])
     m = stats.with_categories(stats.describe(m), history, 1)
-    c = stats.career(m)
+    c = stats.career(m, pd.DataFrame({"class": ["R1", "R7"], "rank": [80, 2000]}, index=[3, 2]))
+    # a numbered tournament once, an interclub league per year
+    assert c["competitions"] == 2
+    # the strongest opponent then (R2, the walkover against it left out) and today (R1 now)
+    assert (c["strongest_then"]["date"], c["strongest_then"]["opponent"]["class"]) == ("2026-05-01", "R2")
+    assert (c["strongest_now"]["date"], c["strongest_now"]["opponent"]) == ("2025-05-01", {"id": 3, "name": "A B", "class": "R1", "rank": 80})
+    assert c["strongest_now"]["result"] == "win"
     assert (c["matches"], c["won"], c["lost"], c["first_year"], c["last_year"], c["seasons"]) == (4, 3, 1, 2025, 2026, 2)
     # the walkover does not count as a win
-    assert [(w["date"], w["opponent"]["rank"]) for w in c["best_wins"]] == [("2026-05-01", 150), ("2025-05-01", 700)]
-    assert [(w["opponent"]["class"], w["date"]) for w in c["first_wins"]] == [("R2", "2026-05-01"), ("R4", "2025-05-01")]
+    assert [(w["date"], w["opponent"]["rank"]) for w in c["best_wins"]] == [("2026-05-01", 150), ("2025-05-01", 1200)]
+    assert [(w["opponent"]["class"], w["date"]) for w in c["first_wins"]] == [("R2", "2026-05-01"), ("R6", "2025-05-01")]
     first = stats.match_list(m)[-1]
-    assert first["own"] == {"class": "R5", "rank": 900} and first["opponent"]["rank"] == 700
+    assert first["own"] == {"class": "R5", "rank": 900} and first["opponent"]["rank"] == 1200
 
 
 def _league_app(tmp_path):
