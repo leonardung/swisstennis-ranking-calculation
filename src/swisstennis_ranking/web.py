@@ -2010,7 +2010,8 @@ def create_app(
     base_url = (os.environ.get("ACCOUNTS_URL") or "").rstrip("/")
     secure = base_url.startswith("https:")
     # local testing (ACCOUNTS_URL on this machine, e.g. http://localhost:8765): no email is sent,
-    # a sign-up signs in at once (the address counts as verified), the other links go to the log
+    # a sign-up signs in at once (the address counts as verified; an existing account gets the
+    # password), the other links go to the log
     local = accounts.hostname(base_url) in ("localhost", "127.0.0.1")
     # they give other addresses full access, and have it (see accounts.py)
     admins = frozenset(e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip())
@@ -2092,7 +2093,8 @@ def create_app(
     def sign_up(body: SignUp, request: Request):
         """Create an account: an email verifies the address, the password works from then on.
         The answer is the same whether the address has an account already (that one gets an
-        email to reset its password instead). Local testing: signed in at once ({"next"})."""
+        email to reset its password instead). Local testing: signed in at once ({"next"}), an
+        existing account with this password."""
         st = store(request)
         same_site(request)
         email = address(request, body.email)
@@ -2100,9 +2102,9 @@ def create_app(
         if known is not None and st.mailed_recently(known, body.password):
             return Response(status_code=204)  # the earlier email's link still works
         uid, token = st.sign_up(email, body.password, body.next or "/")
-        if token and local:
-            uid, next_ = st.use_link(token, "verify")
-            return signed_in_response(st, uid, {"next": next_})
+        if local:  # the address's account (new, or existing: it gets this password)
+            uid, next_ = st.use_link(token, "verify") if token else st.use_link(st.reset_link(uid), "reset", body.password)
+            return signed_in_response(st, uid, {"next": next_ if token else body.next or "/"})
         if token:
             send("verify", email, "/login", token, body.lang)
         else:

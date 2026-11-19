@@ -71,6 +71,12 @@ def test_local_sign_up_signs_in_without_email(tmp_path, monkeypatch, mails):
     assert c.get("/api/me").json()["user"]["email"] == "leo@example.ch"
     c.post("/api/auth/logout", headers=local)
     assert c.post("/api/auth/login", json={"email": "leo@example.ch", "password": PW}, headers=local).status_code == 200
+    # an existing account (e.g. made with Google, no password): signing up again sets the password
+    c.post("/api/auth/logout", headers=local)
+    r = c.post("/api/auth/signup", json={"email": "leo@example.ch", "password": "another one", "next": "/"}, headers=local)
+    assert r.status_code == 200 and mails == [] and c.get("/api/me").json()["user"]["email"] == "leo@example.ch"
+    c.post("/api/auth/logout", headers=local)
+    assert c.post("/api/auth/login", json={"email": "leo@example.ch", "password": "another one"}, headers=local).status_code == 200
 
 
 def test_admins_grant_full_access(tmp_path, monkeypatch, mails):
