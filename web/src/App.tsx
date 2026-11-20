@@ -101,7 +101,9 @@ export default function App() {
             ? "tournaments"
             : route.page === "clubs" || route.page === "club"
               ? "clubs"
-              : "players"
+              : route.page === "rankings"
+                ? "rankings"
+                : "players"
         }
       />
       <MovedBanner />

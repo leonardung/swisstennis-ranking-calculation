@@ -6,10 +6,11 @@ import SearchBox, { ClubSearchBox, TournamentSearchBox } from "./SearchBox";
 import FeedbackButton from "./FeedbackButton";
 import { AccountButton } from "./Account";
 
-export type Section = "players" | "tournaments" | "clubs";
+export type Section = "players" | "rankings" | "tournaments" | "clubs";
 
-const SECTIONS: [Section, string, "navPlayers" | "navTournaments" | "navClubs"][] = [
+const SECTIONS: [Section, string, "navPlayers" | "navRankings" | "navTournaments" | "navClubs"][] = [
   ["players", "/", "navPlayers"],
+  ["rankings", "/rankings", "navRankings"],
   ["tournaments", "/tournaments", "navTournaments"],
   ["clubs", "/clubs", "navClubs"],
 ];

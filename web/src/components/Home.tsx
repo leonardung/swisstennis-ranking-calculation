@@ -81,9 +81,6 @@ export default function Home({ meta }: { meta: Meta | null }) {
         <h1>{t("homeTitle")}</h1>
         <p className="muted">{t("homeText")}</p>
         <SearchBox className="hero-search" autoFocus onSelect={(p) => navigate(playerHref(p.id))} />
-        <p className="small">
-          <a href="/rankings">{t("rankingsLink")}</a>
-        </p>
       </section>
       {meta && (
         <section className="meta-grid">

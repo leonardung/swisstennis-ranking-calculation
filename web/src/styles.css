@@ -1350,6 +1350,38 @@ th.num .sort-btn {
 }
 
 /* ---------- Responsive ---------- */
+/* the header: no tagline beside a search (it would leave the search too narrow), fewer words
+   as it narrows, then the search on a line of its own */
+.header-inner:has(.header-search) .brand-text small {
+  display: none;
+}
+.freshness {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+@media (max-width: 1240px) {
+  .brand-text small {
+    display: none;
+  }
+}
+@media (max-width: 1200px) {
+  .freshness-text {
+    display: none;
+  }
+}
+@media (max-width: 1024px) {
+  .header-inner {
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .header-search {
+    order: 3;
+    flex-basis: 100%;
+    max-width: none;
+  }
+}
 @media (max-width: 960px) {
   .overview,
   .sim-grid,
