@@ -38,6 +38,8 @@ export default function RankingsPage() {
   const st = useAsync((s) => api.rankings(q, s), [key]);
   // the filters keep their choices while the next page loads
   const r = st.data;
+  const lists = r?.lists;
+  const at = lists ? lists.indexOf(list) : -1;
 
   // the account's player may come after the first render: his gender is the default
   useEffect(() => {
@@ -68,13 +70,22 @@ export default function RankingsPage() {
         <div className="filter-row">
           <Field label={t("rankingsList")}>
             {(id) => (
-              <select id={id} className="input-sm" value={list} onChange={(e) => filter(setList)(e.target.value)}>
-                {(r?.lists ?? [list]).map((l) => (
-                  <option key={l} value={l}>
-                    {l === "today" ? t("rankingsToday") : fmtDate(l, locale)}
-                  </option>
-                ))}
-              </select>
+              <span className="rankings-list">
+                {/* the lists are the latest first: the older one is the next */}
+                <button type="button" className="btn btn-ghost" disabled={!lists || at < 0 || at >= lists.length - 1} onClick={() => filter(setList)(lists![at + 1])} aria-label={t("rankingsOlder")} title={t("rankingsOlder")}>
+                  ◀
+                </button>
+                <select id={id} className="input-sm" value={list} onChange={(e) => filter(setList)(e.target.value)}>
+                  {(lists ?? [list]).map((l) => (
+                    <option key={l} value={l}>
+                      {l === "today" ? t("rankingsToday") : fmtDate(l, locale)}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="btn btn-ghost" disabled={!lists || at <= 0} onClick={() => filter(setList)(lists![at - 1])} aria-label={t("rankingsNewer")} title={t("rankingsNewer")}>
+                  ▶
+                </button>
+              </span>
             )}
           </Field>
           <div className="field">
@@ -91,7 +102,7 @@ export default function RankingsPage() {
           <Field label={t("rankingsBirth")}>
             {(id) => (
               <select id={id} className="input-sm" value={birth} onChange={(e) => filter(setBirth)(e.target.value)}>
-                <option value={ALL}>{t("rankingsAllYears")}</option>
+                <option value={ALL}>{t("rankingsAll")}</option>
                 {birthOptions.map((y) => (
                   <option key={y} value={y}>
                     {y}
@@ -100,10 +111,10 @@ export default function RankingsPage() {
               </select>
             )}
           </Field>
-          <Field label={t("rankingsAge")}>
+          <Field label={t("rankingsAgeCat")}>
             {(id) => (
               <select id={id} className="input-sm" value={age} onChange={(e) => filter(setAge)(e.target.value)}>
-                <option value={ALL}>{t("rankingsAllAges")}</option>
+                <option value={ALL}>{t("rankingsAll")}</option>
                 {(r?.ages ?? (age !== ALL ? [age] : [])).map((a) => (
                   <option key={a} value={a}>
                     {a}
@@ -115,7 +126,7 @@ export default function RankingsPage() {
           <Field label={t("category")}>
             {(id) => (
               <select id={id} className="input-sm" value={cls} onChange={(e) => filter(setCls)(e.target.value)}>
-                <option value={ALL}>{t("rankingsAllClasses")}</option>
+                <option value={ALL}>{t("rankingsAll")}</option>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -127,7 +138,7 @@ export default function RankingsPage() {
           <Field label={t("clubCanton")}>
             {(id) => (
               <select id={id} className="input-sm" value={canton} onChange={(e) => filter(setCanton)(e.target.value)}>
-                <option value={ALL}>{t("rankingsAllCantons")}</option>
+                <option value={ALL}>{t("rankingsAll")}</option>
                 {(r?.cantons ?? (canton !== ALL ? [canton] : [])).map((c) => (
                   <option key={c} value={c}>
                     {c}

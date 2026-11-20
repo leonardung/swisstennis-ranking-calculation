@@ -25,7 +25,6 @@ export default function Header({ meta, showSearch, section }: { meta: Meta | nul
           <img className="brand-logo" src="/logo.svg" alt="" width={32} height={32} />
           <span className="brand-text">
             <strong>{t("appName")}</strong>
-            <small>{t("appTagline")}</small>
           </span>
         </a>
         <nav className="section-switch" aria-label={t("navSections")}>
@@ -35,14 +34,16 @@ export default function Header({ meta, showSearch, section }: { meta: Meta | nul
             </a>
           ))}
         </nav>
-        {showSearch &&
-          (section === "tournaments" ? (
-            <TournamentSearchBox className="header-search" onSelect={(x) => navigate(tournamentHref(x.id))} />
-          ) : section === "clubs" ? (
-            <ClubSearchBox className="header-search" />
-          ) : (
-            <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />
-          ))}
+        {/* where there is no search, its place is kept: the header does not move between pages */}
+        {!showSearch ? (
+          <div className="header-search header-search-empty" />
+        ) : section === "tournaments" ? (
+          <TournamentSearchBox className="header-search" onSelect={(x) => navigate(tournamentHref(x.id))} />
+        ) : section === "clubs" ? (
+          <ClubSearchBox className="header-search" />
+        ) : (
+          <SearchBox className="header-search" onSelect={(p) => navigate(playerHref(p.id))} />
+        )}
         <div className="header-side">
           {meta && (
             <div className="freshness" title={freshnessTitle()}>

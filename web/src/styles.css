@@ -308,10 +308,6 @@ main.container {
 .brand-text strong {
   font-size: 16px;
 }
-.brand-text small {
-  color: var(--muted);
-  font-size: 11.5px;
-}
 .header-search {
   flex: 1;
   max-width: 460px;
@@ -1350,19 +1346,11 @@ th.num .sort-btn {
 }
 
 /* ---------- Responsive ---------- */
-/* the header: no tagline beside a search (it would leave the search too narrow), fewer words
-   as it narrows, then the search on a line of its own */
-.header-inner:has(.header-search) .brand-text small {
-  display: none;
-}
+/* the header: the same on every page (the tabs do not move), fewer words as it narrows, then
+   the search on a line of its own */
 .freshness {
   flex-shrink: 0;
   white-space: nowrap;
-}
-@media (max-width: 1240px) {
-  .brand-text small {
-    display: none;
-  }
 }
 @media (max-width: 1200px) {
   .freshness-text {
@@ -1370,8 +1358,12 @@ th.num .sort-btn {
   }
 }
 @media (max-width: 1024px) {
+  .header-search-empty {
+    display: none;
+  }
   .header-inner {
     flex-wrap: wrap;
+    align-content: flex-start; /* the first row at the top, with or without the search's row */
     gap: 8px 12px;
     padding-top: 8px;
     padding-bottom: 8px;
@@ -1402,9 +1394,6 @@ th.num .sort-btn {
     gap: 8px 12px;
     padding-top: 8px;
     padding-bottom: 8px;
-  }
-  .brand-text small {
-    display: none;
   }
   .header-side {
     margin-left: auto;
@@ -3475,6 +3464,14 @@ dialog.match-dialog::backdrop {
 }
 .rankings-page .seg {
   flex-wrap: nowrap;
+}
+.rankings-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.rankings-list .btn {
+  padding: 4px 8px;
 }
 .rankings-club {
   display: inline-flex;
