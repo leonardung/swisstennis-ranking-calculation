@@ -442,8 +442,10 @@ def test_rankings_and_places_among_players_born_the_same_year(tmp_path):
     assert [p["id"] for p in app.rankings("M", "2024-10-01", canton="GE", offset=1)["players"]] == [2]
     r = app.rankings("M", "2024-10-01", club=10, age="16&U")
     assert (r["total"], r["club"], r["players"][0]["club"]) == (1, {"id": 10, "name": "TC A"}, "TC A")
+    assert [p["id"] for p in app.rankings("M", "2024-10-01", cls="R5")["players"]] == [2]
+    assert [p["id"] for p in app.rankings("M", "2024-10-01", cls="R1")["players"]] == []
     assert app.rankings("M")["list"] == "today" and app.rankings("M")["total"] == 4  # today's calculated list
-    for kw in ({"gender": "X"}, {"gender": "M", "list_": "2020-01-01"}):
+    for kw in ({"gender": "X"}, {"gender": "M", "list_": "2020-01-01"}, {"gender": "M", "cls": "R10"}):
         with pytest.raises(HTTPException):
             app.rankings(**kw)
     # the player's place among the men born in 2010 on each list, and today

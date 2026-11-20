@@ -4,7 +4,7 @@ import { api } from "../api";
 import { trackView } from "../analytics";
 import { playerHref, useAsync, useUrlState } from "../hooks";
 import { useI18n } from "../i18n";
-import { fmt3, fmtDate, fmtInt } from "../format";
+import { CATEGORIES, fmtDate, fmtInt } from "../format";
 import { AsyncStatus, Card, CategoryBadge, Field, Pager, Seg } from "./common";
 import { ClubSearchBox } from "./SearchBox";
 
@@ -19,7 +19,8 @@ export default function RankingsPage() {
   const me = useAccount().user?.me;
   const [list, setList] = useUrlState("list", "today");
   const [gender, setGender] = useUrlState("gender", me?.gender === "F" ? "F" : "M");
-  const [birth, setBirth] = useUrlState("birth", me?.birth ? String(me.birth) : ALL);
+  const [birth, setBirth] = useUrlState("birth", ALL);
+  const [cls, setCls] = useUrlState("class", ALL);
   const [age, setAge] = useUrlState("age", ALL);
   const [canton, setCanton] = useUrlState("canton", ALL);
   const [club, setClub] = useUrlState("club", "");
@@ -30,6 +31,7 @@ export default function RankingsPage() {
   const q: Record<string, string> = { gender: g, list, offset: String(offset), limit: String(PAGE) };
   if (birth !== ALL) q.birth = birth;
   if (age !== ALL) q.age = age;
+  if (cls !== ALL) q.class = cls;
   if (canton !== ALL) q.canton = canton;
   if (club) q.club = club;
   const key = new URLSearchParams(q).toString();
@@ -37,12 +39,13 @@ export default function RankingsPage() {
   // the filters keep their choices while the next page loads
   const r = st.data;
 
-  // the account's player may come after the first render: his birth year and gender are the default
-  const fromUrl = new URLSearchParams(window.location.search);
+  // the account's player may come after the first render: his gender is the default
   useEffect(() => {
-    if (me?.birth && !fromUrl.has("birth")) setBirth(String(me.birth));
-    if (me?.gender === "F" && !fromUrl.has("gender")) setGender("F");
+    if (me?.gender === "F" && !new URLSearchParams(window.location.search).has("gender")) setGender("F");
   }, [me?.id]);
+  // the account's player's birth year first
+  const births = r?.births ?? (birth !== ALL ? [Number(birth)] : []);
+  const birthOptions = me?.birth && births.includes(me.birth) ? [me.birth, ...births.filter((y) => y !== me.birth)] : births;
 
   useEffect(() => {
     document.title = `${t("rankingsTitle")} · ${t("appName")}`;
@@ -89,7 +92,7 @@ export default function RankingsPage() {
             {(id) => (
               <select id={id} className="input-sm" value={birth} onChange={(e) => filter(setBirth)(e.target.value)}>
                 <option value={ALL}>{t("rankingsAllYears")}</option>
-                {(r?.births ?? (birth !== ALL ? [Number(birth)] : [])).map((y) => (
+                {birthOptions.map((y) => (
                   <option key={y} value={y}>
                     {y}
                   </option>
@@ -104,6 +107,18 @@ export default function RankingsPage() {
                 {(r?.ages ?? (age !== ALL ? [age] : [])).map((a) => (
                   <option key={a} value={a}>
                     {a}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Field label={t("category")}>
+            {(id) => (
+              <select id={id} className="input-sm" value={cls} onChange={(e) => filter(setCls)(e.target.value)}>
+                <option value={ALL}>{t("rankingsAllClasses")}</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
                   </option>
                 ))}
               </select>
@@ -131,7 +146,7 @@ export default function RankingsPage() {
                 </button>
               </span>
             ) : (
-              <ClubSearchBox className="rankings-club-search" onSelect={(c) => filter(setClub)(String(c.id))} />
+              <ClubSearchBox className="rankings-club-search" placeholder={t("rankingsClubSearch")} onSelect={(c) => filter(setClub)(String(c.id))} />
             )}
           </div>
         </div>
@@ -152,7 +167,6 @@ export default function RankingsPage() {
                       <th>{t("player")}</th>
                       <th>{t("category")}</th>
                       <th>{t("rank")}</th>
-                      <th>C</th>
                       <th title={r.before ? t("rankingsMoveTitle", { date: fmtDate(r.before, locale) }) : undefined}>±</th>
                       <th className="rk-col">{t("rankingsBorn")}</th>
                       <th className="rk-col">{t("rankingsAge")}</th>
@@ -170,7 +184,6 @@ export default function RankingsPage() {
                           <CategoryBadge cls={p.class} size="sm" />
                         </td>
                         <td className="mono">{fmtInt(p.rank, locale)}</td>
-                        <td className="mono">{fmt3(p.C)}</td>
                         <td>
                           <Move place={p.place} before={p.before} hasBefore={r.before != null} />
                         </td>

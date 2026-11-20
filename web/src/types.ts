@@ -668,7 +668,6 @@ export interface Rankings {
     name: string;
     class: string | null;
     rank: number | null;
-    C: number | null;
     /** the place among the same filter on the list before (none: not on it) */
     before: number | null;
     age: string | null;

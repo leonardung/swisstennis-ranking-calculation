@@ -1318,14 +1318,16 @@ class App:
 
     def rankings(
         self, gender: str, list_: str = "today", birth: int | None = None, age: str | None = None,
-        canton: str | None = None, club: int | None = None, offset: int = 0, limit: int = 50,
+        canton: str | None = None, club: int | None = None, offset: int = 0, limit: int = 50, cls: str | None = None,
     ) -> dict:
         """A list (today's calculated one or a published one) of one gender, filtered by birth
-        year, licence age category, canton and club (today's: also on an older list), each
-        player's place among those kept; and the choices of each filter."""
+        year, licence age category, canton, club (today's: also on an older list) and category
+        on that list, each player's place among those kept; and the choices of each filter."""
         s = self.s()
         if gender not in ("M", "F"):
             raise HTTPException(400, "gender must be M or F")
+        if cls is not None and cls not in CATEGORY_INDEX:
+            raise HTTPException(400, f"class must be one of {', '.join(evaluate.CATEGORIES)}")
         days = {d.date().isoformat(): d for d in s.list_dates}
         if list_ != "today" and list_ not in days:
             raise HTTPException(400, f"list must be today or one of {', '.join(days)}")
@@ -1339,6 +1341,8 @@ class App:
                 keep &= (people["birth"] == birth).to_numpy(bool)
             if age:
                 keep &= (people["age"] == age).to_numpy(bool)
+            if cls:
+                keep &= (d["class"] == cls).to_numpy(bool)
             if canton:
                 keep &= d.index.isin(clubs.loc[clubs["canton"].eq(canton).to_numpy(bool), "personId"])
             if club is not None:
@@ -1371,7 +1375,6 @@ class App:
                     "name": s.people.at[pid, "name"],
                     "class": _str(r["class"]),
                     "rank": _int(r["rank"]),
-                    "C": _num(r["C"]),
                     # the place among the same players on the list before (none: not on it)
                     "before": _int(prev.get(pid)),
                     "age": _str(s.people.at[pid, "age"]),
@@ -2544,8 +2547,9 @@ def create_app(
     def rankings(
         gender: str, list: str = "today", birth: int | None = None, age: str | None = None, canton: str | None = None,
         club: int | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200),
+        cls: str | None = Query(None, alias="class"),
     ):
-        return app.rankings(gender, list, birth, age, canton, club, offset, limit)
+        return app.rankings(gender, list, birth, age, canton, club, offset, limit, cls)
 
     @api.get("/api/players/{pid}/cohort")
     def player_cohort(pid: int):

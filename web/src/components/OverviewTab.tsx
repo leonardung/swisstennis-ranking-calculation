@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { useChartColors } from "../chartTheme";
 import { playerHref, rankingsHref, useAsync, useUrlState } from "../hooks";
@@ -190,23 +190,35 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
                     allowDecimals={false}
                   />
                 ) : (
-                  <YAxis
-                    reversed
-                    scale="log"
-                    stroke={colors.axis}
-                    tick={{ fontSize: 12 }}
-                    tickLine={false}
-                    axisLine={false}
-                    width={44}
-                    domain={["dataMin", "dataMax"]}
-                    allowDecimals={false}
-                  />
+                  <>
+                    {/* the place among the players born the same year (left), the rank among all (right) */}
+                    {(["place", "rank"] as const).map((id) => (
+                      <YAxis
+                        key={id}
+                        yAxisId={id}
+                        orientation={id === "place" ? "left" : "right"}
+                        reversed
+                        scale="log"
+                        stroke={id === "place" ? colors.s2 : colors.s1}
+                        tick={{ fontSize: 12 }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={id === "place" ? 44 : 56}
+                        domain={["dataMin", "dataMax"]}
+                        allowDecimals={false}
+                      />
+                    ))}
+                    <Legend verticalAlign="top" height={28} iconType="plainline" itemSorter={null} />
+                  </>
                 )}
-                <Tooltip content={<HistoryTooltip showRank={showRank} />} />
+                <Tooltip content={<HistoryTooltip showRank={showRank} birth={cohort?.birth} />} />
                 {showRank ? (
                   <Line type="monotone" dataKey="rank" name={t("rank")} stroke={colors.s1} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls isAnimationActive={false} />
                 ) : (
-                  <Line type="monotone" dataKey="place" name={t("peerPlace")} stroke={colors.s2} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls isAnimationActive={false} />
+                  <>
+                    <Line yAxisId="place" type="monotone" dataKey="place" name={t("chartPeers", { year: cohort?.birth ?? "" })} stroke={colors.s2} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls isAnimationActive={false} />
+                    <Line yAxisId="rank" type="monotone" dataKey="rank" name={t("rankAll")} stroke={colors.s1} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls isAnimationActive={false} />
+                  </>
                 )}
               </LineChart>
             </ResponsiveContainer>
@@ -321,7 +333,7 @@ function CareerWinLine({ w, result }: { w: CareerWin; result?: boolean }) {
 
 const positive = (v: number | null | undefined) => (v != null && v > 0 ? v : null);
 
-function HistoryTooltip({ active, payload, showRank }: { active?: boolean; payload?: { payload: Point }[]; showRank: boolean }) {
+function HistoryTooltip({ active, payload, showRank, birth }: { active?: boolean; payload?: { payload: Point }[]; showRank: boolean; birth?: number | null }) {
   const { t, locale } = useI18n();
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
@@ -335,10 +347,15 @@ function HistoryTooltip({ active, payload, showRank }: { active?: boolean; paylo
           {t("rank")}: <strong>{fmtInt(p.rank, locale)}</strong>
         </div>
       ) : (
-        <div>
-          {t("peerPlace")}: <strong>{fmtInt(p.place, locale)}</strong>
-          {p.of != null && <span className="muted"> / {fmtInt(p.of, locale)}</span>}
-        </div>
+        <>
+          <div>
+            {t("chartPeers", { year: birth ?? "" })}: <strong>{fmtInt(p.place, locale)}</strong>
+            {p.of != null && <span className="muted"> / {fmtInt(p.of, locale)}</span>}
+          </div>
+          <div>
+            {t("rankAll")}: <strong>{fmtInt(p.rank, locale)}</strong>
+          </div>
+        </>
       )}
     </div>
   );
