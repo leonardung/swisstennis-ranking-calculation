@@ -80,8 +80,6 @@ LOGIN_MAILS_PER_HOUR = 5
 LOGIN_MAILS_PER_ADDRESS_HOUR = 3
 LOGIN_CHECKS_PER_HOUR = 30
 LOGIN_CHECKS_PER_ADDRESS_HOUR = 10
-# the birth year shown first: the latest with this many players on today's list
-COHORT_DEFAULT_MIN = 50
 TOURNAMENT_SORTS = ("date", "-date", "distance", "players", "fee", "-fee", "inRange", "suggested")
 TOURNAMENT_WHEN = ("upcoming", "live", "past")
 AGE_KINDS = ("actives", "juniors", "seniors")  # the order of the age options
@@ -166,7 +164,7 @@ class PerfSample(BaseModel):
     page load) until its data is shown."""
 
     kind: Literal["initial", "navigation"]
-    page: str = Field(pattern=r"^(home|tournaments?|clubs?|cohorts|perf|login|reset|account|privacy|player/[a-z]{1,12})$")
+    page: str = Field(pattern=r"^(home|tournaments?|clubs?|rankings|perf|login|reset|account|privacy|player/[a-z]{1,12})$")
     ms: float = Field(ge=0, le=120_000)
 
 
@@ -222,6 +220,8 @@ class State:
     # the players not shown (see read_hidden): not in `people` (no name, page or search hit),
     # their results not in `match_rows` (nor anyone's results against them), anonymous in draws
     hidden: frozenset[int] = frozenset()
+    # the published lists (see evaluate.publications) up to today, the latest first
+    list_dates: tuple[pd.Timestamp, ...] = ()
 
 
 def read_hidden(data_dir: Path) -> frozenset[int]:
@@ -366,6 +366,7 @@ def load_state(data_dir: Path) -> State:
         people=people,
         clubs=clubs,
         club_list=club_list,
+        list_dates=tuple(reversed(lists)),
         official_date=official_date,
         official_class=official["classification"],
         hidden=hidden,
@@ -617,6 +618,12 @@ def _in_range(t: Tournaments, level: pd.Series, events: pd.Series, strong: int, 
 def _played_by(draws: pd.DataFrame, pid: int) -> np.ndarray:
     """Mask of the draw rows where `pid` played (on either side)."""
     return draws[["a1", "a2", "b1", "b2"]].eq(pid).fillna(False).any(axis=1).to_numpy(bool)
+
+
+def _age_order(age: str) -> tuple[int, int]:
+    """Licence age categories in order: juniors (10&U to 18&U), A, then seniors (35+ to 70+)."""
+    n = int(re.sub(r"\D", "", age) or 0)
+    return (0, n) if age.endswith("&U") else (1, 0) if age == "A" else (2, n)
 
 
 def entry_fee(text: pd.Series) -> pd.Series:
@@ -1286,74 +1293,118 @@ class App:
             raise HTTPException(400, f"age must be one of {', '.join(highlights.AGES)}")
         return h[age]
 
-    # --- birth years ---------------------------------------------------------------------------
+    # --- rankings ------------------------------------------------------------------------------
 
     @staticmethod
-    def _cohort(s: State, year: int, gender: str) -> pd.DataFrame:
-        """The players born in `year` of `gender` (a licence today) on the last published list of
-        each year: personId, day, classification, rank, peer (their place among them on that
-        list: by category, then rank, then C) and of (how many of them were on it)."""
-        people = s.people
-        ids = people.index[((people["birth"] == year) & (people["gender"] == gender)).to_numpy(bool)]
-        h = s.lists_of(ids)
-        h = h[h["classification"].isin(evaluate.CATEGORIES).to_numpy(bool)].assign(day=lambda h: h["date"].dt.normalize())
-        h = h[(h["day"] == h.groupby(h["day"].dt.year)["day"].transform("max")).to_numpy(bool)]
-        h = h.drop_duplicates(["personId", "day"], keep="last").assign(level=lambda h: h["classification"].map(highlights.LEVEL))
-        h = h.sort_values(["day", "level", "rank", "C"], ascending=[True, True, True, False], na_position="last", kind="stable")
-        return h.assign(peer=h.groupby("day").cumcount() + 1, of=h.groupby("day")["personId"].transform("size"))
+    def _placed(d: pd.DataFrame, by: str | None = None) -> pd.DataFrame:
+        """`d` (class, rank, C) in the order of a list: by category, then rank, then C; with each
+        row's place (per `by` group)."""
+        d = d.assign(level=d["class"].map(CATEGORY_INDEX))
+        d = d.sort_values(([by] if by else []) + ["level", "rank", "C"], ascending=([True] if by else []) + [True, True, False],
+                          na_position="last", kind="stable")
+        return d.assign(place=(d.groupby(by).cumcount() if by else pd.Series(range(len(d)), index=d.index)) + 1)
 
-    def cohort(self, year: int | None, gender: str, offset: int = 0, limit: int = 50) -> dict:
-        """The players born in `year` (by default the latest year with COHORT_DEFAULT_MIN players
-        ranked) of `gender` and, on the last list of each year, their category, rank and place
-        among them (see _cohort): the best on the latest list first (then those who left a list
-        earlier, by their last place); the birth years to choose from."""
+    @staticmethod
+    def _list(s: State, day: pd.Timestamp | None) -> pd.DataFrame:
+        """The published list of `day` (None: today's calculated one), index personId: class,
+        rank, C; the shown players with a category only."""
+        if day is None:
+            d = s.p.loc[s.p["on_list"].to_numpy(bool), ["personId", "class", "rank", "C"]]
+        else:
+            h = s.history
+            d = h.loc[(h["date"] == day).to_numpy(bool), ["personId", "classification", "rank", "C"]].rename(columns={"classification": "class"})
+        d = d.drop_duplicates("personId", keep="last").set_index("personId")
+        return d[d.index.isin(s.people.index) & d["class"].isin(evaluate.CATEGORIES).to_numpy(bool)]
+
+    def rankings(
+        self, gender: str, list_: str = "today", birth: int | None = None, age: str | None = None,
+        canton: str | None = None, club: int | None = None, offset: int = 0, limit: int = 50,
+    ) -> dict:
+        """A list (today's calculated one or a published one) of one gender, filtered by birth
+        year, licence age category, canton and club (today's: also on an older list), each
+        player's place among those kept; and the choices of each filter."""
         s = self.s()
         if gender not in ("M", "F"):
             raise HTTPException(400, "gender must be M or F")
-        births = s.people.loc[s.people["gender"].eq(gender).to_numpy(bool), "birth"].dropna().astype(int)
-        if year is None:
-            ranked = births[births.index.isin(s.p.loc[s.p["on_list"].to_numpy(bool), "personId"])].value_counts()
-            ranked = ranked[ranked >= COHORT_DEFAULT_MIN]
-            year = int(ranked.index.max()) if len(ranked) else int(births.max()) if len(births) else 2000
-        h = self._cohort(s, year, gender)
-        days = sorted(pd.to_datetime(h["day"].unique()))
-        last = h.sort_values("day", kind="stable").drop_duplicates("personId", keep="last")
-        page = last.sort_values(["day", "peer"], ascending=[False, True], kind="stable")["personId"].iloc[offset : offset + limit]
-        mine = h[h["personId"].isin(page).to_numpy(bool)]
-        cells = {(r.personId, r.day): {"class": _str(r.classification), "rank": _int(r.rank), "peer": int(r.peer)} for r in mine.itertuples()}
+        days = {d.date().isoformat(): d for d in s.list_dates}
+        if list_ != "today" and list_ not in days:
+            raise HTTPException(400, f"list must be today or one of {', '.join(days)}")
+        clubs = s.clubs if s.clubs is not None else pd.DataFrame(columns=["personId", "clubId", "club", "canton"])
+
+        def placed(day: pd.Timestamp | None) -> pd.DataFrame:
+            d = self._list(s, day)
+            people = s.people.reindex(d.index)
+            keep = (people["gender"] == gender).to_numpy(bool).copy()
+            if birth is not None:
+                keep &= (people["birth"] == birth).to_numpy(bool)
+            if age:
+                keep &= (people["age"] == age).to_numpy(bool)
+            if canton:
+                keep &= d.index.isin(clubs.loc[clubs["canton"].eq(canton).to_numpy(bool), "personId"])
+            if club is not None:
+                keep &= d.index.isin(clubs.loc[clubs["clubId"].eq(club).to_numpy(bool), "personId"])
+            return self._placed(d[keep])
+
+        # the list before: today's follows the latest published one
+        order = list(s.list_dates)
+        day = None if list_ == "today" else days[list_]
+        before = (order[0] if order else None) if day is None else next(iter(order[order.index(day) + 1 :]), None)
+        d = placed(day)
+        prev = placed(before)["place"] if before is not None else pd.Series(dtype=int)
+        page = d.iloc[offset : offset + limit]
+        mine = clubs[clubs["personId"].isin(page.index).to_numpy(bool)].drop_duplicates("personId").set_index("personId")
+        same = s.people[(s.people["gender"] == gender).to_numpy(bool)]
+        ages = same["age"].dropna().unique().tolist()
         return {
-            "year": year,
-            "gender": gender,
-            "years": sorted(births.unique().tolist(), reverse=True),
-            "dates": [d.date().isoformat() for d in days],
-            "of": [int(n) for n in h.groupby("day")["of"].first().reindex(days)],
-            "total": len(last),
+            "list": list_,
+            "lists": ["today", *days],
+            "births": sorted(same["birth"].dropna().astype(int).unique().tolist(), reverse=True),
+            "ages": sorted(ages, key=_age_order),
+            "cantons": sorted(clubs["canton"].dropna().astype(str).unique().tolist()),
+            "club": None if club is None or s.club_list is None or club not in s.club_list.index else {"id": club, "name": _str(s.club_list.at[club, "name"])},
+            "before": None if before is None else before.date().isoformat(),
+            "total": len(d),
             "players": [
                 {
+                    "place": int(r.place),
                     "id": int(pid),
                     "name": s.people.at[pid, "name"],
-                    "ranks": [cells.get((pid, d)) for d in days],
+                    "class": _str(r["class"]),
+                    "rank": _int(r["rank"]),
+                    "C": _num(r["C"]),
+                    # the place among the same players on the list before (none: not on it)
+                    "before": _int(prev.get(pid)),
+                    "age": _str(s.people.at[pid, "age"]),
+                    "birth": _int(s.people.at[pid, "birth"]),
+                    "club": _str(mine.at[pid, "club"]) if pid in mine.index else None,
                 }
-                for pid in page
+                for pid, r in page.iterrows()
             ],
         }
 
     def player_cohort(self, pid: int) -> dict:
         """The player's birth year and place among the players born that year of the same gender
-        on the last list of each year (see _cohort); none without a birth year."""
+        on each published list and today's calculated one; none without a birth year."""
         s = self.s()
         if pid not in s.people.index:
             raise HTTPException(404, f"unknown player {pid}")
         birth, gender = s.people.at[pid, "birth"], s.people.at[pid, "gender"]
         if pd.isna(birth) or gender not in ("M", "F"):
             return {"birth": None, "gender": _str(gender), "ranks": []}
-        h = self._cohort(s, int(birth), gender)
+        people = s.people
+        ids = people.index[((people["birth"] == birth) & (people["gender"] == gender)).to_numpy(bool)]
+        h = s.lists_of(ids).rename(columns={"classification": "class"}).assign(day=lambda h: h["date"].dt.normalize())
+        h = h[h["day"].isin(s.list_dates).to_numpy(bool) & h["class"].isin(evaluate.CATEGORIES).to_numpy(bool)]
+        today = self._list(s, None)
+        today = today[today.index.isin(ids)].rename_axis("personId").reset_index().assign(day=s.today.normalize())
+        d = pd.concat([h.drop_duplicates(["personId", "day"], keep="last"), today], ignore_index=True)
+        d = self._placed(d, "day").assign(of=lambda d: d.groupby("day")["personId"].transform("size"))
         return {
             "birth": int(birth),
             "gender": gender,
             "ranks": [
-                {"date": r["day"].date().isoformat(), "class": _str(r["classification"]), "rank": _int(r["rank"]), "peer": int(r["peer"]), "of": int(r["of"])}
-                for _, r in h[h["personId"] == pid].iterrows()
+                {"date": r["day"].date().isoformat(), "place": int(r["place"]), "of": int(r["of"])}
+                for _, r in d[d["personId"] == pid].sort_values("day").iterrows()
             ],
         }
 
@@ -1949,6 +2000,7 @@ class App:
             "name": person["name"],
             "gender": _str(person["gender"]),
             "age": age,
+            "birth": _int(person.get("birth")),
             "class": _str(cls),
             "group": highlights.group_of(cls) if cls in CATEGORY_INDEX else None,
             "juniorAge": next((k for k, v in highlights.AGES.items() if v == age), None),
@@ -2488,9 +2540,12 @@ def create_app(
     def highlights(age: str = ""):
         return app.highlights(age)
 
-    @api.get("/api/cohorts")
-    def cohort(gender: str, year: int | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)):
-        return app.cohort(year, gender, offset, limit)
+    @api.get("/api/rankings")
+    def rankings(
+        gender: str, list: str = "today", birth: int | None = None, age: str | None = None, canton: str | None = None,
+        club: int | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200),
+    ):
+        return app.rankings(gender, list, birth, age, canton, club, offset, limit)
 
     @api.get("/api/players/{pid}/cohort")
     def player_cohort(pid: int):

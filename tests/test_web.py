@@ -415,24 +415,39 @@ def test_hidden_players_are_not_shown(tmp_path):
     assert [p["id"] for p in app.my_players([3, 2], None, None)["players"]] == [2]
 
 
-def test_cohort_places_the_players_born_the_same_year(tmp_path):
+def test_rankings_and_places_among_players_born_the_same_year(tmp_path):
     from dataclasses import replace
 
+    from fastapi import HTTPException
+
     app, _ = _league_app(tmp_path)
-    people = app.state.people.assign(birth=[2010, 2010, 2010, 2011, 2010])  # 5: a woman
+    s = app.state
+    people = s.people.assign(birth=[2010, 2010, 2010, 2011, 2010], age=["16&U", "16&U", "16&U", "A", "16&U"])  # 5: a woman
+    days = pd.to_datetime(["2024-10-01", "2025-04-01"])
     h = pd.DataFrame({
-        "personId": [1, 2, 3, 1, 2, 4],
-        "date": pd.to_datetime(["2024-04-01", "2024-10-01", "2024-10-01", "2025-10-01", "2025-10-01", "2025-10-01"]),
-        "classification": ["R6", "R5", "R4", "R3", "R5", "R1"], "rank": [900, 800, 500, 300, 800, 50], "C": [3.0, 4.0, 5.0, 7.0, 4.0, 9.0],
+        "personId": [1, 2, 3, 1, 2, 4, 3], "date": days[[0, 0, 0, 1, 1, 1, 1]],
+        "classification": ["R6", "R5", "R4", "R3", "R5", "R1", None], "rank": [900, 800, 500, 300, 800, 50, None],
+        "C": [3.0, 4.0, 5.0, 7.0, 4.0, 9.0, None], "W": 0.0,
     })
-    app.state = replace(app.state, people=people, lists_of=lambda ids: h[h["personId"].isin(list(ids))])
-    c = app.cohort(2010, "M")
-    # the last list of each year; 4 is born in 2011
-    assert (c["dates"], c["of"], c["total"], c["years"]) == (["2024-10-01", "2025-10-01"], [2, 2], 3, [2011, 2010])
-    assert [(p["id"], [r and r["peer"] for r in p["ranks"]]) for p in c["players"]] == [(1, [None, 1]), (2, [2, 2]), (3, [1, None])]
-    assert [p["id"] for p in app.cohort(2010, "M", offset=1, limit=1)["players"]] == [2]
+    clubs = pd.DataFrame({"personId": [1, 2, 3], "clubId": [10, 20, 20], "club": ["TC A", "TC B", "TC B"], "canton": ["VS", "GE", "GE"]})
+    app.state = replace(s, people=people, history=h, list_dates=tuple(days[::-1]), clubs=clubs,
+                        club_list=pd.DataFrame({"name": ["TC A", "TC B"]}, index=[10, 20]),
+                        lists_of=lambda ids: h[h["personId"].isin(list(ids))])
+    r = app.rankings("M", "2025-04-01")
+    # 3 has no category on that list; the women are on another list
+    assert r["lists"] == ["today", "2025-04-01", "2024-10-01"] and r["births"] == [2011, 2010] and r["ages"] == ["16&U", "A"]
+    assert [(p["place"], p["id"], p["class"], p["before"]) for p in r["players"]] == [(1, 4, "R1", None), (2, 1, "R3", 3), (3, 2, "R5", 2)]
+    assert r["before"] == "2024-10-01" and app.rankings("M", "2024-10-01")["before"] is None
+    assert [p["id"] for p in app.rankings("M", "2024-10-01", birth=2010)["players"]] == [3, 2, 1]
+    assert [p["id"] for p in app.rankings("M", "2024-10-01", canton="GE", offset=1)["players"]] == [2]
+    r = app.rankings("M", "2024-10-01", club=10, age="16&U")
+    assert (r["total"], r["club"], r["players"][0]["club"]) == (1, {"id": 10, "name": "TC A"}, "TC A")
+    assert app.rankings("M")["list"] == "today" and app.rankings("M")["total"] == 4  # today's calculated list
+    for kw in ({"gender": "X"}, {"gender": "M", "list_": "2020-01-01"}):
+        with pytest.raises(HTTPException):
+            app.rankings(**kw)
+    # the player's place among the men born in 2010 on each list, and today
     mine = app.player_cohort(2)
-    assert mine["birth"] == 2010 and [(r["date"], r["peer"], r["of"], r["class"]) for r in mine["ranks"]] == [
-        ("2024-10-01", 2, 2, "R5"), ("2025-10-01", 2, 2, "R5")]
-    assert app.player_cohort(5)["ranks"] == []
-    assert app.cohort(None, "M")["year"] == 2011  # no year with web.COHORT_DEFAULT_MIN ranked: the latest
+    assert mine["birth"] == 2010 and [(r["date"], r["place"], r["of"]) for r in mine["ranks"]][:2] == [("2024-10-01", 2, 3), ("2025-04-01", 2, 2)]
+    assert mine["ranks"][-1]["date"] == s.today.date().isoformat()
+    assert [(r["place"], r["of"]) for r in app.player_cohort(5)["ranks"]] == [(1, 1)]  # today only

@@ -119,3 +119,4 @@ cython_debug/
 new-cf-token
 # report exports (personal data of visitors)
 scripts/out/
+screenshots/

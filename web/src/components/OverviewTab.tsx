@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
 import { useChartColors } from "../chartTheme";
-import { cohortHref, playerHref, useAsync, useUrlState } from "../hooks";
+import { playerHref, rankingsHref, useAsync, useUrlState } from "../hooks";
 import { useI18n } from "../i18n";
 import { fmt3, fmtDate, fmtDateShort, fmtInt, fmtIntDelta, signClass } from "../format";
 import type { CareerWin, PlayerDetail } from "../types";
@@ -15,6 +15,9 @@ interface Point {
   C: number | null;
   rank: number | null;
   class: string | null;
+  /** the place among the players born the same year (same gender), of how many */
+  place?: number;
+  of?: number;
   today?: boolean;
 }
 
@@ -30,6 +33,8 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
   const cDelta = o?.C != null && d?.C != null ? d.C - o.C : null;
   const wDelta = o?.W != null && d?.W != null ? d.W - o.W : null;
 
+  const cohort = useAsync((s) => api.playerCohort(player.id, s), [player.id]).data;
+
   const points: Point[] = useMemo(() => {
     const pts: Point[] = player.history
       // the rank axis is logarithmic: a 0 cannot be drawn
@@ -41,12 +46,14 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
     if (n && !pts.some((p) => p.date === n.date)) {
       pts.push({ date: n.date, ts: Date.parse(n.date), W: n.W, C: n.C, rank: positive(n.rank), class: n.class, today: true });
     }
-    return pts;
-  }, [player.history, today]);
+    const places = new Map(cohort?.ranks.map((r) => [r.date, r]));
+    return pts.map((p) => ({ ...p, place: places.get(p.date)?.place, of: places.get(p.date)?.of }));
+  }, [player.history, today, cohort]);
 
   const [chart, setChart] = useUrlState("chart", "rank");
-  const showRank = chart === "rank";
-  const setShowRank = (rank: boolean) => setChart(rank ? "rank" : "values");
+  // the place among the players born the same year: only with a birth year
+  const showRank = chart !== "peers" || !cohort?.birth;
+  const setShowRank = (rank: boolean) => setChart(rank ? "rank" : "peers");
 
   return (
     <div className="overview">
@@ -140,14 +147,16 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
       <Card
         title={t("history")}
         actions={
-          <div className="seg" role="group">
-            <button className={showRank ? "active" : ""} onClick={() => setShowRank(true)}>
-              {t("chartRank")}
-            </button>
-            <button className={!showRank ? "active" : ""} onClick={() => setShowRank(false)}>
-              {t("chartValues")}
-            </button>
-          </div>
+          cohort?.birth ? (
+            <div className="seg" role="group">
+              <button className={showRank ? "active" : ""} onClick={() => setShowRank(true)}>
+                {t("chartRank")}
+              </button>
+              <button className={!showRank ? "active" : ""} onClick={() => setShowRank(false)}>
+                {t("chartPeers", { year: cohort.birth })}
+              </button>
+            </div>
+          ) : undefined
         }
       >
         {points.length === 0 ? (
@@ -182,90 +191,40 @@ export default function OverviewTab({ player }: { player: PlayerDetail }) {
                   />
                 ) : (
                   <YAxis
+                    reversed
+                    scale="log"
                     stroke={colors.axis}
                     tick={{ fontSize: 12 }}
                     tickLine={false}
                     axisLine={false}
                     width={44}
-                    domain={["auto", "auto"]}
-                    tickFormatter={(v: number) => v.toFixed(1)}
+                    domain={["dataMin", "dataMax"]}
+                    allowDecimals={false}
                   />
                 )}
                 <Tooltip content={<HistoryTooltip showRank={showRank} />} />
                 {showRank ? (
                   <Line type="monotone" dataKey="rank" name={t("rank")} stroke={colors.s1} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls isAnimationActive={false} />
                 ) : (
-                  <>
-                    <Legend verticalAlign="top" height={28} iconType="plainline" itemSorter={null} />
-                    <Line type="monotone" dataKey="W" name="W" stroke={colors.s1} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls isAnimationActive={false} />
-                    <Line type="monotone" dataKey="C" name="C" stroke={colors.s2} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls isAnimationActive={false} />
-                  </>
+                  <Line type="monotone" dataKey="place" name={t("peerPlace")} stroke={colors.s2} strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} connectNulls isAnimationActive={false} />
                 )}
               </LineChart>
             </ResponsiveContainer>
           </div>
         )}
-        {points.length > 0 && <p className="hint small">{t(showRank ? "historyHelpRank" : "historyHelpValues")}</p>}
+        {points.length > 0 &&
+          (showRank ? (
+            <p className="hint small">{t("historyHelpRank")}</p>
+          ) : (
+            <p className="hint small">
+              {t("historyHelpPeers", { year: cohort?.birth ?? "" })}{" "}
+              <a href={rankingsHref({ birth: cohort?.birth ?? "", gender: cohort?.gender ?? "M" })}>{t("peerSeeAll")}</a>
+            </p>
+          ))}
       </Card>
 
       <CareerCard playerId={player.id} />
-      <CohortCard playerId={player.id} />
     </div>
-  );
-}
-
-/** The player's place among the players born the same year (same gender), on the last list of
- * each year; nothing without a birth year or a list. */
-function CohortCard({ playerId }: { playerId: number }) {
-  const { t, locale } = useI18n();
-  const st = useAsync((s) => api.playerCohort(playerId, s), [playerId]);
-  const c = st.data;
-  if (!c || c.birth == null || c.ranks.length === 0) return null;
-  return (
-    <Card
-      title={t(c.gender === "F" ? "cohortTitleF" : "cohortTitleM", { year: c.birth })}
-      className="cohort-card"
-      actions={
-        <a className="btn btn-ghost" href={cohortHref(c.birth, c.gender ?? "M")}>
-          {t("cohortSeeAll")}
-        </a>
-      }
-    >
-      <div className="table-wrap">
-        <table className="data cohort-table">
-          <thead>
-            <tr>
-              <th />
-              {c.ranks.map((r) => (
-                <th key={r.date} className="num">
-                  {r.date.slice(0, 4)}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row">{t("cohortPlace")}</th>
-              {c.ranks.map((r) => (
-                <td key={r.date} className="num">
-                  <strong>{fmtInt(r.peer, locale)}</strong>
-                  <small className="muted cohort-of">/{fmtInt(r.of, locale)}</small>
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <th scope="row">{t("cohortStanding")}</th>
-              {c.ranks.map((r) => (
-                <td key={r.date} className="num">
-                  <Standing cls={r.class} rank={r.rank} />
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p className="hint small">{t("cohortsHelp")}</p>
-    </Card>
   );
 }
 
@@ -306,7 +265,8 @@ function CareerCard({ playerId }: { playerId: number }) {
             )}
           </div>
           <CareerWins title={t("bestWins")} wins={c.best_wins} />
-          <CareerWins title={t("strongestThen")} wins={c.strongest_then ? [c.strongest_then] : []} results />
+          {/* a win against him is already the best win above */}
+          {!sameMatch(c.strongest_then, c.best_wins[0]) && <CareerWins title={t("strongestThen")} wins={c.strongest_then ? [c.strongest_then] : []} results />}
           <CareerWins title={t("strongestNow")} wins={c.strongest_now ? [c.strongest_now] : []} results />
           <CareerWins title={t("firstWins")} wins={c.first_wins} />
         </>
@@ -375,15 +335,15 @@ function HistoryTooltip({ active, payload, showRank }: { active?: boolean; paylo
           {t("rank")}: <strong>{fmtInt(p.rank, locale)}</strong>
         </div>
       ) : (
-        <>
-          <div>
-            W: <strong>{fmt3(p.W)}</strong>
-          </div>
-          <div>
-            C: <strong>{fmt3(p.C)}</strong>
-          </div>
-        </>
+        <div>
+          {t("peerPlace")}: <strong>{fmtInt(p.place, locale)}</strong>
+          {p.of != null && <span className="muted"> / {fmtInt(p.of, locale)}</span>}
+        </div>
       )}
     </div>
   );
+}
+
+function sameMatch(a: CareerWin | null | undefined, b: CareerWin | undefined): boolean {
+  return !!a && !!b && a.date === b.date && a.opponent.id === b.opponent.id && a.score === b.score;
 }

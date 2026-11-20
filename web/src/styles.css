@@ -1415,6 +1415,13 @@ th.num .sort-btn {
   body {
     font-size: 14px;
   }
+}
+/* a narrow values card (a phone, or the overview's left column on a mid-size screen): no
+   horizontal scroll */
+.compare-card {
+  container-type: inline-size;
+}
+@container (max-width: 520px) {
   .compare thead th {
     white-space: normal;
   }
@@ -3416,21 +3423,39 @@ dialog.match-dialog::backdrop {
   line-height: 1.6;
 }
 
-/* players born the same year: a column per year, the names stay in view when scrolling */
-.cohort-table th,
-.cohort-table td {
+/* Rankings: one list, filtered */
+.rankings-table th,
+.rankings-table td {
   white-space: nowrap;
 }
-.cohort-table .cohort-name {
-  position: sticky;
-  left: 0;
-  background: var(--surface);
-  z-index: 1;
+.rankings-table .rk-club {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.cohort-cell strong {
-  margin-right: 4px;
+.rk-move {
+  font-family: var(--mono);
+  font-size: 0.88em;
 }
-.cohort-of {
-  margin-left: 1px;
-  font-weight: normal;
+.rk-new {
+  color: var(--muted);
+  font-style: italic;
+}
+.rankings-page .seg {
+  flex-wrap: nowrap;
+}
+.rankings-club {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+}
+.card.is-loading {
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+@media (max-width: 640px) {
+  .rankings-table .rk-col {
+    display: none;
+  }
 }

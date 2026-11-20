@@ -247,3 +247,14 @@ export function Pager({ offset, limit, total, onChange }: { offset: number; limi
     </nav>
   );
 }
+
+/** A labelled form field: `children` gets the id of its control. */
+export function Field({ label, grow = false, children }: { label: string; grow?: boolean; children: (id: string) => ReactNode }) {
+  const id = useId();
+  return (
+    <div className={`field${grow ? " grow" : ""}`}>
+      <label htmlFor={id}>{label}</label>
+      {children(id)}
+    </div>
+  );
+}

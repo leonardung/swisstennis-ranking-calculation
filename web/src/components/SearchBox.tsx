@@ -59,13 +59,14 @@ function PlayerItem({ p }: { p: PlayerSummary }) {
 }
 
 /** Search for a club by name, city or number. */
-export function ClubSearchBox({ className, autoFocus }: { className?: string; autoFocus?: boolean }) {
+/** A club search; picking one opens its page, or calls `onSelect`. */
+export function ClubSearchBox({ className, autoFocus, onSelect }: { className?: string; autoFocus?: boolean; onSelect?: (c: ClubHit) => void }) {
   const { t } = useI18n();
   return (
     <Combobox<ClubHit>
       className={className}
       autoFocus={autoFocus}
-      onSelect={(x) => navigate(clubHref(x.id))}
+      onSelect={onSelect ?? ((x) => navigate(clubHref(x.id)))}
       search={(q, signal) => api.clubSearch(q, 20, signal)}
       placeholder={t("searchClubPlaceholder")}
       noResults="searchNoClub"

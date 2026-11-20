@@ -242,7 +242,7 @@ def test_me_favourites_password_logout_and_delete(client, mails):
     me = client.put("/api/me", json={"player": 2}, headers=SAME).json()["me"]
     # what the filters start from: today's class R7 (R4-R9), the junior age U14
     assert me == {
-        "id": 2, "name": "Ben", "gender": "M", "age": "14&U", "class": "R7", "group": "R4-R9", "juniorAge": "U14",
+        "id": 2, "name": "Ben", "gender": "M", "age": "14&U", "birth": None, "class": "R7", "group": "R4-R9", "juniorAge": "U14",
         "officialClass": "R7", "openTo": {"matchType": "1,3,5", "age": None, "event": "R7"},  # no tournaments here
         "clubs": [], "clubIds": [],
     }  # fmt: skip

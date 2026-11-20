@@ -82,7 +82,7 @@ export default function Home({ meta }: { meta: Meta | null }) {
         <p className="muted">{t("homeText")}</p>
         <SearchBox className="hero-search" autoFocus onSelect={(p) => navigate(playerHref(p.id))} />
         <p className="small">
-          <a href="/cohorts">{t("cohortsLink")}</a>
+          <a href="/rankings">{t("rankingsLink")}</a>
         </p>
       </section>
       {meta && (

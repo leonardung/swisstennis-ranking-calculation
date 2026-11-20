@@ -124,7 +124,7 @@ export type Route =
   | { page: "tournaments" }
   | { page: "tournament"; id: number; eventId: number | null }
   | { page: "clubs" }
-  | { page: "cohorts" }
+  | { page: "rankings" }
   | { page: "club"; id: number; tab: ClubTab }
   | { page: "perf" }
   | { page: "login" }
@@ -142,7 +142,7 @@ export function parsePath(path: string): Route {
   if (/^\/tournaments\/?$/.test(path)) return { page: "tournaments" };
   if (/^\/perf\/?$/.test(path)) return { page: "perf" };
   if (/^\/clubs\/?$/.test(path)) return { page: "clubs" };
-  if (/^\/cohorts\/?$/.test(path)) return { page: "cohorts" };
+  if (/^\/rankings\/?$/.test(path)) return { page: "rankings" };
   if (/^\/login\/?$/.test(path)) return { page: "login" };
   if (/^\/reset\/?$/.test(path)) return { page: "reset" };
   if (/^\/account\/?$/.test(path)) return { page: "account" };
@@ -158,8 +158,8 @@ export function playerHref(id: number, tab?: Tab): string {
   return tab && tab !== "overview" ? `/player/${id}/${tab}` : `/player/${id}`;
 }
 
-export function cohortHref(year: number, gender: string): string {
-  return `/cohorts?year=${year}&gender=${gender}`;
+export function rankingsHref(q: Record<string, string | number>): string {
+  return `/rankings?${new URLSearchParams(Object.entries(q).map(([k, v]) => [k, String(v)]))}`;
 }
 
 export function clubHref(id: number, tab?: ClubTab): string {

@@ -12,7 +12,7 @@ import TournamentsPage from "./components/TournamentsPage";
 import TournamentPage from "./components/TournamentPage";
 import ClubPage from "./components/ClubPage";
 import ClubsPage from "./components/ClubsPage";
-import CohortsPage from "./components/CohortsPage";
+import RankingsPage from "./components/RankingsPage";
 import PerfPage from "./components/PerfPage";
 import { AccountPage, LoginDialog, LoginPage, LoginWall, PrivacyPage, ResetPage } from "./components/Account";
 import { BackendLoading, Spinner } from "./components/common";
@@ -129,8 +129,8 @@ export default function App() {
           <TournamentsPage key={`${nav.current.n}-${dataVersion}-${tournamentsVersion}`} />
         ) : route.page === "clubs" ? (
           <ClubsPage />
-        ) : route.page === "cohorts" ? (
-          <CohortsPage key={dataVersion} />
+        ) : route.page === "rankings" ? (
+          <RankingsPage key={dataVersion} />
         ) : route.page === "club" ? (
           <ClubPage key={`${route.id}-${dataVersion}`} id={route.id} tab={route.tab} />
         ) : route.page === "perf" ? (

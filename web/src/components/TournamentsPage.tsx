@@ -6,7 +6,7 @@ import { tournamentHref, useAsync, useDebounced } from "../hooks";
 import { useI18n } from "../i18n";
 import { CATEGORIES, fmtDateTime, fmtInt } from "../format";
 import type { AgeInfo, MePlayer, TournamentListItem, TournamentOptions, TournamentWhen } from "../types";
-import { AsyncStatus, Pager, Seg, Spinner } from "./common";
+import { AsyncStatus, Field, Pager, Seg, Spinner } from "./common";
 
 // Leaflet only loads with the map
 const TournamentMap = lazy(() => import("./TournamentMap"));
@@ -510,16 +510,6 @@ function toggle(list: string | undefined, v: string, numeric = false): string {
   const out = [...set];
   if (numeric) out.sort((a, b) => Number(a) - Number(b));
   return out.join(",");
-}
-
-function Field({ label, grow = false, children }: { label: string; grow?: boolean; children: (id: string) => ReactNode }) {
-  const id = useId();
-  return (
-    <div className={`field${grow ? " grow" : ""}`}>
-      <label htmlFor={id}>{label}</label>
-      {children(id)}
-    </div>
-  );
 }
 
 function ChipGroup({

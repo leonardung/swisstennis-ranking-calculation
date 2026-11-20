@@ -593,6 +593,8 @@ export interface MePlayer {
   gender: string | null;
   /** the licence's age category (A, 18&U, 45+, ...) */
   age: string | null;
+  /** the birth year (from the licence number) */
+  birth: number | null;
   /** today's class, else the official one */
   class: string | null;
   group: HlGroup | null;
@@ -645,32 +647,40 @@ export interface MyPlayers {
   players: MyPlayer[];
 }
 
-// ---------- Birth years ----------
+// ---------- Rankings ----------
 
-/** a player's standing on a year's last list among the players born the same year (same gender) */
-export interface CohortCell {
-  class: string | null;
-  rank: number | null;
-  /** place among them (category, then rank, then C) */
-  peer: number;
-}
-
-/** GET /api/cohorts: the players born in `year`, one cell per date (null: not on that list) */
-export interface Cohort {
-  year: number;
-  gender: "M" | "F";
-  /** the birth years to choose from, the latest first */
-  years: number[];
-  /** the last list of each year, and how many of them were on it */
-  dates: string[];
-  of: number[];
+/** GET /api/rankings: a list of one gender, filtered, each player's place among those kept */
+export interface Rankings {
+  /** "today" (calculated) or a published list's date */
+  list: string;
+  /** the lists to choose from: "today", then the published ones, the latest first */
+  lists: string[];
+  births: number[];
+  ages: string[];
+  cantons: string[];
+  club: { id: number; name: string | null } | null;
+  /** the list the progression compares with (none: the oldest) */
+  before: string | null;
   total: number;
-  players: { id: number; name: string; ranks: (CohortCell | null)[] }[];
+  players: {
+    place: number;
+    id: number;
+    name: string;
+    class: string | null;
+    rank: number | null;
+    C: number | null;
+    /** the place among the same filter on the list before (none: not on it) */
+    before: number | null;
+    age: string | null;
+    birth: number | null;
+    club: string | null;
+  }[];
 }
 
-/** GET /api/players/{id}/cohort */
+/** GET /api/players/{id}/cohort: the place among the players born the same year (same gender) on
+ * each published list and today's */
 export interface PlayerCohort {
   birth: number | null;
   gender: string | null;
-  ranks: (CohortCell & { date: string; of: number })[];
+  ranks: { date: string; place: number; of: number }[];
 }
