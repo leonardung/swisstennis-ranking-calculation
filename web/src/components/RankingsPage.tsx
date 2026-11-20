@@ -68,7 +68,7 @@ export default function RankingsPage() {
       </section>
       <section className="card filters" aria-label={t("filters")}>
         <div className="filter-row">
-          <Field label={t("rankingsList")}>
+          <Field label={t("rankingsList")} className="rankings-list-field">
             {(id) => (
               <span className="rankings-list">
                 {/* the lists are the latest first: the older one is the next */}
@@ -177,7 +177,6 @@ export default function RankingsPage() {
                       <th>#</th>
                       <th>{t("player")}</th>
                       <th>{t("category")}</th>
-                      <th>{t("rank")}</th>
                       <th title={r.before ? t("rankingsMoveTitle", { date: fmtDate(r.before, locale) }) : undefined}>±</th>
                       <th className="rk-col">{t("rankingsBorn")}</th>
                       <th className="rk-col">{t("rankingsAge")}</th>
@@ -192,9 +191,8 @@ export default function RankingsPage() {
                           <a href={playerHref(p.id)}>{p.name}</a>
                         </td>
                         <td>
-                          <CategoryBadge cls={p.class} size="sm" />
+                          <CategoryBadge cls={p.class} size="sm" /> <span className="mono">{fmtInt(p.rank, locale)}</span>
                         </td>
-                        <td className="mono">{fmtInt(p.rank, locale)}</td>
                         <td>
                           <Move place={p.place} before={p.before} hasBefore={r.before != null} />
                         </td>

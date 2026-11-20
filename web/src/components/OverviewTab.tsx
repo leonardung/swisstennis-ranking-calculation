@@ -330,7 +330,7 @@ function HistoryTooltip({ active, payload, showRank, birth }: { active?: boolean
       <div className="chart-tip-head">
         {fmtDate(p.date, locale)} {p.today && <em>({t("today")})</em>} <CategoryBadge cls={p.class} size="sm" />
         {/* beside the category: its rank */}
-        {!showRank && p.rank != null && <span className="mono"> {fmtInt(p.rank, locale)}</span>}
+        {!showRank && p.rank != null && <span> #{fmtInt(p.rank, locale)}</span>}
       </div>
       {showRank ? (
         <div>

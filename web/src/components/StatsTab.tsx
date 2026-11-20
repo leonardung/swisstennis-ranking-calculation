@@ -388,8 +388,8 @@ function OpponentsTable({ s, playerId }: { s: Stats; playerId: number }) {
               {th("total", t("played"), "num")}
               {th("won", t("won"), "num")}
               {th("lost", t("lost"), "num")}
-              {th("pct", t("winPct"), "num")}
-              {th("last", t("lastMatch"))}
+              {th("pct", t("winPct"), "num hide-phone")}
+              {th("last", t("lastMatch"), "hide-phone")}
             </tr>
           </thead>
           <tbody>
@@ -423,8 +423,8 @@ function OpponentsTable({ s, playerId }: { s: Stats; playerId: number }) {
                     <td className="num">{o.won + o.lost}</td>
                     <td className="num pos">{o.won}</td>
                     <td className="num neg">{o.lost}</td>
-                    <td className="num">{fmtPct(o.won, o.won + o.lost)}</td>
-                    <td className="nowrap">{fmtDate(o.last_date, locale)}</td>
+                    <td className="num hide-phone">{fmtPct(o.won, o.won + o.lost)}</td>
+                    <td className="nowrap hide-phone">{fmtDate(o.last_date, locale)}</td>
                   </tr>
                   {open && o.id != null && (
                     <tr className="drill">
