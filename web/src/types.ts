@@ -297,9 +297,10 @@ export interface Career {
   competitions: number;
   /** the best standing on a published list (category, then rank) */
   best_class: { class: string | null; rank: number | null; date: string } | null;
-  /** the strongest opponent played (no walkover): by the category at the match, by today's */
+  /** the strongest opponent played (no walkover), by the category at the match */
   strongest_then: CareerWin | null;
-  strongest_now: CareerWin | null;
+  /** the wins against the opponents best ranked today (each once), the strongest first */
+  best_wins_now: CareerWin[];
 }
 
 export interface MoveUp {

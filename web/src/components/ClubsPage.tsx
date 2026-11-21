@@ -62,9 +62,9 @@ export default function ClubsPage() {
               <thead>
                 <tr>
                   {th("name", t("club"), { desc: false })}
-                  {th("city", t("clubCity"), { className: "clubs-col", desc: false })}
-                  {th("canton", t("clubCanton"), { className: "clubs-col", desc: false })}
-                  {th("id", t("clubNumber"), { className: "num clubs-col", desc: false })}
+                  {th("city", t("clubCity"), { className: "phone-col", desc: false })}
+                  {th("canton", t("clubCanton"), { className: "phone-col", desc: false })}
+                  {th("id", t("clubNumber"), { className: "num phone-col", desc: false })}
                   {th("players", t("clubPlayers"), { className: "num" })}
                 </tr>
               </thead>
@@ -75,13 +75,13 @@ export default function ClubsPage() {
                       <a href={clubHref(c.id)}>{c.name}</a>
                       {isMine(c.id) && <span className="tag clubs-mine-tag">{t("clubMine")}</span>}
                       {/* on a phone: under the name, their columns hidden */}
-                      <small className="muted clubs-sub">
+                      <small className="muted phone-sub">
                         {[c.city, c.canton, `${t("clubNumber")} ${c.id}`].filter(Boolean).join(" · ")}
                       </small>
                     </td>
-                    <td className="muted clubs-col">{c.city}</td>
-                    <td className="muted clubs-col">{c.canton}</td>
-                    <td className="num mono muted clubs-col">{c.id}</td>
+                    <td className="muted phone-col">{c.city}</td>
+                    <td className="muted phone-col">{c.canton}</td>
+                    <td className="num mono muted phone-col">{c.id}</td>
                     <td className="num">{fmtInt(c.players, locale)}</td>
                   </tr>
                 ))}

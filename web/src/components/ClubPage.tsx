@@ -230,7 +230,7 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
                 <tr>
                   <th className="num">#</th>
                   {th("name", t("clubPlayer"), { desc: false })}
-                  {th("age", t("clubAge"), { className: "club-age-col", desc: false })}
+                  {th("age", t("clubAge"), { className: "phone-col", desc: false })}
                   {th(
                     sort.key === "classOff" ? "classOff" : "class",
                     <>
@@ -239,8 +239,8 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
                     </>,
                     { desc: false },
                   )}
-                  {th(sort.key === "rankOff" ? "rankOff" : "rank", t("clubRankOfficialToday"), { className: "num club-rank-col", desc: false })}
-                  {th("c", "C", { className: "num club-c" })}
+                  {th(sort.key === "rankOff" ? "rankOff" : "rank", t("clubRankOfficialToday"), { className: "num phone-col", desc: false })}
+                  {th("c", "C", { className: "num phone-col" })}
                 </tr>
               </thead>
               <tbody>
@@ -249,22 +249,22 @@ function ClubPlayers({ club: c }: { club: ClubDetail }) {
                     <td className="num muted">{i + 1}</td>
                     <td className="club-name">
                       <a href={playerHref(p.id)}>{p.name}</a>
-                      {/* on a phone: under the name, its column hidden */}
-                      <small className="muted club-age-sub">{ageText(p)}</small>
+                      {/* on a phone: under the name, their columns hidden */}
+                      <small className="muted phone-sub">{[ageText(p), `C ${fmt3(p.today?.C ?? p.official?.C)}`].filter(Boolean).join(" · ")}</small>
                     </td>
-                    <td className="muted small club-age-col">{ageText(p)}</td>
+                    <td className="muted small phone-col">{ageText(p)}</td>
                     <td>
                       <ClassChange from={p.official?.class ?? p.today?.class} to={p.today?.class ?? p.official?.class} />
                       {/* on a phone: under the category, its column hidden */}
-                      <small className="club-rank-sub">
+                      <small className="phone-sub">
                         <span className="muted"># </span>
                         <RankChange from={p.official?.rank} to={p.today?.rank} />
                       </small>
                     </td>
-                    <td className="num club-rank-col">
+                    <td className="num phone-col">
                       <RankChange from={p.official?.rank} to={p.today?.rank} />
                     </td>
-                    <td className="num mono club-c">{fmt3(p.today?.C ?? p.official?.C)}</td>
+                    <td className="num mono phone-col">{fmt3(p.today?.C ?? p.official?.C)}</td>
                   </tr>
                 ))}
               </tbody>

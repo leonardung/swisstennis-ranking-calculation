@@ -3200,50 +3200,27 @@ dialog.match-dialog::backdrop {
 .club-table td {
   white-space: nowrap;
 }
-.club-age-sub,
-.club-rank-sub,
-.clubs-sub,
+/* phones: no sideways scroll; a table's .phone-col columns are hidden, their values shown in a
+   .phone-sub line under the name or the category, and a long header gets its short form */
+.phone-sub,
 .th-short {
   display: none;
 }
-/* phones: no sideways scroll; the hidden columns go under the name (clubs: town, canton,
-   number) or the category (players: the rank), and the long header gets its short form */
 @media (max-width: 600px) {
-  .clubs-table .clubs-col,
-  .club-table .club-rank-col,
+  .data .phone-col,
   .th-long {
     display: none;
   }
-  .clubs-sub,
-  .club-rank-sub {
+  .phone-sub {
     display: block;
     margin-top: 2px;
+    white-space: normal;
   }
   .th-short {
     display: inline;
   }
-  .clubs-table th,
-  .clubs-table td {
-    padding: 8px 6px;
-  }
-  .club-table thead th {
-    white-space: normal;
-  }
-  .club-table th,
-  .club-table td {
-    padding: 8px 6px;
-  }
-  .club-table .club-c {
-    display: none;
-  }
   .club-table td.club-name {
     white-space: normal;
-  }
-  .club-table .club-age-col {
-    display: none;
-  }
-  .club-age-sub {
-    display: block;
   }
 }
 .player-sub a {
@@ -3545,10 +3522,7 @@ dialog.match-dialog::backdrop {
   opacity: 0.6;
   transition: opacity 0.15s;
 }
-@media (max-width: 640px) {
-  .rankings-table .rk-col {
-    display: none;
-  }
+@media (max-width: 600px) {
   /* a phone: the names wrap rather than push the table sideways */
   .rankings-table td:nth-child(2) {
     white-space: normal;

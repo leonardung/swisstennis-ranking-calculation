@@ -178,9 +178,9 @@ export default function RankingsPage() {
                       <th>{t("player")}</th>
                       <th>{t("category")}</th>
                       <th title={r.before ? t("rankingsMoveTitle", { date: fmtDate(r.before, locale) }) : undefined}>±</th>
-                      <th className="rk-col">{t("rankingsBorn")}</th>
-                      <th className="rk-col">{t("rankingsAge")}</th>
-                      <th className="rk-col">{t("club")}</th>
+                      <th className="phone-col">{t("rankingsBorn")}</th>
+                      <th className="phone-col">{t("rankingsAge")}</th>
+                      <th className="phone-col">{t("club")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -189,6 +189,8 @@ export default function RankingsPage() {
                         <td className="mono">{fmtInt(p.place, locale)}</td>
                         <td>
                           <a href={playerHref(p.id)}>{p.name}</a>
+                          {/* on a phone: under the name, their columns hidden */}
+                          <small className="muted phone-sub">{[p.birth, p.age, p.club].filter(Boolean).join(" · ")}</small>
                         </td>
                         <td>
                           <CategoryBadge cls={p.class} size="sm" /> <span className="mono">{fmtInt(p.rank, locale)}</span>
@@ -196,9 +198,9 @@ export default function RankingsPage() {
                         <td>
                           <Move place={p.place} before={p.before} hasBefore={r.before != null} />
                         </td>
-                        <td className="muted rk-col">{p.birth ?? ""}</td>
-                        <td className="muted rk-col">{p.age ?? ""}</td>
-                        <td className="muted rk-col rk-club">{p.club ?? ""}</td>
+                        <td className="muted phone-col">{p.birth ?? ""}</td>
+                        <td className="muted phone-col">{p.age ?? ""}</td>
+                        <td className="muted phone-col rk-club">{p.club ?? ""}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -228,10 +228,14 @@ def test_career_and_ranks_at_the_time():
     c = stats.career(m, pd.DataFrame({"class": ["R1", "R7"], "rank": [80, 2000]}, index=[3, 2]))
     # a numbered tournament once, an interclub league per year
     assert c["competitions"] == 2
-    # the strongest opponent then (R2, the walkover against it left out) and today (R1 now)
+    # the strongest opponent then (R2, the walkover against it left out); the wins by the
+    # opponents' standing today (R1 now, then R7: the loss and the walkover left out, each once)
     assert (c["strongest_then"]["date"], c["strongest_then"]["opponent"]["class"]) == ("2026-05-01", "R2")
-    assert (c["strongest_now"]["date"], c["strongest_now"]["opponent"]) == ("2025-05-01", {"id": 3, "name": "A B", "class": "R1", "rank": 80})
-    assert c["strongest_now"]["result"] == "win"
+    assert [(w["date"], w["opponent"]) for w in c["best_wins_now"]] == [
+        ("2025-05-01", {"id": 3, "name": "A B", "class": "R1", "rank": 80}),
+        ("2026-05-01", {"id": 2, "name": c["best_wins_now"][1]["opponent"]["name"], "class": "R7", "rank": 2000}),
+    ]
+    assert {w["result"] for w in c["best_wins_now"]} == {"win"}
     assert (c["matches"], c["won"], c["lost"], c["first_year"], c["last_year"], c["seasons"]) == (4, 3, 1, 2025, 2026, 2)
     # the walkover does not count as a win
     assert [(w["date"], w["opponent"]["rank"]) for w in c["best_wins"]] == [("2026-05-01", 150), ("2025-05-01", 1200)]

@@ -267,7 +267,7 @@ function CareerCard({ playerId }: { playerId: number }) {
           <CareerWins title={t("bestWins")} wins={c.best_wins} />
           {/* a win against him is already the best win above */}
           {!sameMatch(c.strongest_then, c.best_wins[0]) && <CareerWins title={t("strongestThen")} wins={c.strongest_then ? [c.strongest_then] : []} results />}
-          <CareerWins title={t("strongestNow")} wins={c.strongest_now ? [c.strongest_now] : []} results />
+          <CareerWins title={t("bestWinsNow")} wins={c.best_wins_now} />
           <CareerWins title={t("firstWins")} wins={c.first_wins} />
         </>
       )}
