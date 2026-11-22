@@ -236,6 +236,11 @@ def test_career_and_ranks_at_the_time():
         ("2026-05-01", {"id": 2, "name": c["best_wins_now"][1]["opponent"]["name"], "class": "R7", "rank": 2000}),
     ]
     assert {w["result"] for w in c["best_wins_now"]} == {"win"}
+    # both standings then: the opponent's (R6 #1200, R2 #150) and the player's (R5 #900, R3 #300)
+    assert [(w["opponent_then"], w["own"]) for w in c["best_wins_now"]] == [
+        ({"class": "R6", "rank": 1200}, {"class": "R5", "rank": 900}),
+        ({"class": "R2", "rank": 150}, {"class": "R3", "rank": 300}),
+    ]
     assert (c["matches"], c["won"], c["lost"], c["first_year"], c["last_year"], c["seasons"]) == (4, 3, 1, 2025, 2026, 2)
     # the walkover does not count as a win
     assert [(w["date"], w["opponent"]["rank"]) for w in c["best_wins"]] == [("2026-05-01", 150), ("2025-05-01", 1200)]

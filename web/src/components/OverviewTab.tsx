@@ -293,7 +293,8 @@ function CareerWins({ title, wins, results }: { title: string; wins: CareerWin[]
   );
 }
 
-/** A win (its category is shown beside): the opponent's rank then, score, date, tournament and the player then. */
+/** A win (its category is shown beside): the opponent's rank, score, date, tournament and the player
+ * then; with `opponent_then` (the opponent's rank is today's) both standings then on a line of their own. */
 function CareerWinLine({ w, result }: { w: CareerWin; result?: boolean }) {
   const { t, locale } = useI18n();
   return (
@@ -312,9 +313,23 @@ function CareerWinLine({ w, result }: { w: CareerWin; result?: boolean }) {
             · {w.tournament}
           </span>
         )}
-        <span className="nowrap">· {t("youThen")}</span>
-        <Standing cls={w.own.class} rank={w.own.rank} />
+        {!w.opponent_then && (
+          <>
+            <span className="nowrap">· {t("youThen")}</span>
+            <Standing cls={w.own.class} rank={w.own.rank} />
+          </>
+        )}
       </small>
+      {w.opponent_then && (
+        <small className="muted career-win-meta career-win-then">
+          <span className="career-win-pair">
+            {t("opponentThen")} <Standing cls={w.opponent_then.class} rank={w.opponent_then.rank} />
+          </span>
+          <span className="career-win-pair">
+            · {t("youThen")} <Standing cls={w.own.class} rank={w.own.rank} />
+          </span>
+        </small>
+      )}
     </div>
   );
 }

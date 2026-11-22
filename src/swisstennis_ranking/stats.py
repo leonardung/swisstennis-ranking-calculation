@@ -234,7 +234,8 @@ def career(m: pd.DataFrame, current: pd.DataFrame | None = None) -> dict:
     matches, competitions, first and last year, the best wins, the first win against each
     category, the strongest opponent played (not a walkover) by the category then and, with
     `current` (index personId: class, rank, the opponents' standing today), the wins against the
-    opponents best ranked today (each once, the latest win)."""
+    opponents best ranked today (each once, the latest win; the opponent's standing then in
+    `opponent_then`)."""
     wins = m[(m["result"] == "win") & (m["how"] != "walkover")]
     best = _valued(wins).nlargest(CAREER_BEST_WINS, "value")
 
@@ -258,6 +259,7 @@ def career(m: pd.DataFrame, current: pd.DataFrame | None = None) -> dict:
         known = known.assign(now_class=cur["class"].to_numpy(), now_rank=cur["rank"].to_numpy())
         for _, r in by_standing(known, "now_class", "now_rank").drop_duplicates("adversaryPersonId").head(CAREER_BEST_WINS).iterrows():
             w = row(r)
+            w["opponent_then"] = {"class": w["opponent"]["class"], "rank": w["opponent"]["rank"]}
             w["opponent"] |= {"class": _str(r["now_class"]), "rank": _id(r["now_rank"])}
             best_now.append(w)
 

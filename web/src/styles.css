@@ -2154,6 +2154,18 @@ dialog.match-dialog::backdrop {
 .career-win-meta > * {
   flex-shrink: 0;
 }
+/* both standings then: wraps on a narrow phone rather than cut */
+.career-win-then {
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+/* a label and its standing go to the next line together */
+.career-win-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
 .career-win-meta .career-win-tournament {
   flex-shrink: 1;
   min-width: 0;

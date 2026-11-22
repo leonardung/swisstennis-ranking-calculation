@@ -279,6 +279,8 @@ export interface CareerWin {
   score: string;
   result: "win" | "loss";
   opponent_value?: number | null;
+  /** best wins by today's ranking: the opponent's standing at the match (`opponent` has today's) */
+  opponent_then?: Standing;
 }
 
 export interface Career {
