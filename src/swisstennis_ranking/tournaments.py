@@ -69,6 +69,7 @@ TOURNAMENTS = {
     "phone": "str",
     "homePage": "str",
     "news": "str",
+    "balls": "str",  # the official balls, e.g. "Head Tour" (several: "Head Tour, Wilson US Open")
     "lat": "float64",
     "lon": "float64",
     "updated": "datetime64[ns]",
@@ -561,6 +562,24 @@ def fetch_info(tournament_id: int) -> dict | None:
     return info if isinstance(info, dict) else None
 
 
+# the official balls of each event ("balles officielles" on mytennis), public
+BALLS_URL = "https://low-scalability.microservices.swisstennis.ch/tournaments/balls"
+
+
+def fetch_balls(tournament_id: int) -> str | None | bool:
+    """The official balls of one tournament, each once in the order of its events (None without
+    any), False on failure."""
+    resp = _get(BALLS_URL, params={"tournamentId": tournament_id, "lang": "fr"})
+    try:
+        rows = resp.json() if resp is not None else None
+    except ValueError:
+        rows = None
+    if not isinstance(rows, list):
+        return False
+    names = [_text(r.get("ballName")) for r in rows if isinstance(r, dict)]
+    return ", ".join(dict.fromkeys(n for n in names if n)) or None
+
+
 # the organiser's free text ("informations supplémentaires" on mytennis), public with a mytennis referer
 NEWS_URL = "https://comp.swisstennis.ch/advantage/servlet/DisplayNews"
 NEWS_TAGS = {"p", "div", "br", "b", "strong", "u", "i", "em", "ul", "ol", "li", "a"}
@@ -904,11 +923,13 @@ def scrape_tournaments(data_dir: Path, all_: bool = False, draws_days: int = 14)
     with ThreadPoolExecutor(WORKERS) as pool:
         fetched = list(tqdm(pool.map(fetch_info, ids), total=len(ids), desc="info"))
         news = list(tqdm(pool.map(fetch_news, ids), total=len(ids), desc="news"))
+        balls = list(tqdm(pool.map(fetch_balls, ids), total=len(ids), desc="balls"))
     infos = {i: info for i, info in zip(ids, fetched) if info is not None}
     info_cols = pd.DataFrame([{"tournamentId": i, **info_fields(x)} for i, x in infos.items()])
     if len(info_cols):
         tournaments = tournaments.drop(columns=INFO_COLUMNS).merge(info_cols, on="tournamentId", how="left")
     tournaments["news"] = [x if isinstance(x, str) else None for x in news]
+    tournaments["balls"] = [x if isinstance(x, str) else None for x in balls]
     event_info, regs = {}, []
     for x in infos.values():
         e, r = info_events(x)
@@ -964,6 +985,7 @@ def scrape_tournaments(data_dir: Path, all_: bool = False, draws_days: int = 14)
     failed = set(ids) - set(infos)
     tournaments = keep_old(tournaments, old_t, "tournamentId", INFO_COLUMNS, failed)
     tournaments = keep_old(tournaments, old_t, "tournamentId", ["news"], {i for i, x in zip(ids, news) if x is False})
+    tournaments = keep_old(tournaments, old_t, "tournamentId", ["balls"], {i for i, x in zip(ids, balls) if x is False})
     failed_events = events.loc[events["tournamentId"].isin(failed), "eventId"]
     events = keep_old(events, old_e, "eventId", EVENT_INFO_COLUMNS, failed_events)
 

@@ -201,6 +201,24 @@ def test_clean_news():
     assert t.clean_news("<div><br></div><div><b>x</b>\r\n<div><br></div> <div>&nbsp;</div><br></div>") == "<div><b>x</b></div>"
 
 
+def test_fetch_balls(monkeypatch):
+    class Resp:
+        def __init__(self, data):
+            self.data = data
+
+        def json(self):
+            return self.data
+
+    rows = [{"categoryName": "MS A R1/R4", "ballName": "Head Tour"}, {"categoryName": "WS A R1/R9", "ballName": " Head Tour"},
+            {"categoryName": "MS 14&U", "ballName": "Wilson US Open"}]
+    answers = {1: Resp(rows), 2: Resp([]), 3: None, 4: Resp({"error": "x"})}
+    monkeypatch.setattr(t, "_get", lambda url, params, **kw: answers[params["tournamentId"]])
+    # each ball once, in the order of the events; none; a failure (kept from the last run)
+    assert t.fetch_balls(1) == "Head Tour, Wilson US Open"
+    assert t.fetch_balls(2) is None
+    assert t.fetch_balls(3) is False and t.fetch_balls(4) is False
+
+
 def test_club_cantons(tmp_path, monkeypatch):
     answers = {
         (46.2, 7.4): {"address": {"country_code": "ch", "ISO3166-2-lvl4": "CH-VS"}},

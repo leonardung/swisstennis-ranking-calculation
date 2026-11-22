@@ -97,6 +97,7 @@ function TournamentInfo({ tr }: { tr: TournamentDetail }) {
   add(t("place"), tr.place);
   add(t("tournamentCategory"), tr.category);
   add(t("entryFee"), tr.entryFee);
+  add(t("officialBalls"), tr.balls);
   add(t("drawingTime"), tr.drawingTime && (tr.drawingTime.length > 10 ? fmtDateTime(tr.drawingTime, locale) : fmtDate(tr.drawingTime, locale)));
   add(t("organiser"), tr.organiser);
   add(

@@ -542,6 +542,8 @@ export interface TournamentDetail {
   homePage: string | null;
   /** the organiser's text: HTML reduced to text, emphasis, lists and links by the server */
   news: string | null;
+  /** the official balls, e.g. "Head Tour" */
+  balls: string | null;
   mytennisUrl: string | null;
   events: TournamentEventDetail[];
 }
